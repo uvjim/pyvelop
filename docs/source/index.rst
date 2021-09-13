@@ -9,4 +9,4 @@ Welcome to the |PKG| documentation
    README
    modules
 
-.. include:: rst.sub
+.. include:: ../../rst.sub
