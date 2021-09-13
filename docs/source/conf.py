@@ -11,6 +11,7 @@ from pyvelop.const import (
 
 # -- Project information -----------------------------------------------------
 project = _PACKAGE_NAME
+# noinspection PyShadowingBuiltins
 copyright = f"2021, {_PACKAGE_AUTHOR}"
 author = _PACKAGE_AUTHOR
 
