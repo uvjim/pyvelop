@@ -1,5 +1,5 @@
-Welcome to the |PKG| documentation
-==================================
+Welcome to the pyvelop documentation
+====================================
 
 .. toctree::
    :maxdepth: 3
@@ -8,5 +8,3 @@ Welcome to the |PKG| documentation
 
    README
    modules
-
-.. include:: ../../rst.sub

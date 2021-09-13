@@ -1,5 +1,5 @@
-|PKG|
-=====
+pyvelop
+=======
 
 A Python library for the Linksys Velop Mesh system
 
@@ -40,5 +40,3 @@ Disclaimer
 ==========
 
 This is **NOT** an official module, and it is **NOT** officially supported by the vendor.
-
-.. include:: rst.sub
