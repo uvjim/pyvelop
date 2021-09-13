@@ -2,21 +2,11 @@
 
 from typing import List, Union
 
-from .base import MeshBase
+from .base import MeshDevice
 
 
-class Node(MeshBase):
-    """Representation of a node in the mesh.  A node provides the connectivity for a device.
-
-    Properties:
-        connected_devices (List): The devices that are connected to the node
-        firmware (dict): Represents the firmware for the node
-        manufacturer (str): The manufacturer of the node
-        model (str): The node model
-        parent_ip (str): The IP address of the parent for the node
-        serial (str): The serial number of the node
-        type (str): The node type
-    """
+class Node(MeshDevice):
+    """Representation of a node in the mesh.  A node provides the connectivity for a device."""
 
     def __init__(self, **kwargs):
         """Constructor

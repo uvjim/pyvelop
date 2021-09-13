@@ -3,16 +3,8 @@
 from typing import Any, List
 
 
-class MeshBase:
-    """A class that manages the common properties between the devices in the Velop mesh network
-
-    Properties:
-        connected_adapters (List[dict]): The network adapters that are connected to the mesh
-        name (str): The name of the device
-        network (List[dict]): The available network adapters for the device
-        results_time (str): The time the scan was carried out for the device
-        status (bool): Is the device online?
-    """
+class MeshDevice:
+    """A class that manages the common properties between the devices in the Velop mesh network"""
 
     def __init__(self, **kwargs) -> None:
         """Constructor.

@@ -2,6 +2,12 @@
 
 from typing import List
 
+# region #-- generic details --#
+_PACKAGE_NAME = "pyvelop"
+_PACKAGE_AUTHOR = "uvjim"
+_PACKAGE_VERSION = "2021.9.2"
+# endregion
+
 # region #-- JNAP actions --#
 # noinspection HttpUrlsUsage
 ACTION_JNAP_ROOT: str = "http://linksys.com/jnap"

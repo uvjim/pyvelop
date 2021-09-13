@@ -123,24 +123,11 @@ def _process_raw_device_results(device_results=None) -> None:
 
 
 class Mesh:
-    """
-    Representation of the Velop Mesh
+    """Representation of the Velop Mesh
 
-    All properties are point in time from when the last async_gather_details was executed.
+    **All properties are point in time from when the last async_gather_details was executed.**
+
     If you need live information then call the corresponding method.
-
-    Properties:
-        connected_node (str): The IP address of the node we're connected to
-        device (List): The devices connected to the node
-        guest_wifi_enabled (bool): The guest Wi-Fi state
-        guest_wifi_details (List): Information about the guest network
-        parental_control_enabled (bool): Parental Control state
-        nodes (List): The nodes forming the mesh
-        speedtest_results (List): the results of a Speedtest
-        wan_dns (List): DNS servers for the WAN
-        wan_ip (str): IP address for the WAN
-        wan_mac (str): MAC address of the WAN adapter
-        wan_status (bool): State of the WAN connection
     """
 
     def __init__(self, node: str, password: str, username: str = "admin"):

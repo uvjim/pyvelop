@@ -1,12 +1,18 @@
 from setuptools import setup, find_packages
+# noinspection PyProtectedMember
+from pyvelop.const import (
+    _PACKAGE_AUTHOR,
+    _PACKAGE_NAME,
+    _PACKAGE_VERSION,
+)
 
-with open("README.md", "r") as f:
+with open("README.rst", "r") as f:
     long_description: str = f.read()
 
 setup(
-    name="pyvelop",
-    version="2021.9.2",
-    author="uvjim",
+    name=_PACKAGE_NAME,
+    version=_PACKAGE_VERSION,
+    author=_PACKAGE_AUTHOR,
     description="A Python library for the Linksys Velop Mesh system",
     long_description=long_description,
     long_description_content_type="text/markdown",
