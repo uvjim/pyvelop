@@ -20,35 +20,11 @@ import asyncio
 
 from pyvelop.mesh import Mesh
 
+
 async def main():
-    mesh = None
-    try:
-        mesh = Mesh(node="192.168.1.1", password="my_password")
+    with Mesh(node="192.168.1.1", password="my_password") as mesh:
         await mesh.async_gather_details()
-
-        print("Mesh Overview")
-        print("-" * 13)
-        print(f"# Nodes: {len(mesh.nodes)}")
-        devices_online = [str(device.name) for device in mesh.devices if device.status]
-        devices_offline = [str(device.name) for device in mesh.devices if not device.status]
-        print(f"# Devices: {len(mesh.devices)} (Online: {len(devices_online)}  Offline: {len(devices_offline)})")
-        print(f"Internet Connected: {mesh.wan_status}")
-        print(f"WAN Adapter: {mesh.wan_mac} --> {mesh.wan_ip}")
-        print(f"WAN DNS: {mesh.wan_dns}")
-        print(f"Parental Control Enabled: {mesh.parental_control_enabled}")
-        print(f"Guest Wi-Fi Enabled: {mesh.guest_wifi_enabled}")
-        if mesh.guest_wifi_enabled:
-            for idx, details in enumerate(mesh.guest_wifi_details):
-                print(f"  {idx + 1}: {details}")
-        print(f"Latest Speedtest results: {mesh.speedtest_results}")
-        print(f"Currently checking for updates: {mesh.check_for_update_status}")
-        print()
-
-    except Exception:
-        raise
-    finally:
-        if mesh:
-            await mesh.close()
+        print(mesh.nodes)
 
 
 if __name__ == "__main__":

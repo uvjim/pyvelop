@@ -172,6 +172,15 @@ class Mesh:
 
         _LOGGER.debug(f"Initialised mesh for {self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]}")
 
+    async def __aenter__(self):
+        """Asynchronous enter magic method"""
+
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        """Asynchronous exit magic method"""
+        await self.close()
+
     def __repr__(self) -> str:
         """Friendly string representation of the class
 
