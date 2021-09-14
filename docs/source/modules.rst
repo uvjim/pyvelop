@@ -3,19 +3,19 @@ Library Reference
 
 Mesh Object
 -----------
-.. autoclass:: pyvelop.mesh.Mesh
+.. automodule:: pyvelop.mesh
     :members:
 
 Node Object
 -----------
-.. autoclass:: pyvelop.node.Node
+.. automodule:: pyvelop.node
     :members:
     :inherited-members:
     :show-inheritance:
 
 Device Object
 -------------
-.. autoclass:: pyvelop.device.Device
+.. automodule:: pyvelop.device
     :members:
     :inherited-members:
     :show-inheritance:
