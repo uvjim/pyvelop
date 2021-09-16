@@ -457,6 +457,24 @@ class Mesh:
 
         return ret
 
+    async def __async_set_guest_wifi_state(self, state: bool, radios: Union[List, None] = None) -> None:
+        """Set the state of the guest Wi-Fi in the mesh
+
+        :param state: True to enable, False to disable
+        :param radios: The radio information that should also be supplied
+        :return: None
+        """
+
+        if radios is None:
+            radios = []
+
+        _LOGGER.debug(f"Setting the guest Wi-Fi to: {'on' if state else 'off'}")
+        payload = {
+            "isGuestNetworkEnabled": state,
+            "radios": radios,
+        }
+        await self.__async_make_request(action=const.ACTION_JNAP_SET_GUEST_NETWORK, payload=payload)
+
     def __create_session(self) -> None:
         """Initialise a session and ensure that errors are raised based on the HTTP status codes
 
@@ -730,6 +748,23 @@ class Mesh:
         all_states = ["pendingOperation" in node for node in node_results]
 
         return any(all_states)
+
+    async def async_set_guest_wifi_state(self, state: bool) -> None:
+        """Set the state of the guest Wi-Fi.
+
+        The radios object is a required parameter for the API call but isn't handled in this method.
+        Instead a call is made to retrieve the existing settings and those are relayed back.  This assumes that
+        a guest network has been created in the official UI.
+
+        :param state: True to enable, False to disable
+        :return: None
+        """
+
+        resp = await self.__async_gather_details(  # get the current radio settings from the API; they may have changed
+            include_guest_wifi=True,
+        )
+        radios = resp.get("radios", [])
+        await self.__async_set_guest_wifi_state(state=state, radios=radios)
 
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature.
