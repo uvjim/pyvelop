@@ -225,26 +225,6 @@ class Mesh:
 
         return ret
 
-    async def __async_set_parental_control_state(self, state: bool, rules: Union[List, None] = None) -> None:
-        """Set the state of Parental Control in the mesh
-
-        :param state: True to enable, False to disable
-        :param rules: The rules that should also be supplied
-        :return: None
-        """
-
-        if rules is None:
-            rules = []
-
-        _LOGGER.debug(f"Setting parental controls to: {'on' if state else 'off'}")
-        payload = {
-            "isParentalControlEnabled": state,
-            "rules": rules,
-        }
-        await self.__async_make_request(action=const.ACTION_JNAP_SET_PARENTAL_CONTROL_INFO, payload=payload)
-
-        return
-
     async def __async_gather_details(
             self,
             include_backhaul: bool = False,
@@ -474,6 +454,26 @@ class Mesh:
             "radios": radios,
         }
         await self.__async_make_request(action=const.ACTION_JNAP_SET_GUEST_NETWORK, payload=payload)
+
+    async def __async_set_parental_control_state(self, state: bool, rules: Union[List, None] = None) -> None:
+        """Set the state of Parental Control in the mesh
+
+        :param state: True to enable, False to disable
+        :param rules: The rules that should also be supplied
+        :return: None
+        """
+
+        if rules is None:
+            rules = []
+
+        _LOGGER.debug(f"Setting parental controls to: {'on' if state else 'off'}")
+        payload = {
+            "isParentalControlEnabled": state,
+            "rules": rules,
+        }
+        await self.__async_make_request(action=const.ACTION_JNAP_SET_PARENTAL_CONTROL_INFO, payload=payload)
+
+        return
 
     def __create_session(self) -> None:
         """Initialise a session and ensure that errors are raised based on the HTTP status codes
@@ -882,15 +882,6 @@ class Mesh:
         return ret
 
     @property
-    def parental_control_enabled(self) -> bool:
-        """Get the state of the Parental Control feature
-
-        :return: True if enabled, False if not
-        """
-
-        return self.__mesh_attributes[const.ATTR_MESH_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
-
-    @property
     def nodes(self) -> List:
         """Get the nodes in the mesh
 
@@ -900,6 +891,15 @@ class Mesh:
         """
 
         return sorted(self.__mesh_attributes[const.ATTR_MESH_NODES], key=lambda node: node.name)
+
+    @property
+    def parental_control_enabled(self) -> bool:
+        """Get the state of the Parental Control feature
+
+        :return: True if enabled, False if not
+        """
+
+        return self.__mesh_attributes[const.ATTR_MESH_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
 
     @property
     def speedtest_results(self) -> List:
