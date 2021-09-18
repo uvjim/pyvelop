@@ -23,9 +23,11 @@ class Node(MeshDevice):
     def connected_devices(self) -> List:
         """List of the devices that are connected to the node
 
-        :return:
+        :return: List of connected devices in alphabetical order sorted by device name
         """
-        return self.__connected_devices
+
+        connected_devices = self.__connected_devices
+        return sorted(connected_devices, key=lambda device: device.get("name"))
 
     @property
     def firmware(self) -> dict:
