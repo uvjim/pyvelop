@@ -39,6 +39,13 @@ class MeshInvalidInput(Exception):
         super().__init__(args)
 
 
+class MeshNodeNotPrimary(Exception):
+    """API call being used on a node that isn't the primary"""
+
+    def __init__(self) -> None:
+        super().__init__("Node not Primary")
+
+
 class MeshTooManyMatches(Exception):
     """Too many matching devices when only one should be found"""
 

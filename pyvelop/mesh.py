@@ -16,6 +16,7 @@ from .exceptions import (
     MeshInvalidArguments,
     MeshInvalidCredentials,
     MeshInvalidInput,
+    MeshNodeNotPrimary,
     MeshTooManyMatches,
 )
 from .node import Node
@@ -218,6 +219,8 @@ class Mesh:
                         elif resp.get("result") == "_ErrorUnknownAction":
                             # noinspection PyTypeChecker
                             err = MeshInvalidInput("Unknown JNAP Action")
+                        elif resp.get("result") == "ErrorDeviceNotInMasterMode":
+                            err = MeshNodeNotPrimary
                         elif not resp.get("result").startswith("_"):
                             err = MeshInvalidInput(resp.get("result"))
 
