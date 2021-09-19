@@ -36,6 +36,19 @@ To get started you can use the following as a skeleton.
         loop = asyncio.get_event_loop()
         loop.run_until_complete(main())
 
+CLI
+---
+
+The library also has a CLI which can be used like so...
+
+``pyvelop mesh -u USER -p PASSWORD`` - *Lists all known details about the mesh.*
+
+``pyvelop mesh -u USER -p PASSWORD -get-wan`` - *Lists only the WAN details.*
+
+``pyvelop nodes bedroom -u USER -p PASSWORD`` - *Lists all known details about the given node.*
+
+``pyvelop --help`` - *show all available options*
+
 Disclaimer
 ==========
 
