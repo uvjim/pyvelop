@@ -7,6 +7,7 @@ from pyvelop.device import Device
 from pyvelop.mesh import (
     Mesh,
     MeshBadResponse,
+    MeshNodeNotPrimary,
     MeshInvalidCredentials,
 )
 from pyvelop.node import Node
@@ -132,6 +133,8 @@ async def main() -> None:
                 _LOGGER.error("Invalid Credentials")
             except MeshBadResponse:
                 _LOGGER.error(f"Bad response received.  Are you sure {args.address} is a Velop node?")
+            except MeshNodeNotPrimary:
+                _LOGGER.error(f"{args.address} is not the primary node")
             else:
                 if args.target == "mesh":
                     # region #-- get the node names --#
