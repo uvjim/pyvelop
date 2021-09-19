@@ -20,7 +20,12 @@ def _setup_args(parser: ArgumentParser) -> None:
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Set verbosity level")
     parser.add_argument("--version", action="store_true", help="Print the version number and exit")
 
-    sub_parsers = parser.add_subparsers(dest="target")
+    sub_parsers = parser.add_subparsers(
+        dest="target",
+        title="Targets",
+        description="Object to target in the Velop system",
+        help="Select one of these objects to target"
+    )
 
     # region #-- Mesh arguments --#
     parser_mesh = sub_parsers.add_parser("mesh", help="Interact with the Velop mesh")
