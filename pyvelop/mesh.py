@@ -4,24 +4,32 @@ import base64
 import json
 import logging
 import time
+from asyncio.exceptions import TimeoutError
 from typing import Union, List
 
 import aiohttp
+from aiohttp.client_exceptions import (
+    ClientConnectionError,
+    ClientConnectorError,
+)
 
 from . import const
 from .device import Device
 from .exceptions import (
     MeshBadResponse,
+    MeshConnectionError,
     MeshDeviceNotFoundResponse,
     MeshInvalidArguments,
     MeshInvalidCredentials,
     MeshInvalidInput,
     MeshNodeNotPrimary,
+    MeshTimeoutError,
     MeshTooManyMatches,
 )
 from .node import Node
 
 _LOGGER = logging.getLogger(__name__)
+_LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
 def _get_action_index(action: str, payload: List[dict]) -> Union[int, None]:
@@ -158,7 +166,7 @@ class Mesh:
         self.__password: str = password
         self.__create_session()
 
-        _LOGGER.debug(f"Initialised mesh for {self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]}")
+        _LOGGER.debug("Initialised mesh for %s", self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
 
     async def __aenter__(self):
         """Asynchronous enter magic method"""
@@ -187,6 +195,8 @@ class Mesh:
         :return: THe JSON response or raises an error if need be
         """
 
+        _LOGGER_VERBOSE.debug("URL: %s, Action: %s, Payload: %s", self.__api_url, action, json.dumps(payload))
+
         if payload is None:
             payload = []
 
@@ -195,7 +205,11 @@ class Mesh:
         try:
             if self._session.closed:
                 self.__create_session()
-            resp = await self._session.post(url=self.__api_url, headers=headers, json=payload)
+            resp = await self._session.post(url=self.__api_url, headers=headers, json=payload, timeout=10)
+        except TimeoutError:
+            raise MeshTimeoutError
+        except (ClientConnectionError, ClientConnectorError,):
+            raise MeshConnectionError
         except aiohttp.ClientError:
             raise
         else:
@@ -204,14 +218,16 @@ class Mesh:
             except aiohttp.ClientError:
                 raise MeshBadResponse
             else:
+                _LOGGER_VERBOSE.debug("Response: %s", json.dumps(resp_json))
                 if _is_valid_response(response=resp_json):
                     ret = resp_json
                 else:  # process API specific errors
-                    err = MeshBadResponse
                     if "responses" not in resp_json:
                         resp_json = {"responses": [resp_json]}
 
+                    err = None
                     for resp in resp_json.get("responses", []):
+                        err = None
                         if resp.get("result") == "_ErrorInvalidInput":
                             err = MeshInvalidInput(resp.get("error"))
                         elif resp.get("result") == "_ErrorUnauthorized":
@@ -221,8 +237,15 @@ class Mesh:
                             err = MeshInvalidInput("Unknown JNAP Action")
                         elif resp.get("result") == "ErrorDeviceNotInMasterMode":
                             err = MeshNodeNotPrimary
-                        elif not resp.get("result").startswith("_"):
+                        elif resp.get("result") != "OK" and not resp.get("result").startswith("_"):
                             err = MeshInvalidInput(resp.get("result"))
+
+                        if err:
+                            break
+
+                    if not err:
+                        _LOGGER.error("Unknown error received: %s", json.dumps(resp_json))
+                        err = MeshBadResponse
 
                     raise err
 
@@ -230,13 +253,7 @@ class Mesh:
 
     async def __async_gather_details(
             self,
-            include_backhaul: bool = False,
-            include_devices: bool = False,
-            include_firmware_update: bool = False,
-            include_guest_wifi: bool = False,
-            include_parental_control: bool = False,
-            include_speedtest_results: bool = False,
-            include_wan: bool = False,
+            **kwargs,
     ) -> dict:
         """Work is done here to gather the necessary details for mesh.
 
@@ -249,6 +266,8 @@ class Mesh:
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
         """
 
+        _LOGGER.debug("Gathering details: %s", json.dumps(kwargs))
+
         try:
             await self.async_test_credentials()
         except Exception as err:
@@ -258,49 +277,49 @@ class Mesh:
             payload: List = []
 
             # -- get the devices --#
-            if include_devices:
+            if kwargs.get("include_devices"):
                 payload.append({
                     "action": const.ACTION_JNAP_GET_DEVICES,
                     "request": {},
                 })
 
             # -- get the backhaul info  --#
-            if include_backhaul:
+            if kwargs.get("include_backhaul"):
                 payload.append({
                     "action": const.ACTION_JNAP_GET_BACKHAUL,
                     "request": {},
                 })
 
             # -- get the guest WiFi details --#
-            if include_guest_wifi:
+            if kwargs.get("include_guest_wifi"):
                 payload.append({
                     "action": const.ACTION_JNAP_GET_GUEST_NETWORK_INFO,
                     "request": {},
                 })
 
             # -- get the Parental Control details --#
-            if include_parental_control:
+            if kwargs.get("include_parental_control"):
                 payload.append({
                     "action": const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
                     "request": {},
                 })
 
             # -- get the latest Speedtest result --#
-            if include_speedtest_results:
+            if kwargs.get("include_speedtest_results"):
                 payload.append({
                     "action": const.ACTION_JNAP_GET_SPEEDTEST_RESULTS,
                     "request": {**const.DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": 10},
                 })
 
             # -- get the update check details --#
-            if include_firmware_update:
+            if kwargs.get("include_firmware_update"):
                 payload.append({
                     "action": const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
                     "request": {},
                 })
 
             # -- get the WAN details --#
-            if include_wan:
+            if kwargs.get("include_wan"):
                 payload.append({
                     "action": const.ACTION_JNAP_GET_WAN_INFO,
                     "request": {},
@@ -451,7 +470,7 @@ class Mesh:
         if radios is None:
             radios = []
 
-        _LOGGER.debug(f"Setting the guest Wi-Fi to: {'on' if state else 'off'}")
+        _LOGGER.debug("Setting the guest Wi-Fi to: %s", 'on' if state else 'off')
         payload = {
             "isGuestNetworkEnabled": state,
             "radios": radios,
@@ -469,7 +488,7 @@ class Mesh:
         if rules is None:
             rules = []
 
-        _LOGGER.debug(f"Setting parental controls to: {'on' if state else 'off'}")
+        _LOGGER.debug("Setting parental controls to: %s", 'on' if state else 'off')
         payload = {
             "isParentalControlEnabled": state,
             "rules": rules,
@@ -513,7 +532,7 @@ class Mesh:
         :return: None
         """
 
-        _LOGGER.debug(f"Initiating a check for new firmware")
+        _LOGGER.debug("Initiating a check for new firmware")
 
         await self.__async_make_request(
             action=const.ACTION_JNAP_UPDATE_FIRMWARE,
@@ -533,7 +552,7 @@ class Mesh:
         :return: None
         """
 
-        _LOGGER.debug(f"Deleting device: {kwargs}")
+        _LOGGER.debug("Deleting device: %s", kwargs)
 
         device_id: str
         if "device_id" in kwargs:
@@ -577,22 +596,27 @@ class Mesh:
         )
 
         # region #-- split the devices into their types --#
+        _LOGGER.debug("Populating nodes")
         self.__mesh_attributes[const.ATTR_MESH_NODES] = [
             device
             for device in details[const.ATTR_MESH_DEVICES]
             if device.__class__.__name__.lower() == "node"
         ]
+        _LOGGER.debug("Populated %i nodes", len(self.__mesh_attributes[const.ATTR_MESH_NODES]))
 
+        _LOGGER.debug("Populating devices")
         self.__mesh_attributes[const.ATTR_MESH_DEVICES] = [
             device
             for device in details.get(const.ATTR_MESH_DEVICES, [])
             if device.__class__.__name__.lower() == "device"
         ]
+        _LOGGER.debug("Populated %i devices", len(self.__mesh_attributes[const.ATTR_MESH_DEVICES]))
         # endregion
 
         # region #-- manage the other attributes --#
         details.pop(const.ATTR_MESH_DEVICES)
         for attr in details:
+            _LOGGER_VERBOSE.debug("Populating %s", attr)
             self.__mesh_attributes[attr] = details[attr]
         # endregion
 
@@ -607,6 +631,8 @@ class Mesh:
         :param force_refresh: True to re-query the API for the latest details
         :return: Device or Node object whichever is applicable
         """
+
+        _LOGGER.debug("Getting device for ID: %s (force_refresh=%s)", device_id, force_refresh)
 
         all_devices: List[Union[Device, Node]]
         if not force_refresh:
@@ -641,6 +667,8 @@ class Mesh:
         :return:  Device or Node object whichever is applicable
         """
 
+        _LOGGER.debug("Getting device for AMC: %s (force_refresh=%s)", mac_address, force_refresh)
+
         # noinspection PyTypeChecker
         ret: Union[Device, Node] = None
 
@@ -674,6 +702,8 @@ class Mesh:
         :return: List of device objects
         """
 
+        _LOGGER.debug("Getting devices from the API")
+
         all_devices = await self.__async_gather_details(
             include_devices=True,
         )
@@ -700,7 +730,7 @@ class Mesh:
         :return: List of dictionaries containing the result details
         """
 
-        _LOGGER.debug("Gathering SpeedTest results")
+        _LOGGER.debug("Gathering Speedtest results: %s")
 
         payload = {**const.DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": count}
         resp = await self.__async_make_request(action=const.ACTION_JNAP_GET_SPEEDTEST_RESULTS, payload=payload)
@@ -720,6 +750,8 @@ class Mesh:
         :return: A string containing the stage
         """
 
+        _LOGGER.debug("Getting the current state of the Speedtest")
+
         resp = await self.__async_make_request(action=const.ACTION_JNAP_GET_SPEEDTEST_STATE)
         output: dict = resp.get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
         if output:
@@ -736,6 +768,8 @@ class Mesh:
         else:
             ret = ""
 
+        _LOGGER.debug("Speedtest state: %s", ret)
+
         return ret
 
     async def async_get_update_state(self) -> bool:
@@ -744,13 +778,19 @@ class Mesh:
         :return: True if still running, False if not
         """
 
+        _LOGGER.debug("Getting the current state of the update check")
+
         resp = await self.__async_gather_details(
             include_firmware_update=True
         )
         node_results = resp.get(const.ATTR_MESH_UPDATE_FIRMWARE_STATE, {}).get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
 
-        return any(all_states)
+        ret: bool = any(all_states)
+
+        _LOGGER.debug("Update check state: %s", ret)
+
+        return ret
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
@@ -809,7 +849,7 @@ class Mesh:
         :return: True if valid, False if not
         """
 
-        _LOGGER.debug(f"Checking credentials against {self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]}")
+        _LOGGER.debug("Checking credentials against %s", self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
 
         ret = await self.__async_make_request(action=const.ACTION_JNAP_CHECK_PASSWORD)
         ret = True if ret.get("result", False) else False
@@ -821,6 +861,8 @@ class Mesh:
 
         :return: None
         """
+
+        _LOGGER.debug("Closing session to: %s", self.connected_node)
 
         return await self._session.close()
 

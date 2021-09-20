@@ -8,6 +8,13 @@ class MeshBadResponse(Exception):
         super().__init__("Bad Response")
 
 
+class MeshConnectionError(Exception):
+    """Connection error for the API"""
+
+    def __init__(self) -> None:
+        super().__init__("Connection Error")
+
+
 class MeshDeviceNotFoundResponse(Exception):
     """Device is not found in the mesh"""
 
@@ -44,6 +51,13 @@ class MeshNodeNotPrimary(Exception):
 
     def __init__(self) -> None:
         super().__init__("Node not Primary")
+
+
+class MeshTimeoutError(Exception):
+    """Timeout error for the API"""
+
+    def __init__(self) -> None:
+        super().__init__("Timeout Error")
 
 
 class MeshTooManyMatches(Exception):

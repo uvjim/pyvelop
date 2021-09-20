@@ -118,9 +118,13 @@ async def main() -> None:
     _LOGGER = logging.getLogger("pyvelop.cli")
     if args.debug:
         _LOGGER.setLevel(logging.DEBUG)
-        _LOGGER.debug(f"Arguments: {args.__dict__}")
+        _LOGGER.debug("Arguments: %s", args.__dict__)
         if args.verbose > 0:
-            logging.getLogger("pyvelop").setLevel(logging.DEBUG)
+            logging.getLogger("pyvelop.mesh").setLevel(logging.DEBUG)
+            logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.INFO)
+            if args.verbose > 1:
+                logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.DEBUG)
+
     # endregion
 
     if args.version:
@@ -148,7 +152,7 @@ async def main() -> None:
 
                     # region #-- get WAN details --#
                     if args.get_wan or all_args:
-                        _LOGGER.debug("Preparing WAND details")
+                        _LOGGER.debug("Preparing WAN details")
                         section = "WAN Details"
                         section += f"\n{'-' * len(section)}\n"
                         section += f"Connected: {_mesh.wan_status}\n"\
