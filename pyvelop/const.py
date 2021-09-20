@@ -35,6 +35,7 @@ ATTR_MESH_GUEST_NETWORK_INFO = "guest_network"
 ATTR_MESH_NODES = "nodes"
 ATTR_MESH_PARENTAL_CONTROL_INFO = "parental_control"
 ATTR_MESH_SPEEDTEST_RESULTS = "speedtest_results"
+ATTR_MESH_SPEEDTEST_STATE = "speedtest_state"
 ATTR_MESH_UPDATE_FIRMWARE_STATE = "check_update_state"
 ATTR_MESH_WAN_INFO = "wan_info"
 # endregion
