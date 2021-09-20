@@ -115,6 +115,29 @@ def _process_speedtest_results(speedtest_results=None, only_latest: bool = False
     return ret
 
 
+def _get_speedtest_state(speedtest_results=None) -> str:
+    """Process the Speedtest results to get a textual state"""
+
+    if speedtest_results is None:
+        speedtest_results = {}
+
+    if speedtest_results:
+        if speedtest_results.get("uploadBandwidth", 0):
+            ret = "Checking upload speed"
+        elif speedtest_results.get("downloadBandwidth", 0):
+            ret = "Checking download speed"
+        elif speedtest_results.get("latency"):
+            ret = "Checking latency"
+        elif speedtest_results.get("serverID", "") == '0':
+            ret = "Detecting server"
+        else:
+            ret = ""
+    else:
+        ret = ""
+
+    return ret
+
+
 def _process_raw_device_results(device_results=None) -> None:
     """Add the required details to the device results.
 
@@ -203,7 +226,7 @@ class Mesh:
         headers = self.__get_headers()
         headers["X-JNAP-Action"] = action
         try:
-            if self._session.closed:
+            if self._session.closed:  # session closed so recreate it
                 self.__create_session()
             resp = await self._session.post(url=self.__api_url, headers=headers, json=payload, timeout=10)
         except TimeoutError:
@@ -268,194 +291,209 @@ class Mesh:
 
         _LOGGER.debug("Gathering details: %s", json.dumps(kwargs))
 
-        try:
-            await self.async_test_credentials()
-        except Exception as err:
-            raise err
-        else:
-            ret = {}
-            payload: List = []
+        ret = {}
+        payload: List = []
 
-            # -- get the devices --#
-            if kwargs.get("include_devices"):
-                payload.append({
-                    "action": const.ACTION_JNAP_GET_DEVICES,
-                    "request": {},
-                })
+        # -- get the devices --#
+        if kwargs.get("include_devices"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_DEVICES,
+                "request": {},
+            })
 
-            # -- get the backhaul info  --#
-            if kwargs.get("include_backhaul"):
-                payload.append({
-                    "action": const.ACTION_JNAP_GET_BACKHAUL,
-                    "request": {},
-                })
+        # -- get the backhaul info  --#
+        if kwargs.get("include_backhaul"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_BACKHAUL,
+                "request": {},
+            })
 
-            # -- get the guest WiFi details --#
-            if kwargs.get("include_guest_wifi"):
-                payload.append({
-                    "action": const.ACTION_JNAP_GET_GUEST_NETWORK_INFO,
-                    "request": {},
-                })
+        # -- get the guest WiFi details --#
+        if kwargs.get("include_guest_wifi"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_GUEST_NETWORK_INFO,
+                "request": {},
+            })
 
-            # -- get the Parental Control details --#
-            if kwargs.get("include_parental_control"):
-                payload.append({
-                    "action": const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
-                    "request": {},
-                })
+        # -- get the Parental Control details --#
+        if kwargs.get("include_parental_control"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
+                "request": {},
+            })
 
-            # -- get the latest Speedtest result --#
-            if kwargs.get("include_speedtest_results"):
-                payload.append({
-                    "action": const.ACTION_JNAP_GET_SPEEDTEST_RESULTS,
-                    "request": {**const.DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": 10},
-                })
+        # -- get the current Speedtest state --#
+        if kwargs.get("include_speedtest_state"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_SPEEDTEST_STATE,
+                "request": {}
+            })
 
-            # -- get the update check details --#
-            if kwargs.get("include_firmware_update"):
-                payload.append({
-                    "action": const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
-                    "request": {},
-                })
+        # -- get the latest Speedtest result --#
+        if kwargs.get("include_speedtest_results"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_SPEEDTEST_RESULTS,
+                "request": {**const.DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": 10},
+            })
 
-            # -- get the WAN details --#
-            if kwargs.get("include_wan"):
-                payload.append({
-                    "action": const.ACTION_JNAP_GET_WAN_INFO,
-                    "request": {},
-                })
+        # -- get the update check details --#
+        if kwargs.get("include_firmware_update"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
+                "request": {},
+            })
 
-            resp = await self.__async_make_request(action=const.ACTION_JNAP_TRANSACTION, payload=payload)
-            responses = resp.get("responses", [])
-            if responses:
-                # region #-- populate device and node details --#
-                idx = _get_action_index(
-                    action=const.ACTION_JNAP_GET_DEVICES,
-                    payload=payload
-                )
-                device_info: List[dict] = []
-                if idx is not None:
-                    device_info = responses[idx] \
-                        .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
-                        .get("devices", [])
-                    _process_raw_device_results(device_results=device_info)
+        # -- get the WAN details --#
+        if kwargs.get("include_wan"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_WAN_INFO,
+                "request": {},
+            })
 
-                idx = _get_action_index(
-                    action=const.ACTION_JNAP_GET_BACKHAUL,
-                    payload=payload
-                )
-                backhaul_info: dict = {}
-                if idx is not None:
-                    backhaul_info = responses[idx] \
-                        .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
-                        .get("backhaulDevices", [])
+        resp = await self.__async_make_request(action=const.ACTION_JNAP_TRANSACTION, payload=payload)
+        responses = resp.get("responses", [])
+        if responses:
+            # region #-- populate device and node details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_DEVICES,
+                payload=payload
+            )
+            device_info: List[dict] = []
+            if idx is not None:
+                device_info = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
+                    .get("devices", [])
+                _process_raw_device_results(device_results=device_info)
 
-                # region #-- build the properties for the device types --#
-                devices = []
-                for device in device_info:
-                    if "nodeType" in device:
-                        device_backhaul = [bi for bi in backhaul_info if bi.get("deviceUUID") == device.get("deviceID")]
-                        if device_backhaul:
-                            device_backhaul = device_backhaul[0]
-                        else:
-                            device_backhaul = {}
-                        n = Node(**device, **{"backhaul": device_backhaul})
-                        devices.append(n)
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_BACKHAUL,
+                payload=payload
+            )
+            backhaul_info: dict = {}
+            if idx is not None:
+                backhaul_info = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
+                    .get("backhaulDevices", [])
+
+            # region #-- build the properties for the device types --#
+            devices = []
+            for device in device_info:
+                if "nodeType" in device:
+                    device_backhaul = [bi for bi in backhaul_info if bi.get("deviceUUID") == device.get("deviceID")]
+                    if device_backhaul:
+                        device_backhaul = device_backhaul[0]
                     else:
-                        d = Device(**device)
-                        devices.append(d)
-                # endregion
+                        device_backhaul = {}
+                    n = Node(**device, **{"backhaul": device_backhaul})
+                    devices.append(n)
+                else:
+                    d = Device(**device)
+                    devices.append(d)
+            # endregion
 
-                # region #-- calculate the connected devices for nodes and parent name for devices --#
-                for node in devices:
-                    if node.__class__.__name__.lower() == "node":
-                        connected_devices: List = []
-                        for device in devices:
-                            for adapter in device.network:
-                                if adapter.get("parent_id") == node.unique_id:
-                                    connected_devices.append({"name": device.name, "ip": adapter.get("ip")})
-                                if node.parent_ip:
-                                    if node.parent_ip == adapter.get("ip"):
-                                        setattr(node, "parent_name", device.name)
-                                else:
-                                    setattr(node, "parent_name", None)
-                        setattr(node, "_Node__connected_devices", connected_devices)
-                    elif node.__class__.__name__.lower() == "device":
-                        attrib_connections = getattr(node, "_Device__attributes", {}).get("connections", [])
-                        parent: Union[str, None] = None
-                        for conn in attrib_connections:
-                            if conn.get("parentDeviceID", ""):
-                                try:
-                                    parent = [
-                                        device.name
-                                        for device in devices
-                                        if device.unique_id == conn.get("parentDeviceID")
-                                    ][0]
-                                except IndexError:
-                                    pass
-                        setattr(node, "parent_name", parent)
-                # endregion
+            # region #-- calculate the connected devices for nodes and parent name for devices --#
+            for node in devices:
+                if node.__class__.__name__.lower() == "node":
+                    connected_devices: List = []
+                    for device in devices:
+                        for adapter in device.network:
+                            if adapter.get("parent_id") == node.unique_id:
+                                connected_devices.append({"name": device.name, "ip": adapter.get("ip")})
+                            if node.parent_ip:
+                                if node.parent_ip == adapter.get("ip"):
+                                    setattr(node, "parent_name", device.name)
+                            else:
+                                setattr(node, "parent_name", None)
+                    setattr(node, "_Node__connected_devices", connected_devices)
+                elif node.__class__.__name__.lower() == "device":
+                    attrib_connections = getattr(node, "_Device__attributes", {}).get("connections", [])
+                    parent: Union[str, None] = None
+                    for conn in attrib_connections:
+                        if conn.get("parentDeviceID", ""):
+                            try:
+                                parent = [
+                                    device.name
+                                    for device in devices
+                                    if device.unique_id == conn.get("parentDeviceID")
+                                ][0]
+                            except IndexError:
+                                pass
+                    setattr(node, "parent_name", parent)
+            # endregion
 
-                if devices:
-                    ret[const.ATTR_MESH_DEVICES] = devices
-                # endregion
+            if devices:
+                ret[const.ATTR_MESH_DEVICES] = devices
+            # endregion
 
-                # region #-- populate the Guest Wi-Fi details --#
-                idx = _get_action_index(
-                    action=const.ACTION_JNAP_GET_GUEST_NETWORK_INFO,
-                    payload=payload
+            # region #-- populate the Guest Wi-Fi details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_GUEST_NETWORK_INFO,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_GUEST_NETWORK_INFO] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
+            # region #-- populate the Parental Control details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_PARENTAL_CONTROL_INFO] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
+            # region #-- populate the WAN details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_WAN_INFO,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_WAN_INFO] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
+            # region #-- populate the latest Speedtest results --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_SPEEDTEST_RESULTS,
+                payload=payload
+            )
+            if idx is not None:
+                speedtest_results = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
+                    .get("healthCheckResults", [])
+                speedtest_results = _process_speedtest_results(
+                    speedtest_results,
+                    only_completed=True,
+                    only_latest=True
                 )
-                if idx is not None:
-                    ret[const.ATTR_MESH_GUEST_NETWORK_INFO] = responses[idx] \
-                        .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
-                # endregion
+                ret[const.ATTR_MESH_SPEEDTEST_RESULTS] = speedtest_results
+            # endregion
 
-                # region #-- populate the Parental Control details --#
-                idx = _get_action_index(
-                    action=const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
-                    payload=payload
+            # region #-- populate the current Speedtest status --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_SPEEDTEST_STATE,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_SPEEDTEST_STATE] = _get_speedtest_state(
+                    speedtest_results=responses[idx]
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+                    .get("speedTestResult", {})
                 )
-                if idx is not None:
-                    ret[const.ATTR_MESH_PARENTAL_CONTROL_INFO] = responses[idx] \
-                        .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
-                # endregion
+            # endregion
 
-                # region #-- populate the WAN details --#
-                idx = _get_action_index(
-                    action=const.ACTION_JNAP_GET_WAN_INFO,
-                    payload=payload
-                )
-                if idx is not None:
-                    ret[const.ATTR_MESH_WAN_INFO] = responses[idx] \
-                        .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
-                # endregion
-
-                # region #-- populate the latest Speedtest results --#
-                idx = _get_action_index(
-                    action=const.ACTION_JNAP_GET_SPEEDTEST_RESULTS,
-                    payload=payload
-                )
-                if idx is not None:
-                    speedtest_results = responses[idx] \
-                        .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
-                        .get("healthCheckResults", [])
-                    speedtest_results = _process_speedtest_results(
-                        speedtest_results,
-                        only_completed=True,
-                        only_latest=True
-                    )
-                    ret[const.ATTR_MESH_SPEEDTEST_RESULTS] = speedtest_results
-                # endregion
-
-                # region #-- populate the update check details --#
-                idx = _get_action_index(
-                    action=const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
-                    payload=payload
-                )
-                if idx is not None:
-                    ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE] = responses[idx] \
-                        .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
-                # endregion
+            # region #-- populate the update check details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
 
         return ret
 
@@ -593,6 +631,7 @@ class Mesh:
             include_speedtest_results=True,
             include_wan=True,
             include_firmware_update=True,
+            include_speedtest_state=True,
         )
 
         # region #-- split the devices into their types --#
@@ -752,21 +791,10 @@ class Mesh:
 
         _LOGGER.debug("Getting the current state of the Speedtest")
 
-        resp = await self.__async_make_request(action=const.ACTION_JNAP_GET_SPEEDTEST_STATE)
-        output: dict = resp.get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
-        if output:
-            output = output.get("speedTestResult", {})
-
-        if output.get("uploadBandwidth", 0):
-            ret = "Checking upload speed"
-        elif output.get("downloadBandwidth", 0):
-            ret = "Checking download speed"
-        elif output.get("latency"):
-            ret = "Checking latency"
-        elif output.get("serverID", "") == '0':
-            ret = "Detecting server"
-        else:
-            ret = ""
+        resp = await self.__async_gather_details(
+            include_speedtest_state=True,
+        )
+        ret = resp[const.ATTR_MESH_SPEEDTEST_STATE]
 
         _LOGGER.debug("Speedtest state: %s", ret)
 
@@ -945,6 +973,12 @@ class Mesh:
         """
 
         return self.__mesh_attributes[const.ATTR_MESH_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
+
+    @property
+    def speedtest_status(self) -> str:
+        """Returns the current status of the Speedtest"""
+
+        return self.__mesh_attributes[const.ATTR_MESH_SPEEDTEST_STATE]
 
     @property
     def speedtest_results(self) -> List:
