@@ -189,6 +189,8 @@ class Mesh:
         self.__password: str = password
         self.__create_session()
 
+        # noinspection PyProtectedMember
+        _LOGGER.debug("%s version: %s", __package__, const._PACKAGE_VERSION)
         _LOGGER.debug("Initialised mesh for %s", self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
 
     async def __aenter__(self):
@@ -227,6 +229,7 @@ class Mesh:
         headers["X-JNAP-Action"] = action
         try:
             if self._session.closed:  # session closed so recreate it
+                _LOGGER_VERBOSE.debug("Session was closed.")
                 self.__create_session()
             resp = await self._session.post(url=self.__api_url, headers=headers, json=payload, timeout=10)
         except TimeoutError:
@@ -541,6 +544,7 @@ class Mesh:
         :return: None
         """
 
+        _LOGGER_VERBOSE.debug("Creating session.")
         self._session = aiohttp.ClientSession(raise_for_status=True)
 
     def __credentials(self) -> str:
