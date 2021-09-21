@@ -27,7 +27,7 @@ To get started you can use the following as a skeleton.
 
 
     async def main():
-        with Mesh(node="192.168.1.1", password="my_password") as mesh:
+        async with Mesh(node="192.168.1.1", password="my_password") as mesh:
             await mesh.async_gather_details()
             print(mesh.nodes)
 
