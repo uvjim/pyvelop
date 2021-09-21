@@ -124,7 +124,6 @@ async def main() -> None:
             logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.INFO)
             if args.verbose > 1:
                 logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.DEBUG)
-
     # endregion
 
     if args.version:
@@ -132,13 +131,14 @@ async def main() -> None:
     else:
         async with Mesh(node=args.address, username=args.username, password=args.password) as _mesh:
             try:
+                _LOGGER.debug("Gathering details about the Velop system")
                 await _mesh.async_gather_details()
             except MeshInvalidCredentials:
                 _LOGGER.error("Invalid Credentials")
             except MeshBadResponse:
-                _LOGGER.error(f"Bad response received.  Are you sure {args.address} is a Velop node?")
+                _LOGGER.error("Bad response received.  Are you sure %s is a Velop node?", args.address)
             except MeshNodeNotPrimary:
-                _LOGGER.error(f"{args.address} is not the primary node")
+                _LOGGER.error("%s is not the primary node", args.address)
             else:
                 if args.target == "mesh":
                     # region #-- get the node names --#
