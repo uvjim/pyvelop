@@ -19,6 +19,7 @@ def _setup_args(parser: ArgumentParser) -> None:
 
     parser.add_argument("-d", "--debug", action="store_true", help="Print debug to the screen")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Set verbosity level")
+    parser.add_argument("-t", "--timeout", type=int, help="Set the timeout for a request. 0 = infinite")
     parser.add_argument("--version", action="store_true", help="Print the version number and exit")
 
     sub_parsers = parser.add_subparsers(
@@ -129,7 +130,12 @@ async def main() -> None:
     if args.version:
         print(_PACKAGE_VERSION)
     else:
-        async with Mesh(node=args.address, username=args.username, password=args.password) as _mesh:
+        async with Mesh(
+                node=args.address,
+                username=args.username,
+                password=args.password,
+                request_timeout=args.timeout,
+        ) as _mesh:
             try:
                 _LOGGER.debug("Gathering details about the Velop system")
                 await _mesh.async_gather_details()

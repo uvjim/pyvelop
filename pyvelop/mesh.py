@@ -162,13 +162,17 @@ class Mesh:
     If you need live information then call the corresponding method.
     """
 
-    def __init__(self, node: str, password: str, username: str = "admin"):
+    def __init__(self, node: str, password: str, username: str = "admin", request_timeout: Union[int, None] = None):
         """Constructor
 
         :param node: The node we should make a connection to
         :param password: password to use
-        :param username: username to use
+        :param username: username to use; default admin
+        :param request_timeout: number of seconds to timeout the request; default 10s
         """
+
+        if request_timeout is None:
+            request_timeout = 10
 
         self._session: aiohttp.ClientSession
 
@@ -187,6 +191,7 @@ class Mesh:
         self.__api_url: str = f"http://{self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]}/JNAP/"
         self.__username: str = username
         self.__password: str = password
+        self.__timeout: int = request_timeout
         self.__create_session()
 
         # noinspection PyProtectedMember
@@ -220,7 +225,13 @@ class Mesh:
         :return: THe JSON response or raises an error if need be
         """
 
-        _LOGGER_VERBOSE.debug("URL: %s, Action: %s, Payload: %s", self.__api_url, action, json.dumps(payload))
+        _LOGGER_VERBOSE.debug(
+            "URL: %s, Action: %s, Payload: %s, Timeout: %i",
+            self.__api_url,
+            action,
+            json.dumps(payload),
+            self.__timeout
+        )
 
         if payload is None:
             payload = []
@@ -231,7 +242,7 @@ class Mesh:
             if self._session.closed:  # session closed so recreate it
                 _LOGGER_VERBOSE.debug("Session was closed.")
                 self.__create_session()
-            resp = await self._session.post(url=self.__api_url, headers=headers, json=payload, timeout=10)
+            resp = await self._session.post(url=self.__api_url, headers=headers, json=payload, timeout=self.__timeout)
         except TimeoutError:
             raise MeshTimeoutError
         except (ClientConnectionError, ClientConnectorError,):
