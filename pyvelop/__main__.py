@@ -298,19 +298,33 @@ async def main() -> None:
                     if not _device:
                         args_parser.error(f"Invalid device name ({args.name}).")
                     else:
-                        _device: Device = _device[0]
-                        # region #-- get the overview details --#
-                        if all_args:
-                            _LOGGER.debug("Preparing device overview")
-                            connected_adapters: List = [adapter.get('ip') for adapter in _device.connected_adapters]
-                            section = "Overview"
-                            section += f"\n{'-' * len(section)}\n"
-                            section += f"Name: {_device.name}\n"\
-                                       f"Online: {_device.status}\n"\
-                                       f"IP: {','.join(connected_adapters)}\n"\
-                                       f"Parent: {_device.parent_name}"
-                            sections.append(section)
-                        # endregion
+                        for _d in _device:
+                            # region #-- get the overview details --#
+                            if all_args:
+                                _LOGGER.debug("Preparing device overview")
+                                connected_adapters: List = [adapter.get('ip') for adapter in _d.connected_adapters]
+                                section = "Overview"
+                                section += f"\n{'-' * len(section)}\n"
+                                section += f"Name: {_d.name}\n"\
+                                           f"Online: {_d.status}\n"\
+                                           f"IP: {','.join(connected_adapters)}\n"\
+                                           f"Parent: {_d.parent_name}\n"\
+                                           f"Parental Control:\n"\
+                                           f"  Blocked Times:"
+                                for day, rule in _d.parental_control_schedule.get(
+                                        'blocked_internet_access',
+                                        {}
+                                ).items():
+                                    section += f"\n    {day.title()}: {', '.join(rule)}"
+                                else:
+                                    if not _d.parental_control_schedule.get('blocked_internet_access', {}):
+                                        section += " N/A"
+                                blocked_sites_text = ", ".join(_d.parental_control_schedule.get('blocked_sites', []))\
+                                                     if _d.parental_control_schedule.get('blocked_sites', [])\
+                                                     else "N/A"
+                                section += f"\n  Blocked Sites: {blocked_sites_text}"
+                                sections.append(section)
+                            # endregion
         if sections:
             print("\n\n".join(sections))
 
