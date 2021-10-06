@@ -203,7 +203,7 @@ class Mesh:
 
         return self
 
-    async def __aexit__(self, exc_type, exc, traceback):
+    async def __aexit__(self, exc_type, exc, traceback) -> None:
         """Asynchronous exit magic method"""
         await self.close()
 
@@ -405,9 +405,10 @@ class Mesh:
                     devices.append(d)
             # endregion
 
-            # region #-- calculate the connected devices for nodes and parent name for devices --#
+            # region #-- post processing devices and nodes --#
             for node in devices:
                 if node.__class__.__name__.lower() == "node":
+                    # region #-- calculate the connected devices for nodes --#
                     connected_devices: List = []
                     for device in devices:
                         for adapter in device.network:
@@ -419,7 +420,9 @@ class Mesh:
                             else:
                                 setattr(node, "parent_name", None)
                     setattr(node, "_Node__connected_devices", connected_devices)
+                    # endregion
                 elif node.__class__.__name__.lower() == "device":
+                    # region #-- calculate parent name for devices --#
                     attrib_connections = getattr(node, "_Device__attributes", {}).get("connections", [])
                     parent: Union[str, None] = None
                     for conn in attrib_connections:
@@ -433,6 +436,25 @@ class Mesh:
                             except IndexError:
                                 pass
                     setattr(node, "parent_name", parent)
+                    # endregion
+                    # region #-- get the parental control details --#
+                    pc_schedule: List = []
+                    if kwargs.get("include_parental_control"):
+                        idx = _get_action_index(
+                            action=const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
+                            payload=payload
+                        )
+                        if idx is not None:
+                            pc_details = responses[idx] \
+                                .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+                            network_adapater_macs = [adapter.get("mac") for adapter in node.network]
+                            for mac in network_adapater_macs:
+                                for rule in pc_details.get("rules", []):
+                                    if mac in rule.get("macAddresses", []):
+                                        pc_schedule.append(rule)
+                                        break
+                    getattr(node, "_Device__attributes", {})["parental_controls"] = pc_schedule
+                    # endregion
             # endregion
 
             if devices:
