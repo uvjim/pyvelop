@@ -414,7 +414,7 @@ class Mesh:
                     # endregion
                     # region #-- calculate if there is a firmware update available --#
                     node_firmware: Union[List, dict] = {}
-                    if ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE]:
+                    if const.ATTR_MESH_UPDATE_FIRMWARE_STATE in ret:
                         firmware_status = ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
                         node_firmware = [
                             firmware_details
