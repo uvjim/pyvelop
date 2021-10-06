@@ -440,11 +440,11 @@ class Mesh:
                         for adapter in device.network:
                             if adapter.get("parent_id") == node.unique_id:
                                 connected_devices.append({"name": device.name, "ip": adapter.get("ip")})
+                            parent_name: Union[str, None] = None
                             if node.parent_ip:
                                 if node.parent_ip == adapter.get("ip"):
                                     setattr(node, "parent_name", device.name)
-                            else:
-                                setattr(node, "parent_name", None)
+                            setattr(node, "parent_name", parent_name)
                     setattr(node, "_Node__connected_devices", connected_devices)
                     # endregion
                 elif node.__class__.__name__.lower() == "device":
