@@ -299,6 +299,7 @@ class Mesh:
         :param include_guest_wifi: True to include details about the guest Wi-Fi
         :param include_parental_control: True to include details about Parental Control
         :param include_speedtest_results: True to include the latest completed Speedtest result
+        :param include_firmware_update: True to include the current firmware update details (does not issue a check)
         :param include_wan: True to include WAN details
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
         """
@@ -367,6 +368,17 @@ class Mesh:
         resp = await self.__async_make_request(action=const.ACTION_JNAP_TRANSACTION, payload=payload)
         responses = resp.get("responses", [])
         if responses:
+            # region #-- populate the update check details --#
+            # this needs to happen early because we'll use the results when populating the node details
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
             # region #-- populate device and node details --#
             idx = _get_action_index(
                 action=const.ACTION_JNAP_GET_DEVICES,
@@ -393,12 +405,26 @@ class Mesh:
             devices = []
             for device in device_info:
                 if "nodeType" in device:
+                    # region #-- determine the backhaul information --#
                     device_backhaul = [bi for bi in backhaul_info if bi.get("deviceUUID") == device.get("deviceID")]
                     if device_backhaul:
                         device_backhaul = device_backhaul[0]
                     else:
                         device_backhaul = {}
-                    n = Node(**device, **{"backhaul": device_backhaul})
+                    # endregion
+                    # region #-- calculate if there is a firmware update available --#
+                    node_firmware: Union[List, dict] = {}
+                    if ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE]:
+                        firmware_status = ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
+                        node_firmware = [
+                            firmware_details
+                            for firmware_details in firmware_status
+                            if firmware_details.get("deviceUUID") == device.get("deviceID")
+                        ]
+                        if node_firmware:
+                            node_firmware = node_firmware[0]
+                    # endregion
+                    n = Node(**device, **{"backhaul": device_backhaul, "updates": node_firmware})
                     devices.append(n)
                 else:
                     d = Device(**device)
@@ -519,16 +545,6 @@ class Mesh:
                     .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
                     .get("speedTestResult", {})
                 )
-            # endregion
-
-            # region #-- populate the update check details --#
-            idx = _get_action_index(
-                action=const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
-                payload=payload
-            )
-            if idx is not None:
-                ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE] = responses[idx] \
-                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
             # endregion
 
         return ret

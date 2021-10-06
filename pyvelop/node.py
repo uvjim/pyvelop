@@ -43,6 +43,13 @@ class Node(MeshDevice):
         if self.__attributes.get("unit", {}):
             ret["version"] = self.__attributes.get("unit", {}).get("firmwareVersion")
             ret["date"] = self.__attributes.get("unit", {}).get("firmwareDate")
+        available_updates = self.__attributes.get("updates", {}).get("availableUpdate", {})
+        if available_updates:
+            ret["latest_version"] = available_updates["firmwareVersion"]
+            ret["latest_date"] = available_updates["firmwareDate"]
+        else:
+            ret["latest_version"] = ret["version"] if "version" in ret else None
+            ret["latest_date"] = ret["date"] if "date" in ret else None
         return ret
 
     @property
