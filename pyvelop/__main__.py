@@ -259,7 +259,8 @@ async def main() -> None:
                                        f"Manufacturer: {_node.manufacturer}\n"\
                                        f"Model: {_node.model}\n"\
                                        f"Serial #: {_node.serial}\n"\
-                                       f"Firmware: {_node.firmware.get('version')}"
+                                       f"Firmware: {_node.firmware.get('version')}\n"\
+                                       f"Latest Firmware: {_node.firmware.get('latest_version')}"
                             sections.append(section)
                         # endregion
 
@@ -267,10 +268,10 @@ async def main() -> None:
                         if args.get_network or all_args:
                             _LOGGER.debug("Preparing node network details")
                             section = "Network Details"
-                            section += f"\n{'-' * len(section)}\n"
+                            section += f"\n{'-' * len(section)}"
                             for adapter in _node.network:
-                                section += f"{adapter.get('type')} "\
-                                           f"(IP: {adapter.get('ip')}, MAC: {adapter.get('mac')})\n"
+                                section += f"\n{adapter.get('type')} "\
+                                           f"(IP: {adapter.get('ip')}, MAC: {adapter.get('mac')})"
                             sections.append(section)
                         # endregion
 
