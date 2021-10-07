@@ -440,7 +440,11 @@ class Mesh:
                     for device in devices:
                         for adapter in device.network:
                             if adapter.get("parent_id") == node.unique_id:
-                                connected_devices.append({"name": device.name, "ip": adapter.get("ip")})
+                                connected_devices.append({
+                                    "name": device.name,
+                                    "ip": adapter.get("ip"),
+                                    "type": adapter.get("type"),
+                                })
                             if node.parent_ip and not parent_name:
                                 if node.parent_ip == adapter.get("ip"):
                                     parent_name = device.name
