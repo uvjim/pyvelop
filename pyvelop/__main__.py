@@ -284,14 +284,14 @@ async def main() -> None:
                             sections.append(section)
                         # endregion
 
-                        # region #-- get the connected devices: format = name (IP) --#
+                        # region #-- get the connected devices: format = name (IP) (Type) --#
                         if args.get_connected_devices or all_args:
                             _LOGGER.debug("Preparing node connected devices")
                             section = "Connected Devices"
                             section += f"\n{'-' * len(section)}\n"
                             device: dict
                             for device in _node.connected_devices:
-                                section += f"{device.get('name')} ({device.get('ip')})\n"
+                                section += f"{device.get('name')} ({device.get('ip')}) ({device.get('type')})\n"
                             sections.append(section.rstrip("\n"))
                         # endregion
                 elif args.target == 'device':
