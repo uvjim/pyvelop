@@ -436,20 +436,15 @@ class Mesh:
                 if node.__class__.__name__.lower() == "node":
                     # region #-- calculate the connected devices for nodes --#
                     connected_devices: List = []
+                    parent_name: Union[str, None] = None
                     for device in devices:
-                        parent_found: bool = False
-                        parent_name: Union[str, None] = None
                         for adapter in device.network:
                             if adapter.get("parent_id") == node.unique_id:
                                 connected_devices.append({"name": device.name, "ip": adapter.get("ip")})
-                            if node.parent_ip:
+                            if node.parent_ip and not parent_name:
                                 if node.parent_ip == adapter.get("ip"):
                                     parent_name = device.name
-                                    parent_found = True
-                                    break
-                        setattr(node, "parent_name", parent_name)
-                        if parent_found:
-                            break
+                    setattr(node, "parent_name", parent_name)
                     setattr(node, "_Node__connected_devices", connected_devices)
                     # endregion
                 elif node.__class__.__name__.lower() == "device":
