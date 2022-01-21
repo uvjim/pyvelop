@@ -423,6 +423,13 @@ class Mesh:
                         ]
                         if node_firmware:
                             node_firmware = node_firmware[0]
+                        else:
+                            node_firmware = {}
+                            _LOGGER.warning(
+                                "Node (%s) firmware status: %s",
+                                device.get("deviceID"),
+                                json.dumps(firmware_status)
+                            )
                     # endregion
                     n = Node(**device, **{"backhaul": device_backhaul, "updates": node_firmware})
                     devices.append(n)
