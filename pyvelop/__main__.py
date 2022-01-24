@@ -9,6 +9,7 @@ from pyvelop.mesh import (
     MeshBadResponse,
     MeshNodeNotPrimary,
     MeshInvalidCredentials,
+    MeshTimeoutError,
 )
 from pyvelop.node import Node
 from pyvelop.const import _PACKAGE_VERSION
@@ -145,6 +146,8 @@ async def main() -> None:
                 _LOGGER.error("Bad response received.  Are you sure %s is a Velop node?", args.address)
             except MeshNodeNotPrimary:
                 _LOGGER.error("%s is not the primary node", args.address)
+            except MeshTimeoutError:
+                _LOGGER.error("Timeout connecting to %s", args.address)
             else:
                 if args.target == "mesh":
                     # region #-- get the node names --#
