@@ -55,6 +55,15 @@ class Node(MeshDevice):
         return ret
 
     @property
+    def hardware_version(self) -> str:
+        """Get the hardware version of the node
+
+        :return: A string containing the hardware version
+        """
+
+        return self.__attributes.get("model", {}).get("hardwareVersion")
+
+    @property
     def manufacturer(self) -> str:
         """Get the node manufacturer
 
