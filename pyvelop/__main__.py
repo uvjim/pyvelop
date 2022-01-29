@@ -260,7 +260,8 @@ async def main() -> None:
                                        f"IP: {','.join([adapter.get('ip') for adapter in _node.connected_adapters])}\n"\
                                        f"Type: {_node.type.title()}\n"\
                                        f"Manufacturer: {_node.manufacturer}\n"\
-                                       f"Model: {_node.model}\n"\
+                                       f"Model: {_node.model}\n" \
+                                       f"Hardware Version: {_node.hardware_version}\n" \
                                        f"Serial #: {_node.serial}\n"\
                                        f"Firmware: {_node.firmware.get('version')}\n"\
                                        f"Latest Firmware: {_node.firmware.get('latest_version')}"
