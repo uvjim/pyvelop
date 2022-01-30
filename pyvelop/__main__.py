@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 from argparse import ArgumentParser
@@ -18,9 +19,6 @@ from pyvelop.const import _PACKAGE_VERSION
 def _setup_args(parser: ArgumentParser) -> None:
     """Initialise the arguments for the CLI"""
 
-    parser.add_argument("-d", "--debug", action="store_true", help="Print debug to the screen")
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="Set verbosity level")
-    parser.add_argument("-t", "--timeout", type=int, help="Set the timeout for a request. 0 = infinite")
     parser.add_argument("--version", action="store_true", help="Print the version number and exit")
 
     sub_parsers = parser.add_subparsers(
@@ -30,71 +28,37 @@ def _setup_args(parser: ArgumentParser) -> None:
         help="Select one of these objects to target"
     )
 
+    # region #-- shared arguments --#
+    parser_shared = argparse.ArgumentParser(add_help=False)
+    parser_shared.add_argument("-a", "--primary-node", required=True, help="Address of the primary node in the mesh")
+    parser_shared.add_argument("-p", "--password", required=True, help="Linksys Velop password")
+    parser_shared.add_argument("-t", "--timeout", type=int, help="Set the timeout for a request. 0 = infinite")
+    parser_shared.add_argument("-u", "--username", default="admin", help="Linksys Velop username")
+    parser_shared.add_argument("-v", "--verbose", action="count", default=0, help="Set verbosity level")
+
     # region #-- Mesh arguments --#
-    parser_mesh = sub_parsers.add_parser("mesh", help="Interact with the Velop mesh")
-    parser_mesh.add_argument("-a", "--address", required=True, help="Address of a node in the mesh")
-    parser_mesh.add_argument("-p", "--password", required=True, help="Linksys Velop password")
-    parser_mesh.add_argument("-u", "--username", default="admin", help="Linksys Velop username")
-    parser_mesh.add_argument("-n", "--get-nodes", action="store_true", help="Retrieve the names of nodes in the list")
-    parser_mesh.add_argument("-w", "--get-wan", action="store_true", help="Retrieve the WAN details")
-    parser_mesh.add_argument("--get-online-devices", action="store_true", help="Retrieve the online devices")
-    parser_mesh.add_argument("--get-offline-devices", action="store_true", help="Retrieve the offline devices")
-    parser_mesh.add_argument(
-        "--get-parental-control-state",
-        action="store_true",
-        help="Retrieve the Parental Control state"
-    )
-    parser_mesh.add_argument(
-        "-g",
-        "--get-guest-wifi-details",
-        action="store_true",
-        help="Retrieve the guest Wi-Fi details"
-    )
-    parser_mesh.add_argument(
-        "-s",
-        "--get-latest-speedtest",
-        action="store_true",
-        help="Retrieve the latest Speedtest results"
-    )
+    parser_mesh = sub_parsers.add_parser("mesh", parents=[parser_shared], help="Interact with the Velop mesh")
+    parser_mesh.add_argument("--get-nodes", action="store_true", help="Retrieve names of nodes")
+    parser_mesh.add_argument("--get-wan", action="store_true", help="Retrieve WAN details")
+    parser_mesh.add_argument("--get-online-devices", action="store_true", help="Retrieve online devices")
+    parser_mesh.add_argument("--get-offline-devices", action="store_true", help="Retrieve offline devices")
+    parser_mesh.add_argument("--get-parental-control", action="store_true", help="Retrieve Parental Control state")
+    parser_mesh.add_argument("--get-guest-wifi-details", action="store_true", help="Retrieve guest Wi-Fi details")
+    parser_mesh.add_argument("--get-latest-speedtest", action="store_true", help="Retrieve latest Speedtest results")
     # endregion
 
     # region #-- Node arguments --#
-    parser_node = sub_parsers.add_parser("node", help="Interact with a node")
-    parser_node.add_argument("-a", "--address", required=True, help="Address of a node in the mesh")
-    parser_node.add_argument("-p", "--password", required=True, help="Linksys Velop password")
+    parser_node = sub_parsers.add_parser("node", parents=[parser_shared], help="Interact with a node")
     parser_node.add_argument("-r", "--reboot", action="store_true", help="Reboot a node")
-    parser_node.add_argument("-u", "--username", default="admin", help="Linksys Velop username")
     parser_node.add_argument("name", help="The name of the node to interact with")
-    parser_node.add_argument(
-        "-o",
-        "--get-overview",
-        action="store_true",
-        help="Retrieve high level details about the node"
-    )
-    parser_node.add_argument(
-        "-n",
-        "--get-network",
-        action="store_true",
-        help="Retrieve the network details for the node"
-    )
-    parser_node.add_argument(
-        "--get-parent",
-        action="store_true",
-        help="Retrieve the parent details for the node"
-    )
-    parser_node.add_argument(
-        "-d",
-        "--get-connected-devices",
-        action="store_true",
-        help="Retrieve the connected devices for the node"
-    )
+    parser_node.add_argument("--get-overview", action="store_true", help="Retrieve high level details about the node")
+    parser_node.add_argument("--get-network", action="store_true", help="Retrieve network details for the node")
+    parser_node.add_argument("--get-parent", action="store_true", help="Retrieve parent details for the node")
+    parser_node.add_argument("--get-connected-devices", action="store_true", help="Retrieve connected devices")
     # endregion
 
     # region Device arguments --#
-    parser_device = sub_parsers.add_parser("device", help="Interact with a device")
-    parser_device.add_argument("-a", "--address", required=True, help="Address of a node in the mesh")
-    parser_device.add_argument("-p", "--password", required=True, help="Linksys Velop password")
-    parser_device.add_argument("-u", "--username", default="admin", help="Linksys Velop username")
+    parser_device = sub_parsers.add_parser("device", parents=[parser_shared], help="Interact with a device")
     parser_device.add_argument("name", help="The name of the device to interact with")
     # endregion
 
@@ -110,7 +74,6 @@ async def main() -> None:
     args = args_parser.parse_args()
     all_args: bool = False
     arg_values: dict = args.__dict__.copy()
-    arg_values.pop("debug")
     arg_values: ValuesView = arg_values.values()
     if not any([val for val in arg_values if isinstance(val, bool)]):
         all_args = True
@@ -119,13 +82,13 @@ async def main() -> None:
     # region #-- setup the logger --#
     logging.basicConfig()
     _LOGGER = logging.getLogger("pyvelop.cli")
-    if args.debug:
+    if args.verbose >= 1:
         _LOGGER.setLevel(logging.DEBUG)
         _LOGGER.debug("Arguments: %s", args.__dict__)
-        if args.verbose > 0:
+        if args.verbose > 1:
             logging.getLogger("pyvelop.mesh").setLevel(logging.DEBUG)
             logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.INFO)
-            if args.verbose > 1:
+            if args.verbose > 2:
                 logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.DEBUG)
     # endregion
 
@@ -133,10 +96,10 @@ async def main() -> None:
         print(_PACKAGE_VERSION)
     else:
         async with Mesh(
-                node=args.address,
-                username=args.username,
-                password=args.password,
-                request_timeout=args.timeout,
+            node=args.primary_node,
+            username=args.username,
+            password=args.password,
+            request_timeout=args.timeout,
         ) as _mesh:
             try:
                 _LOGGER.debug("Gathering details about the Velop system")
@@ -144,11 +107,11 @@ async def main() -> None:
             except MeshInvalidCredentials:
                 _LOGGER.error("Invalid Credentials")
             except MeshBadResponse:
-                _LOGGER.error("Bad response received.  Are you sure %s is a Velop node?", args.address)
+                _LOGGER.error("Bad response received.  Are you sure %s is a Velop node?", args.primary_node)
             except MeshNodeNotPrimary:
-                _LOGGER.error("%s is not the primary node", args.address)
+                _LOGGER.error("%s is not the primary node", args.primary_node)
             except MeshTimeoutError:
-                _LOGGER.error("Timeout connecting to %s", args.address)
+                _LOGGER.error("Timeout connecting to %s", args.primary_node)
             else:
                 if args.target == "mesh":
                     # region #-- get the node names --#
@@ -172,9 +135,9 @@ async def main() -> None:
                         sections.append(section)
                     # endregion
 
-                    # region #-- get the Parental Control state --#
-                    if args.get_parental_control_state or all_args:
-                        _LOGGER.debug("Preparing Parental Control state")
+                    # region #-- get the Parental Control detail --#
+                    if args.get_parental_control or all_args:
+                        _LOGGER.debug("Preparing Parental Control details")
                         section = "Parental Control"
                         section += f"\n{'-' * len(section)}\n"
                         section += f"Enabled: {_mesh.parental_control_enabled}"
