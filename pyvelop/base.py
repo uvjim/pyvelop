@@ -12,7 +12,7 @@ class MeshDevice:
         :param kwargs: Dictionary of named arguments
         """
 
-        # -- make the private attributes fro subclasses available to the this class
+        # -- make the private attributes for subclasses available to this class
         self._attribs = getattr(self, f"_{self.__class__.__name__}__attributes")
         return
 
