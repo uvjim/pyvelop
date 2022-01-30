@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from asyncio.exceptions import TimeoutError
-from typing import Union, List
+from typing import Optional, Union, List
 
 import aiohttp
 from aiohttp.client_exceptions import (
@@ -187,8 +187,7 @@ class Mesh:
             const.ATTR_MESH_WAN_INFO: {},
         }
 
-        # noinspection HttpUrlsUsage
-        self.__api_url: str = f"http://{self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]}/JNAP/"
+        self.__api_url: str = self.__get_api_url(self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
         self.__username: str = username
         self.__password: str = password
         self.__timeout: int = request_timeout
@@ -217,21 +216,38 @@ class Mesh:
 
         return ret
 
-    async def __async_make_request(self, action: str, payload=None) -> dict:
+    @staticmethod
+    def __get_api_url(host: str) -> str:
+        """Build the base URL for the API
+
+        :host: the host name of the node
+        """
+
+        # noinspection HttpUrlsUsage
+        return f"http://{host}/JNAP/"
+
+    async def __async_make_request(self, action: str, payload=None, node_address: Optional[str] = None) -> dict:
         """Execute the API request against the connected node.
 
         :param action: The JNAP action to execute
         :param payload: The relevant payload for the action
+        :param node_address: The node to send the request to (only valid for a subset of actions)
         :return: THe JSON response or raises an error if need be
         """
 
         _LOGGER_VERBOSE.debug(
             "URL: %s, Action: %s, Payload: %s, Timeout: %i",
-            self.__api_url,
+            node_address,
             action,
             json.dumps(payload),
             self.__timeout
         )
+
+        if node_address is not None and action != const.ACTION_JNAP_REBOOT:
+            raise MeshInvalidArguments
+
+        if node_address is None:
+            node_address = self.__api_url
 
         if payload is None:
             payload = []
@@ -242,7 +258,7 @@ class Mesh:
             if self._session.closed:  # session closed so recreate it
                 _LOGGER_VERBOSE.debug("Session was closed.")
                 self.__create_session()
-            resp = await self._session.post(url=self.__api_url, headers=headers, json=payload, timeout=self.__timeout)
+            resp = await self._session.post(url=node_address, headers=headers, json=payload, timeout=self.__timeout)
         except TimeoutError:
             raise MeshTimeoutError
         except (ClientConnectionError, ClientConnectorError,):
@@ -883,6 +899,45 @@ class Mesh:
         _LOGGER.debug("Update check state: %s", ret)
 
         return ret
+
+    async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
+        """Reboot the given node
+
+        N.B. Rebooting the primary node will cause all nodes to reboot. If you're sure you want to
+        reboot the primary node, set the `force` parameter to `True`
+
+        :param node_name: the name of the node to restart
+        :param force: True to acknowledge the primary node, ignored for everything else
+        :return: None
+        """
+
+        _LOGGER.debug("Rebooting node: %s", node_name)
+
+        node_details: List[Node] = [
+            node
+            for node in self.nodes
+            if node.name.lower() == node_name.lower()
+        ]
+        if not node_details:
+            raise MeshDeviceNotFoundResponse
+
+        if node_details[0].type == "primary" and not force:
+            # noinspection PyTypeChecker
+            raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
+
+        node_ip = [
+            adapter.get("ip")
+            for adapter in node_details[0].network
+            if adapter.get("ip")
+        ]
+        if not node_ip:
+            # noinspection PyTypeChecker
+            raise MeshInvalidInput(f"{node_name}: no valid address found")
+
+        await self.__async_make_request(
+            action=const.ACTION_JNAP_REBOOT,
+            node_address=self.__get_api_url(host=node_ip[0])
+        )
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.

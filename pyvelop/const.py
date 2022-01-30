@@ -21,6 +21,7 @@ ACTION_JNAP_GET_SPEEDTEST_RESULTS: str = f"{ACTION_JNAP_ROOT}/healthcheck/GetHea
 ACTION_JNAP_GET_SPEEDTEST_STATE: str = f"{ACTION_JNAP_ROOT}/healthcheck/GetHealthCheckStatus"
 ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE: str = f"{ACTION_JNAP_ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
 ACTION_JNAP_GET_WAN_INFO: str = f"{ACTION_JNAP_ROOT}/router/GetWANStatus3"
+ACTION_JNAP_REBOOT: str = f"{ACTION_JNAP_ROOT}/core/Reboot"
 ACTION_JNAP_SET_GUEST_NETWORK: str = f"{ACTION_JNAP_ROOT}/guestnetwork/SetGuestRadioSettings2"
 ACTION_JNAP_SET_PARENTAL_CONTROL_INFO: str = f"{ACTION_JNAP_ROOT}/parentalcontrol/SetParentalControlSettings"
 ACTION_JNAP_START_SPEEDTEST: str = f"{ACTION_JNAP_ROOT}/healthcheck/RunHealthCheck"
