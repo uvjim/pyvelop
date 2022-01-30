@@ -5,12 +5,13 @@ from typing import List
 # region #-- generic details --#
 _PACKAGE_NAME = "pyvelop"
 _PACKAGE_AUTHOR = "uvjim"
-_PACKAGE_VERSION = "2022.1.2"
+_PACKAGE_VERSION = "2022.1.3"
 # endregion
 
 # region #-- JNAP actions --#
 # noinspection HttpUrlsUsage
 ACTION_JNAP_ROOT: str = "http://linksys.com/jnap"
+# noinspection DuplicatedCode
 ACTION_JNAP_CHECK_PASSWORD: str = f"{ACTION_JNAP_ROOT}/core/CheckAdminPassword"
 ACTION_JNAP_DELETE_DEVICE: str = f"{ACTION_JNAP_ROOT}/devicelist/DeleteDevice"
 ACTION_JNAP_GET_BACKHAUL: str = f"{ACTION_JNAP_ROOT}/nodes/diagnostics/GetBackhaulInfo"
@@ -19,6 +20,7 @@ ACTION_JNAP_GET_GUEST_NETWORK_INFO: str = f"{ACTION_JNAP_ROOT}/guestnetwork/GetG
 ACTION_JNAP_GET_PARENTAL_CONTROL_INFO: str = f"{ACTION_JNAP_ROOT}/parentalcontrol/GetParentalControlSettings"
 ACTION_JNAP_GET_SPEEDTEST_RESULTS: str = f"{ACTION_JNAP_ROOT}/healthcheck/GetHealthCheckResults"
 ACTION_JNAP_GET_SPEEDTEST_STATE: str = f"{ACTION_JNAP_ROOT}/healthcheck/GetHealthCheckStatus"
+# noinspection DuplicatedCode
 ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE: str = f"{ACTION_JNAP_ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
 ACTION_JNAP_GET_WAN_INFO: str = f"{ACTION_JNAP_ROOT}/router/GetWANStatus3"
 ACTION_JNAP_REBOOT: str = f"{ACTION_JNAP_ROOT}/core/Reboot"
@@ -60,4 +62,10 @@ DEF_JNAP_SPEEDTEST_RESULTS_INVALID: List[str] = [
 
 # region #-- keys that are used in responses --#
 KEY_ACTION_JNAP_RESPONSE_RESULTS: str = "output"
+# endregion
+
+
+# region #-- node types --#
+NODE_TYPE_PRIMARY = "primary"
+NODE_TYPE_SECONDARY = "secondary"
 # endregion

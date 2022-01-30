@@ -916,7 +916,7 @@ class Mesh:
         if not node_details:
             raise MeshDeviceNotFoundResponse
 
-        if node_details[0].type == "primary" and not force:
+        if node_details[0].type == const.NODE_TYPE_PRIMARY and not force:
             # noinspection PyTypeChecker
             raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
 

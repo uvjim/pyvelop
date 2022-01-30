@@ -3,7 +3,10 @@
 from typing import List, Union
 
 from .base import MeshDevice
-
+from .const import (
+    NODE_TYPE_PRIMARY,
+    NODE_TYPE_SECONDARY,
+)
 
 class Node(MeshDevice):
     """Representation of a node in the mesh.  A node provides the connectivity for a device."""
@@ -109,7 +112,7 @@ class Node(MeshDevice):
         ret = ""
         native_type = self._attribs.get("nodeType", "").lower()
         if native_type == "master":
-            ret = "primary"
+            ret = NODE_TYPE_PRIMARY
         elif native_type == "slave":
-            ret = "secondary"
+            ret = NODE_TYPE_SECONDARY
         return ret
