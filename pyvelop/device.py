@@ -9,7 +9,7 @@ from .base import MeshDevice
 def _textualise_schedule(schedules: dict) -> dict:
     """Establish a textual version of the schedule
 
-    The schedule is stored in a string of 48 characters ('0's and '1's) representing 30 minute periods.
+    The schedule is stored in a string of 48 characters ('0's and '1's) representing 30-minute periods.
     '0' is blocked, '1' is allowed.
 
     :param schedules: dictionary representing the schedules as per the API

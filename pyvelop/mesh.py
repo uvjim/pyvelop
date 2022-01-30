@@ -35,7 +35,7 @@ _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 def _get_action_index(action: str, payload: List[dict]) -> Union[int, None]:
     """Determine which index the supplied action is in the JNAP transaction results
 
-    The results are returned in a list in the order they were requested but we don't really
+    The results are returned in a list in the order they were requested, but we don't really
     now which order this will be because actions could be added to the payload dynamically.
 
     :param action: The JNAP action to look for
@@ -168,7 +168,7 @@ class Mesh:
         :param node: The node we should make a connection to
         :param password: password to use
         :param username: username to use; default admin
-        :param request_timeout: number of seconds to timeout the request; default 10s
+        :param request_timeout: number of seconds to time out the request; default 10s
         """
 
         if request_timeout is None:
@@ -658,7 +658,7 @@ class Mesh:
         """Delete a device from the device list on the mesh
 
         Supports deleting by device ID or device name.
-        Will error if neither the device ID or name are given.
+        Will error if neither the device ID nor name are given.
         Will error if multiple devices match the given name.
 
         :param kwargs: keyword arguments (device_id, device_name)
@@ -738,7 +738,7 @@ class Mesh:
     async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Union[Device, Node]:
         """Get a Device or Node object based on the ID.
 
-        By default the stored information is used but you can refresh it from the API.
+        By default, the stored information is used, but you can refresh it from the API.
         Raises an error if the device is not found.
 
         :param device_id: The ID of the device to get details about
@@ -773,7 +773,7 @@ class Mesh:
         """To get a Device or Node object based on the MAC address.
 
         Searches through all known adapters on the device to find a match.
-        By default the stored information is used but you can refresh it from the API.
+        By default, the stored information is used, but you can refresh it from the API.
         Raises an error if the device is not found.
 
         :param mac_address: The MAC address to search for
@@ -938,7 +938,7 @@ class Mesh:
         """Set the state of the guest Wi-Fi.
 
         The radios object is a required parameter for the API call but isn't handled in this method.
-        Instead a call is made to retrieve the existing settings and those are relayed back.  This assumes that
+        Instead, a call is made to retrieve the existing settings and those are relayed back.  This assumes that
         a guest network has been created in the official UI.
 
         :param state: True to enable, False to disable
@@ -955,7 +955,7 @@ class Mesh:
         """Set the state of the Parental Control feature.
 
         The rules are a required parameter for the API call but are not handled in this method.
-        Instead a call is made to retrieve the existing rules and those are relayed back.
+        Instead, a call is made to retrieve the existing rules and those are relayed back.
 
         :param state: True to enabled, False to disable
         :return: None
@@ -970,7 +970,7 @@ class Mesh:
     async def async_start_speedtest(self) -> None:
         """Instruct the mesh to carry out a Speedtest
 
-        A Speedtest is a long running task.  You should use the async_get_speedtest_state method to understand
+        A Speedtest is a long-running task.  You should use the async_get_speedtest_state method to understand
         the progress of the task.
 
         :return: None
