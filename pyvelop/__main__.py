@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import sys
 from argparse import ArgumentParser
 from typing import List, ValuesView
 
@@ -82,7 +83,7 @@ async def main() -> None:
     # region #-- handle no arguments being passed in --#
     if args.target is None:
         args_parser.print_help()
-        exit()
+        sys.exit()
     # endregion
 
     # region #-- setup the logger --#
