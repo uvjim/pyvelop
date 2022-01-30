@@ -62,6 +62,7 @@ def _setup_args(parser: ArgumentParser) -> None:
     parser_node = sub_parsers.add_parser("node", help="Interact with a node")
     parser_node.add_argument("-a", "--address", required=True, help="Address of a node in the mesh")
     parser_node.add_argument("-p", "--password", required=True, help="Linksys Velop password")
+    parser_node.add_argument("-r", "--reboot", action="store_true", help="Reboot a node")
     parser_node.add_argument("-u", "--username", default="admin", help="Linksys Velop username")
     parser_node.add_argument("name", help="The name of the node to interact with")
     parser_node.add_argument(
@@ -243,13 +244,19 @@ async def main() -> None:
                         )
                         sections.append(section)
                     # endregion
-                elif args.target == 'node':
+                elif args.target == "node":
                     _node: List = [node for node in _mesh.nodes if node.name.lower() == args.name.lower()]
                     if not _node:
                         node_names = [node.name for node in _mesh.nodes]
                         args_parser.error(f"Invalid node name ({args.name}). Must be one of {node_names}")
                     else:
                         _node: Node = _node[0]
+                        # region #-- reboot the node --#
+                        if args.reboot:
+                            _LOGGER.debug("Requesting node reboot")
+                            await _mesh.async_reboot_node(node_name=_node.name)
+                        # endregion
+
                         # region #-- get the overview details --#
                         if args.get_overview or all_args:
                             _LOGGER.debug("Preparing ndoe overview details")
