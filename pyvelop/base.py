@@ -13,7 +13,8 @@ class MeshDevice:
         """
 
         # -- make the private attributes for subclasses available to this class
-        self._attribs = getattr(self, f"_{self.__class__.__name__}__attributes")
+        self._attribs: dict = kwargs
+        self.__device_id = self._attribs.get("deviceID")
         return
 
     def __getattribute__(self, item: str) -> Any:
@@ -24,7 +25,7 @@ class MeshDevice:
         """
 
         if item == "unique_id":
-            ret = object.__getattribute__(self, f"_{self.__class__.__name__}__device_id")
+            ret = object.__getattribute__(self, f"_MeshDevice__device_id")
         else:
             ret = object.__getattribute__(self, item)
         return ret

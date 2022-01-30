@@ -56,8 +56,6 @@ class Device(MeshDevice):
 
         :param kwargs: keyword arguments
         """
-        self.__attributes = kwargs
-        self.__device_id = self.__attributes.get("deviceID")
         super().__init__(**kwargs)
 
     @property
@@ -68,8 +66,8 @@ class Device(MeshDevice):
         """
 
         ret: dict = {}
-        if self.__attributes.get("parental_controls"):
-            for rule in self.__attributes.get("parental_controls"):
+        if self._attribs.get("parental_controls"):
+            for rule in self._attribs.get("parental_controls"):
                 ret = {
                     "blocked_internet_access": _textualise_schedule(rule.get("wanSchedule", {})),
                     "blocked_sites": rule.get("blockedURLs", []),
