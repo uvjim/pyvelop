@@ -79,6 +79,12 @@ async def main() -> None:
         all_args = True
     # endregion
 
+    # region #-- handle no arguments being passed in --#
+    if args.target is None:
+        args_parser.print_help()
+        exit()
+    # endregion
+
     # region #-- setup the logger --#
     logging.basicConfig()
     _LOGGER = logging.getLogger("pyvelop.cli")
