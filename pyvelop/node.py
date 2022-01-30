@@ -15,8 +15,6 @@ class Node(MeshDevice):
 
         :param kwargs: keyword arguments
         """
-        self.__attributes = kwargs
-        self.__device_id = self.__attributes.get("deviceID")
         super().__init__(**kwargs)
 
     @property
@@ -40,10 +38,10 @@ class Node(MeshDevice):
         """
 
         ret = {}
-        if self.__attributes.get("unit", {}):
-            ret["version"] = self.__attributes.get("unit", {}).get("firmwareVersion")
-            ret["date"] = self.__attributes.get("unit", {}).get("firmwareDate")
-        available_updates = self.__attributes.get("updates", {})
+        if self._attribs.get("unit", {}):
+            ret["version"] = self._attribs.get("unit", {}).get("firmwareVersion")
+            ret["date"] = self._attribs.get("unit", {}).get("firmwareDate")
+        available_updates = self._attribs.get("updates", {})
         if isinstance(available_updates, dict):
             available_updates = available_updates.get("availableUpdate", {})
             if available_updates:
@@ -61,7 +59,7 @@ class Node(MeshDevice):
         :return: A string containing the hardware version
         """
 
-        return self.__attributes.get("model", {}).get("hardwareVersion")
+        return self._attribs.get("model", {}).get("hardwareVersion")
 
     @property
     def manufacturer(self) -> str:
@@ -70,7 +68,7 @@ class Node(MeshDevice):
         :return: String containing the name of the manufacturer
         """
 
-        return self.__attributes.get("model", {}).get("manufacturer")
+        return self._attribs.get("model", {}).get("manufacturer")
 
     @property
     def model(self) -> str:
@@ -79,7 +77,7 @@ class Node(MeshDevice):
         :return: A string containing the model
         """
 
-        return self.__attributes.get("model", {}).get("modelNumber")
+        return self._attribs.get("model", {}).get("modelNumber")
 
     @property
     def parent_ip(self) -> Union[str, None]:
@@ -88,7 +86,7 @@ class Node(MeshDevice):
         :return: A string containing the IP address of the parent or None if no parent
         """
 
-        return self.__attributes.get("backhaul", {}).get("parentIPAddress")
+        return self._attribs.get("backhaul", {}).get("parentIPAddress")
 
     @property
     def serial(self) -> str:
@@ -97,7 +95,7 @@ class Node(MeshDevice):
         :return: A string containing the serial number
         """
 
-        return self.__attributes.get("unit", {}).get("serialNumber")
+        return self._attribs.get("unit", {}).get("serialNumber")
 
     @property
     def type(self) -> str:
@@ -109,7 +107,7 @@ class Node(MeshDevice):
         """
 
         ret = ""
-        native_type = self.__attributes.get("nodeType", "").lower()
+        native_type = self._attribs.get("nodeType", "").lower()
         if native_type == "master":
             ret = "primary"
         elif native_type == "slave":
