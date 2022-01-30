@@ -41,11 +41,11 @@ CLI
 
 The library also has a CLI which can be used like so...
 
-``pyvelop mesh -u USER -p PASSWORD`` - *Lists all known details about the mesh.*
+``pyvelop mesh -a PRIMARY_NODE -p PASSWORD`` - *Lists all known details about the mesh.*
 
-``pyvelop mesh -u USER -p PASSWORD -get-wan`` - *Lists only the WAN details.*
+``pyvelop mesh -a PRIMARY_NODE -p PASSWORD --get-wan`` - *Lists only the WAN details.*
 
-``pyvelop nodes bedroom -u USER -p PASSWORD`` - *Lists all known details about the given node.*
+``pyvelop nodes bedroom -a PRIMARY_NODE -p PASSWORD`` - *Lists all known details about the given node.*
 
 ``pyvelop --help`` - *show all available options*
 
