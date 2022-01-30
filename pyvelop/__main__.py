@@ -262,7 +262,8 @@ async def main() -> None:
                             _LOGGER.debug("Preparing ndoe overview details")
                             section = "Overview"
                             section += f"\n{'-' * len(section)}\n"
-                            section += f"Name: {_node.name}\n"\
+                            section += f"Device ID: {_node.unique_id}\n"\
+                                       f"Name: {_node.name}\n"\
                                        f"Online: {_node.status}\n"\
                                        f"IP: {','.join([adapter.get('ip') for adapter in _node.connected_adapters])}\n"\
                                        f"Type: {_node.type.title()}\n"\
@@ -305,7 +306,7 @@ async def main() -> None:
                                 section += f"{device.get('name')} ({device.get('ip')}) ({device.get('type')})\n"
                             sections.append(section.rstrip("\n"))
                         # endregion
-                elif args.target == 'device':
+                elif args.target == "device":
                     _device: List = [device for device in _mesh.devices if device.name.lower() == args.name.lower()]
                     if not _device:
                         args_parser.error(f"Invalid device name ({args.name}).")
@@ -317,7 +318,8 @@ async def main() -> None:
                                 connected_adapters: List = [adapter.get('ip') for adapter in _d.connected_adapters]
                                 section = "Overview"
                                 section += f"\n{'-' * len(section)}\n"
-                                section += f"Name: {_d.name}\n"\
+                                section += f"Device ID: {_d.unique_id}\n"\
+                                           f"Name: {_d.name}\n"\
                                            f"Online: {_d.status}\n"\
                                            f"IP: {','.join(connected_adapters)}\n"\
                                            f"Parent: {_d.parent_name}\n"\
