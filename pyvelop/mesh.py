@@ -22,6 +22,7 @@ from .exceptions import (
     MeshInvalidArguments,
     MeshInvalidCredentials,
     MeshInvalidInput,
+    MeshInvalidOutput,
     MeshNodeNotPrimary,
     MeshTimeoutError,
     MeshTooManyMatches,
@@ -283,6 +284,8 @@ class Mesh:
                         err = None
                         if resp.get("result") == "_ErrorInvalidInput":
                             err = MeshInvalidInput(resp.get("error"))
+                        elif resp.get("result") == "_ErrorInvalidOutput":
+                            err = MeshInvalidOutput(resp.get("error"))
                         elif resp.get("result") == "_ErrorUnauthorized":
                             err = MeshInvalidCredentials
                         elif resp.get("result") == "_ErrorUnknownAction":
