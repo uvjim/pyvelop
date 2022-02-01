@@ -46,6 +46,16 @@ class MeshInvalidInput(Exception):
         super().__init__(args)
 
 
+class MeshInvalidOutput(Exception):
+    """Invalid information would be returned from the API
+
+    Explanatory text is passed in the args parameter
+    """
+
+    def __init__(self, args) -> None:
+        super().__init__(args)
+
+
 class MeshNodeNotPrimary(Exception):
     """API call being used on a node that isn't the primary"""
 
