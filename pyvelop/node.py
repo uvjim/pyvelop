@@ -1,12 +1,12 @@
 """Represents a node in the mesh"""
-
-from typing import List, Union
+from typing import List, Optional, Union
 
 from .base import MeshDevice
 from .const import (
     NODE_TYPE_PRIMARY,
     NODE_TYPE_SECONDARY,
 )
+
 
 class Node(MeshDevice):
     """Representation of a node in the mesh.  A node provides the connectivity for a device."""
@@ -63,6 +63,16 @@ class Node(MeshDevice):
         """
 
         return self._attribs.get("model", {}).get("hardwareVersion")
+
+    @property
+    def last_update_check(self) -> Optional[str]:
+        """Get the last time an update was checked for
+
+        :return: String containing the last update time as per the API
+        """
+
+        ret = self._attribs.get("updates", {}).get("lastSuccessfulCheckTime", None)
+        return ret
 
     @property
     def manufacturer(self) -> str:

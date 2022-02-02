@@ -239,7 +239,8 @@ async def main() -> None:
                                    f"Hardware Version: {_node.hardware_version}\n" \
                                    f"Serial #: {_node.serial}\n"\
                                    f"Firmware: {_node.firmware.get('version')}\n"\
-                                   f"Latest Firmware: {_node.firmware.get('latest_version')}"
+                                   f"Latest Firmware: {_node.firmware.get('latest_version')}\n" \
+                                   f"Last Update Check: {_node.last_update_check}\n"
                         sections.append(section)
                     # endregion
 
