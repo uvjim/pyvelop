@@ -184,6 +184,7 @@ class Mesh:
             const.ATTR_MESH_NODES: [],
             const.ATTR_MESH_PARENTAL_CONTROL_INFO: {},
             const.ATTR_MESH_SPEEDTEST_RESULTS: [],
+            const.ATTR_MESH_STORAGE: {},
             const.ATTR_MESH_UPDATE_FIRMWARE_STATE: [],
             const.ATTR_MESH_WAN_INFO: {},
         }
@@ -572,6 +573,32 @@ class Mesh:
                 )
             # endregion
 
+        # region #-- separate requests where they could easily cause an error if not supported --#
+        # -- get the storage details --#
+        if kwargs.get("include_storage"):
+            payload = [
+                {
+                    "action": const.ACTION_JNAP_GET_STORAGE_SMB_SERVER,
+                    "request": {},
+                },
+                {
+                    "action": const.ACTION_JNAP_GET_STORAGE_PARTITIONS,
+                    "request": {},
+                },
+            ]
+            try:
+                resp = await self.__async_make_request(action=const.ACTION_JNAP_TRANSACTION, payload=payload)
+            except MeshInvalidInput:
+                _LOGGER.debug("storage function not supported")
+            else:
+                responses = resp.get("responses", [])
+                if responses:
+                    ret[const.ATTR_MESH_STORAGE] = {
+                        "smb_server_settings": responses[0].get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}),
+                        "available_partitions": responses[1].get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+                    }
+        # endregion
+
         return ret
 
     async def __async_set_guest_wifi_state(self, state: bool, radios: Union[List, None] = None) -> None:
@@ -710,6 +737,7 @@ class Mesh:
             include_wan=True,
             include_firmware_update=True,
             include_speedtest_state=True,
+            include_storage=True,
         )
 
         # region #-- split the devices into their types --#
@@ -1108,6 +1136,43 @@ class Mesh:
         """
 
         return self.__mesh_attributes[const.ATTR_MESH_SPEEDTEST_RESULTS]
+
+    @property
+    def storage_available(self) -> List:
+        """Get available shared partitions"""
+
+        ret: List = []
+        n: List[Node]
+        device: dict
+        storage_available = self.__mesh_attributes.get(const.ATTR_MESH_STORAGE, {}).get("available_partitions")
+        for node in storage_available.get("storageNodes"):
+            for device in node.get("storageDevices", []):
+                for partition in device.get("partitions", []):
+                    n = [_n for _n in self.nodes if _n.unique_id == node.get("deviceID")]
+                    if n:
+                        ip = [adapter.get("ip") for adapter in n[0].connected_adapters if adapter.get("ip")]
+                        ret.append({
+                            "available_kb": partition.get("availableKB"),
+                            "ip": ip[0],
+                            "label": partition.get("label"),
+                            "last_checked": node.get("timestamp"),
+                            "used_kb": partition.get("usedKB"),
+                            "used_percent": round((partition.get("usedKB") / partition.get("availableKB")) * 100, 2),
+                        })
+
+        return ret
+
+    @property
+    def storage_settings(self) -> dict:
+        """Get the settings for shared partitions"""
+
+        ret = self.__mesh_attributes.get(const.ATTR_MESH_STORAGE, {}).get("smb_server_settings", {})
+        if ret:
+            ret = {
+                "anonymous_access": ret.get("isAnonymousAccessEnabled")
+            }
+
+        return ret
 
     @property
     def wan_dns(self) -> List:
