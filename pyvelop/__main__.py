@@ -52,9 +52,9 @@ def _setup_args(parser: ArgumentParser) -> None:
     parser_node = sub_parsers.add_parser("node", parents=[parser_shared], help="Interact with a node")
     parser_node.add_argument("-r", "--reboot", action="store_true", help="Reboot a node")
     parser_node.add_argument("name", help="The name of the node to interact with")
+    parser_node.add_argument("--get-backhaul", action="store_true", help="Retrieve backhaul details for the node")
     parser_node.add_argument("--get-overview", action="store_true", help="Retrieve high level details about the node")
     parser_node.add_argument("--get-network", action="store_true", help="Retrieve network details for the node")
-    parser_node.add_argument("--get-parent", action="store_true", help="Retrieve parent details for the node")
     parser_node.add_argument("--get-connected-devices", action="store_true", help="Retrieve connected devices")
     # endregion
 
@@ -240,7 +240,7 @@ async def main() -> None:
                                    f"Serial #: {_node.serial}\n"\
                                    f"Firmware: {_node.firmware.get('version')}\n"\
                                    f"Latest Firmware: {_node.firmware.get('latest_version')}\n" \
-                                   f"Last Update Check: {_node.last_update_check}\n"
+                                   f"Last Update Check: {_node.last_update_check}"
                         sections.append(section)
                     # endregion
 
@@ -255,12 +255,14 @@ async def main() -> None:
                         sections.append(section)
                     # endregion
 
-                    # region #-- get the parent details --#
-                    if args.get_parent or all_args:
-                        _LOGGER.debug("Preparing node parent details")
-                        section = "Parent"
+                    # region #-- backhaul details --#
+                    if args.get_backhaul or all_args:
+                        _LOGGER.debug("Preparing backhaul details")
+                        section = "Backhaul"
                         section += f"\n{'-' * len(section)}\n"
-                        section += f"{_node.parent_name} ({_node.parent_ip})"
+                        section += f"Parent: {_node.parent_name} ({_node.parent_ip})"
+                        for bh_k, bh_v in _node.backhaul.items():
+                            section += f"\n{bh_k}: {bh_v}"
                         sections.append(section)
                     # endregion
 
