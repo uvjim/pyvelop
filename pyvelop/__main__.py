@@ -46,6 +46,8 @@ def _setup_args(parser: ArgumentParser) -> None:
     parser_mesh.add_argument("--get-parental-control", action="store_true", help="Retrieve Parental Control state")
     parser_mesh.add_argument("--get-guest-wifi-details", action="store_true", help="Retrieve guest Wi-Fi details")
     parser_mesh.add_argument("--get-latest-speedtest", action="store_true", help="Retrieve latest Speedtest results")
+    parser_mesh.add_argument("--get-available-storage", action="store_true", help="Retrieve external storage details")
+    parser_mesh.add_argument("--get-storage-settings", action="store_true", help="Retrieve external storage settings")
     # endregion
 
     # region #-- Node arguments --#
@@ -157,6 +159,26 @@ async def main() -> None:
                     for idx, details in enumerate(_mesh.guest_wifi_details):
                         section += f"{details.get('ssid')} ({details.get('band')})\n"
                     sections.append(section.rstrip("\n"))
+                # endregion
+
+                # region #-- get the storage server settings --#
+                if args.get_storage_settings or all_args:
+                    _LOGGER.debug("Preparing storage server settings")
+                    section = "Storage Settings"
+                    section += f"\n{'-' * len(section)}"
+                    for ss_k, ss_v in _mesh.storage_settings.items():
+                        section += f"\n{ss_k}: {ss_v}"
+                    sections.append(section)
+                # endregion
+
+                # region #-- get the storage server settings --#
+                if args.get_available_storage or all_args:
+                    _LOGGER.debug("Preparing available storage")
+                    section = "Available Storage"
+                    section += f"\n{'-' * len(section)}"
+                    for partition in _mesh.storage_available:
+                        section += f"\n{partition.get('label')}: {partition}"
+                    sections.append(section)
                 # endregion
 
                 # region #-- get the latest Speedtest results --#
