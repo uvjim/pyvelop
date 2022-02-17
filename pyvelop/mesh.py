@@ -1143,8 +1143,8 @@ class Mesh:
         ret: List = []
         n: List[Node]
         device: dict
-        storage_available = self.__mesh_attributes.get(const.ATTR_MESH_STORAGE, {}).get("available_partitions")
-        for node in storage_available.get("storageNodes"):
+        storage_available = self.__mesh_attributes.get(const.ATTR_MESH_STORAGE, {}).get("available_partitions", {})
+        for node in storage_available.get("storageNodes", []):
             for device in node.get("storageDevices", []):
                 for partition in device.get("partitions", []):
                     n = [_n for _n in self.nodes if _n.unique_id == node.get("deviceID")]
