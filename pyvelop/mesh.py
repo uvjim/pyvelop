@@ -316,10 +316,11 @@ class Mesh:
 
         :param include_backhaul: True to include backhaul details
         :param include_devices: True to include devices
+        :param include_firmware_update: True to include the current firmware update details (does not issue a check)
         :param include_guest_wifi: True to include details about the guest Wi-Fi
         :param include_parental_control: True to include details about Parental Control
         :param include_speedtest_results: True to include the latest completed Speedtest result
-        :param include_firmware_update: True to include the current firmware update details (does not issue a check)
+        :param include_storage: True to include the external storage details if available
         :param include_wan: True to include WAN details
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
         """
@@ -765,7 +766,6 @@ class Mesh:
             self.__mesh_attributes[attr] = details[attr]
         # endregion
 
-    # noinspection DuplicatedCode
     async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Union[Device, Node]:
         """Get a Device or Node object based on the ID.
 
@@ -795,7 +795,6 @@ class Mesh:
 
         return ret
 
-    # noinspection DuplicatedCode
     async def async_get_device_from_mac_address(
             self,
             mac_address: str,
@@ -812,7 +811,7 @@ class Mesh:
         :return:  Device or Node object whichever is applicable
         """
 
-        _LOGGER.debug("Getting device for AMC: %s (force_refresh=%s)", mac_address, force_refresh)
+        _LOGGER.debug("Getting device for MAC: %s (force_refresh=%s)", mac_address, force_refresh)
 
         # noinspection PyTypeChecker
         ret: Union[Device, Node] = None
