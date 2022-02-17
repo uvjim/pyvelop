@@ -30,7 +30,7 @@ class Node(MeshDevice):
             ret = {
                 "connection": backhaul.get("connectionType"),
                 "last_checked": backhaul.get("timestamp"),
-                "speed_mbps": backhaul.get("speedMbps"),
+                "speed_mbps": float(backhaul.get("speedMbps")),
             }
 
         return ret
