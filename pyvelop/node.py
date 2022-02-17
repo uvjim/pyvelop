@@ -21,6 +21,21 @@ class Node(MeshDevice):
         super().__init__(**kwargs)
 
     @property
+    def backhaul(self) -> dict:
+        """"""
+
+        ret = {}
+        backhaul = self._attribs.get("backhaul", {})
+        if backhaul:
+            ret = {
+                "connection": backhaul.get("connectionType"),
+                "last_checked": backhaul.get("timestamp"),
+                "speed_mbps": backhaul.get("speedMbps"),
+            }
+
+        return ret
+
+    @property
     def connected_devices(self) -> List:
         """List of the devices that are connected to the node
 
