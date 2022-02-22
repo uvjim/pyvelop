@@ -288,14 +288,17 @@ async def main() -> None:
                         sections.append(section)
                     # endregion
 
-                    # region #-- get the connected devices: format = name (IP) (Type) --#
+                    # region #-- get the connected devices: format = name (IP) (Type) (Guest Network) --#
                     if args.get_connected_devices or all_args:
                         _LOGGER.debug("Preparing node connected devices")
                         section = "Connected Devices"
                         section += f"\n{'-' * len(section)}\n"
                         device: dict
                         for device in _node.connected_devices:
-                            section += f"{device.get('name')} ({device.get('ip')}) ({device.get('type')})\n"
+                            section += f"{device.get('name')} " \
+                                       f"({device.get('ip')}) " \
+                                       f"({device.get('type')}) " \
+                                       f"({device.get('guest_network')})\n"
                         sections.append(section.rstrip("\n"))
                     # endregion
             elif args.target == "device":
@@ -307,7 +310,10 @@ async def main() -> None:
                         # region #-- get the overview details --#
                         if all_args:
                             _LOGGER.debug("Preparing device overview")
-                            connected_adapters: List = [adapter.get('ip') for adapter in _d.connected_adapters]
+                            connected_adapters: List = [
+                                f"{adapter.get('ip')} {'(Guest Network)' if adapter.get('guest_network') else ''}"
+                                for adapter in _d.connected_adapters
+                            ]
                             section = "Overview"
                             section += f"\n{'-' * len(section)}\n"
                             section += f"Device ID: {_d.unique_id}\n"\

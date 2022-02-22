@@ -467,6 +467,7 @@ class Mesh:
                                     "name": device.name,
                                     "ip": adapter.get("ip"),
                                     "type": adapter.get("type"),
+                                    "guest_network": adapter.get("guest_network")
                                 })
                             if node.parent_ip and not parent_name:
                                 if node.parent_ip == adapter.get("ip"):
