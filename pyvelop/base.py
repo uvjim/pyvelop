@@ -45,13 +45,14 @@ class MeshDevice:
     def connected_adapters(self) -> List[dict]:
         """Get the network adapters that are connected to the mesh
 
-        :return: a list of dictionaries that contain the MAC and IP address of the adapter
+        :return: a list of dictionaries that contain the MAC, IP and Guest Network status of the adapter
         """
 
         ret = [
             {
                 "mac": adapter.get("macAddress"),
                 "ip": adapter.get("ipAddress"),
+                "guest_network": adapter.get("isGuest", False),
             }
             for adapter in self._attribs.get("connections", [])
         ]
@@ -104,6 +105,7 @@ class MeshDevice:
             adapter_details = [details for details in adapter_details if details["macAddress"] == adapter["mac"]]
             if adapter_details:
                 ret[idx]["ip"] = adapter_details[0].get("ipAddress")
+                ret[idx]["guest_network"] = adapter_details[0].get("isGuest", False)
                 if self.__class__.__name__.lower() == "device":
                     ret[idx]["parent_id"] = adapter_details[0].get("parentDeviceID")
         return ret
