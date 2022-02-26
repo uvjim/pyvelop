@@ -5,7 +5,7 @@ from typing import List
 # region #-- generic details --#
 _PACKAGE_NAME = "pyvelop"
 _PACKAGE_AUTHOR = "uvjim"
-_PACKAGE_VERSION = "2022.2.5"
+_PACKAGE_VERSION = "2022.2.6"
 # endregion
 
 # region #-- JNAP actions --#
