@@ -477,7 +477,7 @@ class Mesh:
                     # endregion
                 elif node.__class__.__name__.lower() == "device":
                     # region #-- calculate parent name for devices --#
-                    attrib_connections = getattr(node, "_Device__attributes", {}).get("connections", [])
+                    attrib_connections = getattr(node, "_attribs", {}).get("connections", [])
                     parent: Union[str, None] = None
                     for conn in attrib_connections:
                         if conn.get("parentDeviceID", ""):
@@ -507,7 +507,7 @@ class Mesh:
                                     if mac in rule.get("macAddresses", []):
                                         pc_schedule.append(rule)
                                         break
-                    getattr(node, "_Device__attributes", {})["parental_controls"] = pc_schedule
+                    getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
                     # endregion
             # endregion
 
