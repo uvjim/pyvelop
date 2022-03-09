@@ -235,7 +235,7 @@ async def main() -> None:
                     sections.append(section)
                 # endregion
             elif args.target == "node":
-                _node: List = [node for node in _mesh.nodes if node.name.lower() == args.name.lower()]
+                _node: List[Node] = [node for node in _mesh.nodes if node.name.lower() == args.name.lower()]
                 if not _node:
                     node_names = [node.name for node in _mesh.nodes]
                     args_parser.error(f"Invalid node name ({args.name}). Must be one of {node_names}")
@@ -294,13 +294,12 @@ async def main() -> None:
                         _LOGGER.debug("Preparing node connected devices")
                         section = "Connected Devices"
                         section += f"\n{'-' * len(section)}\n"
-                        device: Device
-                        for device in _node.connected_devices:
-                            adapter: List[dict] = device.connected_adapters
-                            section += f"{adapter[0].get('name')} " \
-                                       f"({adapter[0].get('ip')}) " \
-                                       f"({adapter[0].get('type')}) " \
-                                       f"({adapter[0].get('guest_network')})\n"
+                        d: dict
+                        for d in _node.connected_devices:
+                            section += f"{d.get('name')} " \
+                                       f"({d.get('ip')}) " \
+                                       f"({d.get('type')}) " \
+                                       f"({d.get('guest_network')})\n"
                         sections.append(section.rstrip("\n"))
                     # endregion
             elif args.target == "device":
