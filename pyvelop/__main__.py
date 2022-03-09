@@ -204,6 +204,7 @@ async def main() -> None:
                 # region #-- get the online devices: format = name (ip) --#
                 if args.get_online_devices or all_args:
                     _LOGGER.debug("Preparing online devices")
+                    adapter: dict
                     device: Device
                     section = "Online Devices"
                     section += f"\n{'-' * len(section)}\n"
@@ -293,12 +294,13 @@ async def main() -> None:
                         _LOGGER.debug("Preparing node connected devices")
                         section = "Connected Devices"
                         section += f"\n{'-' * len(section)}\n"
-                        device: dict
+                        device: Device
                         for device in _node.connected_devices:
-                            section += f"{device.get('name')} " \
-                                       f"({device.get('ip')}) " \
-                                       f"({device.get('type')}) " \
-                                       f"({device.get('guest_network')})\n"
+                            adapter: List[dict] = device.connected_adapters
+                            section += f"{adapter[0].get('name')} " \
+                                       f"({adapter[0].get('ip')}) " \
+                                       f"({adapter[0].get('type')}) " \
+                                       f"({adapter[0].get('guest_network')})\n"
                         sections.append(section.rstrip("\n"))
                     # endregion
             elif args.target == "device":
