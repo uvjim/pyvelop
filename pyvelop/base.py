@@ -1,6 +1,6 @@
 """Base class for devices in the Velop mesh"""
 
-from typing import Any, List
+from typing import List
 
 
 class MeshDevice:
@@ -16,19 +16,6 @@ class MeshDevice:
         self._attribs: dict = kwargs
         self.__device_id = self._attribs.get("deviceID")
         return
-
-    def __getattribute__(self, item: str) -> Any:
-        """Override to allow using an attribute called unique_id to return the device_id
-
-        :param item: The item to retrieve from the class
-        :return: The requested item from the class
-        """
-
-        if item == "unique_id":
-            ret = object.__getattribute__(self, f"_MeshDevice__device_id")
-        else:
-            ret = object.__getattribute__(self, item)
-        return ret
 
     def __repr__(self) -> str:
         """Make a pretty string representation of the class
@@ -131,3 +118,9 @@ class MeshDevice:
         conns = self._attribs.get("connections", [])
         ret = True if conns else False
         return ret
+
+    @property
+    def unique_id(self) -> str:
+        """"""
+
+        return self.__device_id
