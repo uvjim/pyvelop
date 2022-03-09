@@ -19,6 +19,8 @@ class Node(MeshDevice):
         :param kwargs: keyword arguments
         """
         super().__init__(**kwargs)
+        self.__connected_devices: Optional[List] = None
+        self.__parent_name: Optional[str] = None
 
     @property
     def backhaul(self) -> dict:
@@ -115,6 +117,12 @@ class Node(MeshDevice):
         """
 
         return self._attribs.get("backhaul", {}).get("parentIPAddress")
+
+    @property
+    def parent_name(self) -> str:
+        """"""
+
+        return self.__parent_name
 
     @property
     def serial(self) -> str:
