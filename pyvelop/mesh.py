@@ -472,7 +472,7 @@ class Mesh:
                             if node.parent_ip and not parent_name:
                                 if node.parent_ip == adapter.get("ip"):
                                     parent_name = device.name
-                    setattr(node, "parent_name", parent_name)
+                    setattr(node, "_Node__parent_name", parent_name)
                     setattr(node, "_Node__connected_devices", connected_devices)
                     # endregion
                 elif node.__class__.__name__.lower() == "device":
