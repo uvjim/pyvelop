@@ -63,6 +63,12 @@ class Device(MeshDevice):
         self.__parent_name: Optional[str] = None
 
     @property
+    def model(self) -> Optional[str]:
+        """"""
+
+        return self._attribs.get("model", {}).get("modelNumber", None)
+
+    @property
     def parental_control_schedule(self) -> dict:
         """Return the schedule of the parental controls for the device
 
