@@ -102,3 +102,9 @@ class Device(MeshDevice):
         """Name of the node the device is connected to"""
 
         return self.__parent_name
+
+    @property
+    def serial(self) -> Optional[str]:
+        """Get the serial number"""
+
+        return self._attribs.get("unit", {}).get("serialNumber", None)
