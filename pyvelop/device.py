@@ -1,7 +1,10 @@
 """Representation of a mesh device"""
 
 import datetime
-from typing import List
+from typing import (
+    List,
+    Optional,
+)
 
 from .base import MeshDevice
 
@@ -57,6 +60,7 @@ class Device(MeshDevice):
         :param kwargs: keyword arguments
         """
         super().__init__(**kwargs)
+        self.__parent_name: Optional[str] = None
 
     @property
     def parental_control_schedule(self) -> dict:
@@ -74,3 +78,9 @@ class Device(MeshDevice):
                 }
 
         return ret
+
+    @property
+    def parent_name(self) -> Optional[str]:
+        """Name of the node the device is connected to"""
+
+        return self.__parent_name

@@ -489,7 +489,7 @@ class Mesh:
                                 ][0]
                             except IndexError:
                                 pass
-                    setattr(node, "parent_name", parent)
+                    setattr(node, "_Device__parent_name", parent)
                     # endregion
                     # region #-- get the parental control details --#
                     pc_schedule: List = []
