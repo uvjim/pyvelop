@@ -131,3 +131,6 @@ dmypy.json
 # PyCharm
 .idea/
 tests/
+
+doco_package.py
+logo.ico
