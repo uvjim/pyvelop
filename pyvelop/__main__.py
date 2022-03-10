@@ -320,7 +320,8 @@ async def main() -> None:
                             section += f"Device ID: {_d.unique_id}\n"\
                                        f"Name: {_d.name}\n" \
                                        f"Manufacturer: {_d.manufacturer}\n" \
-                                       f"Model: {_d.model}\n"\
+                                       f"Model: {_d.model}\n" \
+                                       f"Description: {_d.description}\n" \
                                        f"Online: {_d.status}\n"\
                                        f"IP: {','.join(connected_adapters)}\n"\
                                        f"Parent: {_d.parent_name}\n"\
