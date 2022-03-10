@@ -104,6 +104,23 @@ class Device(MeshDevice):
         return ret
 
     @property
+    def operating_system(self) -> Optional[str]:
+        """Get the OS"""
+
+        ret: Optional[str] = self._attribs.get("unit", {}).get("operatingSystem", None)
+
+        user_properties: List[dict] = self._attribs.get("properties", [])
+        user_os: Union[List[dict], str] = [
+            prop
+            for prop in user_properties
+            if prop.get("name") == "userDeviceOS"
+        ]
+        if user_os:
+            ret = user_os[0].get("value")
+
+        return ret
+
+    @property
     def parental_control_schedule(self) -> dict:
         """Return the schedule of the parental controls for the device
 
