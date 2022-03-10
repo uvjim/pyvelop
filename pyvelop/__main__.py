@@ -318,7 +318,11 @@ async def main() -> None:
                             section = "Overview"
                             section += f"\n{'-' * len(section)}\n"
                             section += f"Device ID: {_d.unique_id}\n"\
-                                       f"Name: {_d.name}\n"\
+                                       f"Name: {_d.name}\n" \
+                                       f"Manufacturer: {_d.manufacturer}\n" \
+                                       f"Model: {_d.model}\n" \
+                                       f"Description: {_d.description}\n" \
+                                       f"Serial #: {_d.serial}\n" \
                                        f"Online: {_d.status}\n"\
                                        f"IP: {','.join(connected_adapters)}\n"\
                                        f"Parent: {_d.parent_name}\n"\

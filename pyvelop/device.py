@@ -63,6 +63,24 @@ class Device(MeshDevice):
         self.__parent_name: Optional[str] = None
 
     @property
+    def description(self) -> Optional[str]:
+        """Get the description"""
+
+        return self._attribs.get("model", {}).get("description", None)
+
+    @property
+    def manufacturer(self) -> Optional[str]:
+        """Get the manufacturer"""
+
+        return self._attribs.get("model", {}).get("manufacturer", None)
+
+    @property
+    def model(self) -> Optional[str]:
+        """Get the model"""
+
+        return self._attribs.get("model", {}).get("modelNumber", None)
+
+    @property
     def parental_control_schedule(self) -> dict:
         """Return the schedule of the parental controls for the device
 
@@ -84,3 +102,9 @@ class Device(MeshDevice):
         """Name of the node the device is connected to"""
 
         return self.__parent_name
+
+    @property
+    def serial(self) -> Optional[str]:
+        """Get the serial number"""
+
+        return self._attribs.get("unit", {}).get("serialNumber", None)
