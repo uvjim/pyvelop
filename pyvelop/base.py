@@ -1,6 +1,10 @@
 """Base class for devices in the Velop mesh"""
 
-from typing import List
+from typing import (
+    List,
+    Optional,
+    Union,
+)
 
 
 class MeshDevice:
@@ -26,6 +30,22 @@ class MeshDevice:
         ret = f"{self.__class__.__name__}: "
         if self.name:
             ret += self.name
+        return ret
+
+    def _get_user_property(self, name: str) -> Optional[str]:
+        """Get the given property from the user properties"""
+
+        ret = None
+
+        user_properties: List[dict] = self._attribs.get("properties", [])
+        user_prop: Union[List[dict], str] = [
+            prop
+            for prop in user_properties
+            if prop.get("name") == name
+        ]
+        if user_prop:
+            ret = user_prop[0].get("value")
+
         return ret
 
     @property
@@ -56,18 +76,11 @@ class MeshDevice:
         :return: A string containing the name of the device
         """
 
-        user_set_name = [
-            prop.get("value")
-            for prop in self._attribs.get("properties", [])
-            if prop.get("name") == "userDeviceName"
-        ]
-        if user_set_name:
-            ret = user_set_name[0]
-        else:
-            ret = self._attribs.get("friendlyName")
-        if not ret:
-            ret = "Network Device"
-        return ret
+        return (
+            self._get_user_property(name="userDeviceName")
+            or self._attribs.get("friendlyName")
+            or "Network Device"
+        )
 
     @property
     def network(self) -> List[dict]:

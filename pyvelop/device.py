@@ -73,52 +73,28 @@ class Device(MeshDevice):
     def manufacturer(self) -> Optional[str]:
         """Get the manufacturer"""
 
-        ret: Optional[str] = self._attribs.get("model", {}).get("manufacturer", None)
-
-        user_properties: List[dict] = self._attribs.get("properties", [])
-        user_manufacturer: Union[List[dict], str] = [
-            prop
-            for prop in user_properties
-            if prop.get("name") == "userDeviceManufacturer"
-        ]
-        if user_manufacturer:
-            ret = user_manufacturer[0].get("value")
-
-        return ret
+        return (
+                self._get_user_property(name="userDeviceManufacturer")
+                or self._attribs.get("model", {}).get("manufacturer", None)
+        )
 
     @property
     def model(self) -> Optional[str]:
         """Get the model"""
 
-        ret: Optional[str] = self._attribs.get("model", {}).get("modelNumber", None)
-
-        user_properties: List[dict] = self._attribs.get("properties", [])
-        user_model: Union[List[dict], str] = [
-            prop
-            for prop in user_properties
-            if prop.get("name") == "userDeviceModelNumber"
-        ]
-        if user_model:
-            ret = user_model[0].get("value")
-
-        return ret
+        return (
+            self._get_user_property(name="userDeviceModelNumber")
+            or self._attribs.get("model", {}).get("modelNumber", None)
+        )
 
     @property
     def operating_system(self) -> Optional[str]:
         """Get the OS"""
 
-        ret: Optional[str] = self._attribs.get("unit", {}).get("operatingSystem", None)
-
-        user_properties: List[dict] = self._attribs.get("properties", [])
-        user_os: Union[List[dict], str] = [
-            prop
-            for prop in user_properties
-            if prop.get("name") == "userDeviceOS"
-        ]
-        if user_os:
-            ret = user_os[0].get("value")
-
-        return ret
+        return (
+                self._get_user_property(name="userDeviceOS")
+                or self._attribs.get("unit", {}).get("operatingSystem", None)
+        )
 
     @property
     def parental_control_schedule(self) -> dict:
