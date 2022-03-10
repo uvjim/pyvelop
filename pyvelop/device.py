@@ -4,6 +4,7 @@ import datetime
 from typing import (
     List,
     Optional,
+    Union,
 )
 
 from .base import MeshDevice
@@ -72,13 +73,35 @@ class Device(MeshDevice):
     def manufacturer(self) -> Optional[str]:
         """Get the manufacturer"""
 
-        return self._attribs.get("model", {}).get("manufacturer", None)
+        ret: Optional[str] = self._attribs.get("model", {}).get("manufacturer", None)
+
+        user_properties: List[dict] = self._attribs.get("properties", [])
+        user_manufacturer: Union[List[dict], str] = [
+            prop
+            for prop in user_properties
+            if prop.get("name") == "userDeviceManufacturer"
+        ]
+        if user_manufacturer:
+            ret = user_manufacturer[0].get("value")
+
+        return ret
 
     @property
     def model(self) -> Optional[str]:
         """Get the model"""
 
-        return self._attribs.get("model", {}).get("modelNumber", None)
+        ret: Optional[str] = self._attribs.get("model", {}).get("modelNumber", None)
+
+        user_properties: List[dict] = self._attribs.get("properties", [])
+        user_model: Union[List[dict], str] = [
+            prop
+            for prop in user_properties
+            if prop.get("name") == "userDeviceModelNumber"
+        ]
+        if user_model:
+            ret = user_model[0].get("value")
+
+        return ret
 
     @property
     def parental_control_schedule(self) -> dict:
