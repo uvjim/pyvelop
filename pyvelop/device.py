@@ -63,8 +63,14 @@ class Device(MeshDevice):
         self.__parent_name: Optional[str] = None
 
     @property
+    def manufacturer(self) -> Optional[str]:
+        """Get the manufacturer"""
+
+        return self._attribs.get("model", {}).get("manufacturer", None)
+
+    @property
     def model(self) -> Optional[str]:
-        """"""
+        """Get the model"""
 
         return self._attribs.get("model", {}).get("modelNumber", None)
 
