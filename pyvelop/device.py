@@ -4,7 +4,6 @@ import datetime
 from typing import (
     List,
     Optional,
-    Union,
 )
 
 from .base import MeshDevice
