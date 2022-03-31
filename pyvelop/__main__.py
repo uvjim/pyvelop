@@ -3,8 +3,12 @@ import asyncio
 import logging
 import sys
 from argparse import ArgumentParser
-from typing import List, ValuesView
+from typing import (
+    List,
+    ValuesView,
+)
 
+from pyvelop.const import _PACKAGE_VERSION
 from pyvelop.device import Device
 from pyvelop.mesh import (
     Mesh,
@@ -14,7 +18,6 @@ from pyvelop.mesh import (
     MeshTimeoutError,
 )
 from pyvelop.node import Node
-from pyvelop.const import _PACKAGE_VERSION
 
 
 def _setup_args(parser: ArgumentParser) -> None:

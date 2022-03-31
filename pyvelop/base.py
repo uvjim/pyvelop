@@ -1,9 +1,10 @@
 """Base class for devices in the Velop mesh"""
 
+from __future__ import annotations
+
 from typing import (
     List,
     Optional,
-    Union,
 )
 
 
@@ -38,7 +39,7 @@ class MeshDevice:
         ret = None
 
         user_properties: List[dict] = self._attribs.get("properties", [])
-        user_prop: Union[List[dict], str] = [
+        user_prop: List[dict] | str = [
             prop
             for prop in user_properties
             if prop.get("name") == name
