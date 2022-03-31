@@ -295,8 +295,9 @@ class Mesh:
                         elif resp.get("result") == "_ErrorUnauthorized":
                             err = MeshInvalidCredentials
                         elif resp.get("result") == "_ErrorUnknownAction":
+                            action: str = resp.get("error").split("'")[-2]
                             # noinspection PyTypeChecker
-                            err = MeshInvalidInput("Unknown JNAP Action")
+                            err = MeshInvalidInput(f"Unknown JNAP Action ({action})")
                         elif resp.get("result") == "ErrorDeviceNotInMasterMode":
                             err = MeshNodeNotPrimary
                         elif resp.get("result") != "OK" and not resp.get("result").startswith("_"):
