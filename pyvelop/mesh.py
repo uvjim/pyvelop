@@ -327,6 +327,7 @@ class Mesh:
         :param include_parental_control: True to include details about Parental Control
         :param include_speedtest_results: True to include the latest completed Speedtest result
         :param include_storage: True to include the external storage details if available
+        :param include_update_settings: True to include the fiwmware update settings
         :param include_wan: True to include WAN details
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
         """
@@ -382,6 +383,13 @@ class Mesh:
         if kwargs.get("include_firmware_update"):
             payload.append({
                 "action": const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
+                "request": {},
+            })
+
+        # -- get the settings for firmware updates --#
+        if kwargs.get("include_update_settings"):
+            payload.append({
+                "action": const.ACTION_JNAP_GET_UPDATE_SETTINGS,
                 "request": {},
             })
 
@@ -538,6 +546,16 @@ class Mesh:
             )
             if idx is not None:
                 ret[const.ATTR_MESH_PARENTAL_CONTROL_INFO] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
+            # region #-- populate the update settings --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_UPDATE_SETTINGS,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_UPDATE_SETTINGS] = responses[idx] \
                     .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
             # endregion
 
@@ -746,6 +764,7 @@ class Mesh:
             include_firmware_update=True,
             include_speedtest_state=True,
             include_storage=True,
+            include_update_settings=True,
         )
 
         # region #-- split the devices into their types --#
@@ -1179,6 +1198,20 @@ class Mesh:
             }
 
         return ret
+
+    @property
+    def update_type(self) -> Optional[str]:
+        """Get the update setting for firmware
+
+        N.B. Known values: "manual", "automaticallycheckandinstall"
+
+        :return: representation of the update type
+        """
+
+        update_setting: Optional[str] = self.__mesh_attributes.get(
+            const.ATTR_MESH_UPDATE_SETTINGS, {}
+        ).get("updatePolicy")
+        return update_setting.lower() if update_setting is not None else None
 
     @property
     def wan_dns(self) -> List:

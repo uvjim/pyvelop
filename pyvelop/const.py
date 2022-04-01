@@ -24,6 +24,7 @@ ACTION_JNAP_GET_STORAGE_PARTITIONS: str = f"{ACTION_JNAP_ROOT}/nodes/storage/Get
 # noinspection DuplicatedCode
 ACTION_JNAP_GET_STORAGE_SMB_SERVER: str = f"{ACTION_JNAP_ROOT}/nodes/storage/GetSMBServerSettings"
 ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE: str = f"{ACTION_JNAP_ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
+ACTION_JNAP_GET_UPDATE_SETTINGS: str = f"{ACTION_JNAP_ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
 ACTION_JNAP_GET_WAN_INFO: str = f"{ACTION_JNAP_ROOT}/router/GetWANStatus3"
 ACTION_JNAP_REBOOT: str = f"{ACTION_JNAP_ROOT}/core/Reboot"
 ACTION_JNAP_SET_GUEST_NETWORK: str = f"{ACTION_JNAP_ROOT}/guestnetwork/SetGuestRadioSettings2"
@@ -34,16 +35,17 @@ ACTION_JNAP_UPDATE_FIRMWARE: str = f"{ACTION_JNAP_ROOT}/nodes/firmwareupdate/Upd
 # endregion
 
 # region #-- attributes used for the mesh --#
-ATTR_MESH_CONNECTED_NODE = "connected_node"
-ATTR_MESH_DEVICES = "devices"
-ATTR_MESH_GUEST_NETWORK_INFO = "guest_network"
-ATTR_MESH_NODES = "nodes"
-ATTR_MESH_PARENTAL_CONTROL_INFO = "parental_control"
-ATTR_MESH_SPEEDTEST_RESULTS = "speedtest_results"
-ATTR_MESH_SPEEDTEST_STATE = "speedtest_state"
-ATTR_MESH_STORAGE = "storage"
-ATTR_MESH_UPDATE_FIRMWARE_STATE = "check_update_state"
-ATTR_MESH_WAN_INFO = "wan_info"
+ATTR_MESH_CONNECTED_NODE: str = "connected_node"
+ATTR_MESH_DEVICES: str = "devices"
+ATTR_MESH_GUEST_NETWORK_INFO: str = "guest_network"
+ATTR_MESH_NODES: str = "nodes"
+ATTR_MESH_PARENTAL_CONTROL_INFO: str = "parental_control"
+ATTR_MESH_SPEEDTEST_RESULTS: str = "speedtest_results"
+ATTR_MESH_SPEEDTEST_STATE: str = "speedtest_state"
+ATTR_MESH_STORAGE: str = "storage"
+ATTR_MESH_UPDATE_FIRMWARE_STATE: str = "check_update_state"
+ATTR_MESH_UPDATE_SETTINGS: str = "update_settings"
+ATTR_MESH_WAN_INFO: str = "wan_info"
 # endregion
 
 # region #-- default payloads for the actions --#
