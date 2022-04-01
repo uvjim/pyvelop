@@ -123,6 +123,14 @@ async def main() -> None:
             _LOGGER.error("Timeout connecting to %s", args.primary_node)
         else:
             if args.target == "mesh":
+                # region #-- general details --#
+                if all_args:
+                    _LOGGER.debug("Processing general details")
+                    section = "Overview"
+                    section += f"\n{'-' * len(section)}\n"
+                    section += f"Update Mode: {_mesh.update_type}"
+                    sections.append(section)
+
                 # region #-- get the node names --#
                 if args.get_nodes or all_args:
                     _LOGGER.debug("Preparing node names")
