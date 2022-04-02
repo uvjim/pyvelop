@@ -231,7 +231,14 @@ class Mesh(LoggerFormatter):
         node_address: Optional[str] = None,
         payload: Optional[List[Dict] | Dict] = None
     ) -> Dict:
-        """"""
+        """Send the API request
+
+        :param action: the JNAP action to use in the request
+        :param node_address: the target to send the request to (defaults to the connected node)
+        :param payload: additional data for the request
+
+        :return: dictionary containing the results of the request
+        """
 
         _LOGGER.debug(self.message_format("entered"))
         target = node_address or self._mesh_attributes[ATTR_MESH_CONNECTED_NODE]

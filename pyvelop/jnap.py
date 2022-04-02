@@ -1,4 +1,4 @@
-""""""
+"""Interact with the JNAP API"""
 
 # region #-- imports --#
 from __future__ import annotations
@@ -60,7 +60,7 @@ class Actions:
 
 
 class Request(LoggerFormatter):
-    """"""
+    """Represents a request to be made to the API"""
 
     def __init__(
         self,
@@ -93,13 +93,21 @@ class Request(LoggerFormatter):
 
     @staticmethod
     def jnap_url(target) -> str:
-        """Return the URL that should be used for the request"""
+        """Return the URL that should be used for the request
+
+        :param target: the API host
+        :return: string containing the base URL for all JNAP requests
+        """
 
         # noinspection HttpUrlsUsage
         return f"http://{target}/JNAP/"
 
     async def execute(self, timeout: int = 10) -> Response:
-        """Send the request"""
+        """Send the request
+
+        :param timeout: the timeout in seconds for the request, defaults to 10s
+        :return: a Response object representing the returned results
+        """
 
         _LOGGER.debug(self.message_format("entered"))
 
@@ -137,7 +145,7 @@ class Request(LoggerFormatter):
 
 
 class Response(LoggerFormatter):
-    """"""
+    """Represents a response from the API"""
 
     ACTION_KEY: str = "action"
     RESULT_KEY: str = "result"
@@ -146,7 +154,11 @@ class Response(LoggerFormatter):
     RESULTS_KEY_ERROR: str = "error"
 
     def __init__(self, action: str, data: Dict) -> None:
-        """Constructor"""
+        """Constructor
+
+        :param action: The action that was issued in the request to cause the response
+        :param data: The JSON response received in response to the API call
+        """
 
         super().__init__(prefix=f"{self.__class__.__name__}.")
 
@@ -155,21 +167,30 @@ class Response(LoggerFormatter):
 
     @property
     def action(self) -> str:
-        """Return the action associated with the response"""
+        """Return the action associated with the response
+
+        :return: the JNAP action used in the request
+        """
 
         return self._action
 
     @property
     def data(self) -> Dict:
-        """Return the data as returned by the API"""
+        """Return the data as returned by the API
+
+        :return: If a successful request the return will be a dictionary
+                 in the form {"action": <action_for_request>, "result": <result_as_per_API>}
+                 If the request was unsuccessfull the return will be in the form
+                 {"result": <result_as_per_API>}
+        """
 
         ret: Dict = {
             self.ACTION_KEY: self._action
         }
         if self.is_successful:
             ret[self.RESULT_KEY] = (
-                    self._data.get(self.RESULTS_KEY_SINGLE)
-                    or self._data.get(self.RESULTS_KEY_TRANSACTION)
+                self._data.get(self.RESULTS_KEY_SINGLE)
+                or self._data.get(self.RESULTS_KEY_TRANSACTION)
             )
         else:
             ret[self.RESULT_KEY] = self._data
