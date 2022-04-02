@@ -128,8 +128,10 @@ async def main() -> None:
                     _LOGGER.debug("Processing general details")
                     section = "Overview"
                     section += f"\n{'-' * len(section)}\n"
-                    section += f"Update Mode: {_mesh.update_type}"
+                    section += f"Update Mode: {_mesh.update_type}\n"
+                    section += f"Speedtest Status: {_mesh.speedtest_status or 'N/A'}"
                     sections.append(section)
+                # endregion
 
                 # region #-- get the node names --#
                 if args.get_nodes or all_args:
@@ -182,7 +184,7 @@ async def main() -> None:
                     sections.append(section)
                 # endregion
 
-                # region #-- get the storage server settings --#
+                # region #-- get available storage --#
                 if args.get_available_storage or all_args:
                     _LOGGER.debug("Preparing available storage")
                     section = "Available Storage"
