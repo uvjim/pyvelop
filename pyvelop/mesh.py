@@ -396,7 +396,7 @@ class Mesh(LoggerFormatter):
             # endregion
 
             # region #-- populate device and node details --#
-            if ret[ATTR_MESH_DEVICES]:
+            if ret[ATTR_MESH_RAW_DEVICES]:
                 device_info = ret[ATTR_MESH_RAW_DEVICES].get("devices", [])
 
                 # region #-- build the properties for the device types --#
