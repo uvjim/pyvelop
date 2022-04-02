@@ -1,5 +1,6 @@
 """Represents a node in the mesh"""
 
+# region #-- imports --#
 from __future__ import annotations
 
 from typing import (
@@ -8,10 +9,11 @@ from typing import (
 )
 
 from .base import MeshDevice
-from .const import (
-    NODE_TYPE_PRIMARY,
-    NODE_TYPE_SECONDARY,
-)
+
+# endregion
+
+NODE_TYPE_PRIMARY = "primary"
+NODE_TYPE_SECONDARY = "secondary"
 
 
 class Node(MeshDevice):

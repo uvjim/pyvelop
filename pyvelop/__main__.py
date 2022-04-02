@@ -10,13 +10,13 @@ from typing import (
 
 from pyvelop.const import _PACKAGE_VERSION
 from pyvelop.device import Device
-from pyvelop.mesh import (
-    Mesh,
+from pyvelop.exceptions import (
     MeshBadResponse,
     MeshNodeNotPrimary,
     MeshInvalidCredentials,
     MeshTimeoutError,
 )
+from pyvelop.mesh import Mesh
 from pyvelop.node import Node
 
 
@@ -101,6 +101,7 @@ async def main() -> None:
             logging.getLogger("pyvelop.mesh").setLevel(logging.DEBUG)
             logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.INFO)
             if args.verbose > 2:
+                logging.getLogger("pyvelop.jnap").setLevel(logging.DEBUG)
                 logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.DEBUG)
     # endregion
 
@@ -331,6 +332,7 @@ async def main() -> None:
                             section = "Overview"
                             section += f"\n{'-' * len(section)}\n"
                             section += f"Device ID: {_d.unique_id}\n"\
+                                       f"Last Queried: {_d.results_time}\n"\
                                        f"Name: {_d.name}\n" \
                                        f"Manufacturer: {_d.manufacturer}\n" \
                                        f"Model: {_d.model}\n" \
