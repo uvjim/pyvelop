@@ -34,20 +34,6 @@ ACTION_JNAP_TRANSACTION: str = f"{ACTION_JNAP_ROOT}/core/Transaction"
 ACTION_JNAP_UPDATE_FIRMWARE: str = f"{ACTION_JNAP_ROOT}/nodes/firmwareupdate/UpdateFirmwareNow"
 # endregion
 
-# region #-- attributes used for the mesh --#
-ATTR_MESH_CONNECTED_NODE: str = "connected_node"
-ATTR_MESH_DEVICES: str = "devices"
-ATTR_MESH_GUEST_NETWORK_INFO: str = "guest_network"
-ATTR_MESH_NODES: str = "nodes"
-ATTR_MESH_PARENTAL_CONTROL_INFO: str = "parental_control"
-ATTR_MESH_SPEEDTEST_RESULTS: str = "speedtest_results"
-ATTR_MESH_SPEEDTEST_STATE: str = "speedtest_state"
-ATTR_MESH_STORAGE: str = "storage"
-ATTR_MESH_UPDATE_FIRMWARE_STATE: str = "check_update_state"
-ATTR_MESH_UPDATE_SETTINGS: str = "update_settings"
-ATTR_MESH_WAN_INFO: str = "wan_info"
-# endregion
-
 # region #-- default payloads for the actions --#
 DEF_JNAP_SPEEDTEST_PAYLOAD: dict = {
     "healthCheckModule": "SpeedTest",
@@ -68,7 +54,6 @@ DEF_JNAP_SPEEDTEST_RESULTS_INVALID: List[str] = [
 # region #-- keys that are used in responses --#
 KEY_ACTION_JNAP_RESPONSE_RESULTS: str = "output"
 # endregion
-
 
 # region #-- node types --#
 NODE_TYPE_PRIMARY = "primary"
