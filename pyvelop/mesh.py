@@ -1,12 +1,17 @@
 """Representation of the mesh"""
 
 # region #-- imports --#
+from __future__ import annotations
+
 import base64
 import json
 import logging
 import time
 from asyncio.exceptions import TimeoutError
-from typing import Optional, Union, List
+from typing import (
+    List,
+    Optional,
+)
 
 import aiohttp
 from aiohttp.client_exceptions import (
@@ -37,7 +42,7 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
-def _get_action_index(action: str, payload: List[dict]) -> Union[int, None]:
+def _get_action_index(action: str, payload: List[dict]) -> Optional[int]:
     """Determine which index the supplied action is in the JNAP transaction results
 
     The results are returned in a list in the order they were requested, but we don't really
@@ -57,7 +62,7 @@ def _get_action_index(action: str, payload: List[dict]) -> Union[int, None]:
     return ret
 
 
-def _is_valid_response(response: Union[aiohttp.ClientResponse, dict]) -> bool:
+def _is_valid_response(response: aiohttp.ClientResponse | dict) -> bool:
     """Check to see if the response returned from the API was valid.
 
     At this point we're just checking if it is valid JSON and the result is 'OK'
@@ -167,7 +172,7 @@ class Mesh(LoggerFormatter):
     If you need live information then call the corresponding method.
     """
 
-    def __init__(self, node: str, password: str, username: str = "admin", request_timeout: Union[int, None] = None):
+    def __init__(self, node: str, password: str, username: str = "admin", request_timeout: Optional[int] = None):
         """Constructor
 
         :param node: The node we should make a connection to
@@ -443,7 +448,7 @@ class Mesh(LoggerFormatter):
                         device_backhaul = {}
                     # endregion
                     # region #-- calculate if there is a firmware update available --#
-                    node_firmware: Union[List, dict] = {}
+                    node_firmware: List | dict = {}
                     if const.ATTR_MESH_UPDATE_FIRMWARE_STATE in ret:
                         firmware_status = ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
                         node_firmware = [
@@ -468,7 +473,7 @@ class Mesh(LoggerFormatter):
                 if node.__class__.__name__.lower() == "node":
                     # region #-- calculate the connected devices for nodes --#
                     connected_devices: List = []
-                    parent_name: Union[str, None] = None
+                    parent_name: Optional[str] = None
                     for device in devices:
                         for adapter in device.network:
                             if adapter.get("parent_id") == node.unique_id:
@@ -487,7 +492,7 @@ class Mesh(LoggerFormatter):
                 elif node.__class__.__name__.lower() == "device":
                     # region #-- calculate parent name for devices --#
                     attrib_connections = getattr(node, "_attribs", {}).get("connections", [])
-                    parent: Union[str, None] = None
+                    parent: Optional[str] = None
                     for conn in attrib_connections:
                         if conn.get("parentDeviceID", ""):
                             try:
@@ -613,7 +618,7 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("exited"))
         return ret
 
-    async def __async_set_guest_wifi_state(self, state: bool, radios: Union[List, None] = None) -> None:
+    async def __async_set_guest_wifi_state(self, state: bool, radios: Optional[List] = None) -> None:
         """Set the state of the guest Wi-Fi in the mesh
 
         :param state: True to enable, False to disable
@@ -633,7 +638,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("exited"))
 
-    async def __async_set_parental_control_state(self, state: bool, rules: Union[List, None] = None) -> None:
+    async def __async_set_parental_control_state(self, state: bool, rules: Optional[List] = None) -> None:
         """Set the state of Parental Control in the mesh
 
         :param state: True to enable, False to disable
@@ -788,7 +793,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("exited"))
 
-    async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Union[Device, Node]:
+    async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Device | Node:
         """Get a Device or Node object based on the ID.
 
         By default, the stored information is used, but you can refresh it from the API.
@@ -801,7 +806,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered, device_id: %s, force_refresh: %s"), device_id, force_refresh)
 
-        all_devices: List[Union[Device, Node]]
+        all_devices: List[Device | Node]
         if not force_refresh:
             all_devices = self.devices + self.nodes
         else:
@@ -818,11 +823,7 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("exited"))
         return ret
 
-    async def async_get_device_from_mac_address(
-            self,
-            mac_address: str,
-            force_refresh: bool = False
-    ) -> Union[Device, Node]:
+    async def async_get_device_from_mac_address(self, mac_address: str, force_refresh: bool = False) -> Device | Node:
         """To get a Device or Node object based on the MAC address.
 
         Searches through all known adapters on the device to find a match.
@@ -837,9 +838,9 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("entered, mac_address: %s, force_refresh: %s"), mac_address, force_refresh)
 
         # noinspection PyTypeChecker
-        ret: Union[Device, Node] = None
+        ret: Optional[Device | Node] = None
 
-        all_devices: List[Union[Device, Node]]
+        all_devices: List[Device | Node]
         if not force_refresh:
             all_devices = self.nodes + self.devices
         else:
