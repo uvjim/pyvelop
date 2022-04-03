@@ -29,10 +29,7 @@ from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
     MeshInvalidArguments,
-    MeshInvalidCredentials,
     MeshInvalidInput,
-    MeshInvalidOutput,
-    MeshNodeNotPrimary,
     MeshTimeoutError,
     MeshTooManyMatches,
 )
@@ -236,7 +233,7 @@ class Mesh(LoggerFormatter):
         return f"{self.__class__.__name__}: {self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]}"
 
     # region #-- private methods --#
-    async def __async_make_request(self, action: str, payload=None, node_address: Optional[str] = None) -> dict:
+    async def _async_make_request(self, action: str, payload=None, node_address: Optional[str] = None) -> dict:
         """Execute the API request against the connected node.
 
         :param action: The JNAP action to execute
@@ -286,41 +283,14 @@ class Mesh(LoggerFormatter):
             except aiohttp.ClientError:
                 raise MeshBadResponse
             else:
-                _LOGGER_VERBOSE.debug(self.message_format("Response: %s"), json.dumps(resp_json))
-                if _is_valid_response(response=resp_json):
-                    ret = resp_json
-                else:  # process API specific errors
-                    if api.Response.DATA_KEY_TRANSACTION not in resp_json:
-                        resp_json = {api.Response.DATA_KEY_TRANSACTION: [resp_json]}
-
-                    err = None
-                    for resp in resp_json.get(api.Response.DATA_KEY_TRANSACTION, []):
-                        err = None
-                        if resp.get("result") == "_ErrorInvalidInput":
-                            err = MeshInvalidInput(resp.get("error"))
-                        elif resp.get("result") == "_ErrorInvalidOutput":
-                            err = MeshInvalidOutput(resp.get("error"))
-                        elif resp.get("result") == "_ErrorUnauthorized":
-                            err = MeshInvalidCredentials
-                        elif resp.get("result") == "_ErrorUnknownAction":
-                            # noinspection PyTypeChecker
-                            err = MeshInvalidInput("Unknown JNAP Action")
-                        elif resp.get("result") == "ErrorDeviceNotInMasterMode":
-                            err = MeshNodeNotPrimary
-                        elif resp.get("result") != "OK" and not resp.get("result").startswith("_"):
-                            err = MeshInvalidInput(resp.get("result"))
-
-                        if err:
-                            break
-
-                    if not err:
-                        _LOGGER.error(self.message_format("Unknown error received: %s"), json.dumps(resp_json))
-                        err = MeshBadResponse
-
-                    raise err
-
-        _LOGGER.debug(self.message_format("exited"))
-        return ret
+                _LOGGER_VERBOSE.debug(self.message_format("response: %s"), json.dumps(resp_json))
+                try:
+                    req_resp = api.Response(action=action, data=resp_json)
+                except Exception as err:
+                    raise err from None
+                else:
+                    _LOGGER.debug(self.message_format("exited"))
+                    return req_resp.data
 
     async def __async_gather_details(self, **kwargs) -> dict:
         """Work is done here to gather the necessary details for mesh.
@@ -399,9 +369,8 @@ class Mesh(LoggerFormatter):
                 "request": {},
             })
 
-        resp = await self.__async_make_request(action=api.Actions.TRANSACTION, payload=payload)
-        responses = resp.get(api.Response.DATA_KEY_TRANSACTION, [])
-        if responses:
+        resp = await self._async_make_request(action=api.Actions.TRANSACTION, payload=payload)
+        if resp:
             # region #-- populate the update check details --#
             # this needs to happen early because we'll use the results when populating the node details
             idx = _get_action_index(
@@ -409,7 +378,7 @@ class Mesh(LoggerFormatter):
                 payload=payload
             )
             if idx is not None:
-                ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE] = responses[idx] \
+                ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE] = resp[idx] \
                     .get(api.Response.DATA_KEY_SINGLE, {})
             # endregion
 
@@ -420,7 +389,7 @@ class Mesh(LoggerFormatter):
             )
             device_info: List[dict] = []
             if idx is not None:
-                device_info = responses[idx] \
+                device_info = resp[idx] \
                     .get(api.Response.DATA_KEY_SINGLE, {}) \
                     .get("devices", [])
                 _process_raw_device_results(device_results=device_info)
@@ -431,7 +400,7 @@ class Mesh(LoggerFormatter):
             )
             backhaul_info: dict = {}
             if idx is not None:
-                backhaul_info = responses[idx] \
+                backhaul_info = resp[idx] \
                     .get(api.Response.DATA_KEY_SINGLE, {}) \
                     .get("backhaulDevices", [])
 
@@ -512,7 +481,7 @@ class Mesh(LoggerFormatter):
                             payload=payload
                         )
                         if idx is not None:
-                            pc_details = responses[idx] \
+                            pc_details = resp[idx] \
                                 .get(api.Response.DATA_KEY_SINGLE, {})
                             network_adapater_macs = [adapter.get("mac") for adapter in node.network]
                             for mac in network_adapater_macs:
@@ -534,7 +503,7 @@ class Mesh(LoggerFormatter):
                 payload=payload
             )
             if idx is not None:
-                ret[const.ATTR_MESH_GUEST_NETWORK_INFO] = responses[idx] \
+                ret[const.ATTR_MESH_GUEST_NETWORK_INFO] = resp[idx] \
                     .get(api.Response.DATA_KEY_SINGLE, {})
             # endregion
 
@@ -544,7 +513,7 @@ class Mesh(LoggerFormatter):
                 payload=payload
             )
             if idx is not None:
-                ret[const.ATTR_MESH_PARENTAL_CONTROL_INFO] = responses[idx] \
+                ret[const.ATTR_MESH_PARENTAL_CONTROL_INFO] = resp[idx] \
                     .get(api.Response.DATA_KEY_SINGLE, {})
             # endregion
 
@@ -554,7 +523,7 @@ class Mesh(LoggerFormatter):
                 payload=payload
             )
             if idx is not None:
-                ret[const.ATTR_MESH_WAN_INFO] = responses[idx] \
+                ret[const.ATTR_MESH_WAN_INFO] = resp[idx] \
                     .get(api.Response.DATA_KEY_SINGLE, {})
             # endregion
 
@@ -564,7 +533,7 @@ class Mesh(LoggerFormatter):
                 payload=payload
             )
             if idx is not None:
-                speedtest_results = responses[idx] \
+                speedtest_results = resp[idx] \
                     .get(api.Response.DATA_KEY_SINGLE, {}) \
                     .get("healthCheckResults", [])
                 speedtest_results = _process_speedtest_results(
@@ -582,7 +551,7 @@ class Mesh(LoggerFormatter):
             )
             if idx is not None:
                 ret[const.ATTR_MESH_SPEEDTEST_STATE] = _get_speedtest_state(
-                    speedtest_results=responses[idx]
+                    speedtest_results=resp[idx]
                     .get(api.Response.DATA_KEY_SINGLE, {})
                     .get("speedTestResult", {})
                 )
@@ -602,15 +571,14 @@ class Mesh(LoggerFormatter):
                 },
             ]
             try:
-                resp = await self.__async_make_request(action=api.Actions.TRANSACTION, payload=payload)
+                resp = await self._async_make_request(action=api.Actions.TRANSACTION, payload=payload)
             except MeshInvalidInput:
-                _LOGGER.debug("storage function not supported")
+                _LOGGER.debug(self.message_format("storage function not supported"))
             else:
-                responses = resp.get(api.Response.DATA_KEY_TRANSACTION, [])
-                if responses:
+                if resp:
                     ret[const.ATTR_MESH_STORAGE] = {
-                        "smb_server_settings": responses[0].get(api.Response.DATA_KEY_SINGLE, {}),
-                        "available_partitions": responses[1].get(api.Response.DATA_KEY_SINGLE, {})
+                        "smb_server_settings": resp[0].get(api.Response.DATA_KEY_SINGLE, {}),
+                        "available_partitions": resp[1].get(api.Response.DATA_KEY_SINGLE, {})
                     }
         # endregion
 
@@ -639,7 +607,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered"))
 
-        await self.__async_make_request(
+        await self._async_make_request(
             action=api.Actions.UPDATE_FIRMWARE,
             payload={"onlyCheck": True},
         )
@@ -690,7 +658,7 @@ class Mesh(LoggerFormatter):
             payload = {
                 "deviceID": device_id
             }
-            await self.__async_make_request(action=api.Actions.DELETE_DEVICE, payload=payload)
+            await self._async_make_request(action=api.Actions.DELETE_DEVICE, payload=payload)
         else:
             raise MeshInvalidArguments
 
@@ -855,7 +823,7 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("entered"))
 
         payload = {**api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS, {}), "lastNumberOfResults": count}
-        resp = await self.__async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload)
+        resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload)
         healthcheck_results = resp.get(api.Response.DATA_KEY_SINGLE, {}).get("healthCheckResults")
 
         _LOGGER.debug(self.message_format("exited"))
@@ -936,7 +904,7 @@ class Mesh(LoggerFormatter):
             # noinspection PyTypeChecker
             raise MeshInvalidInput(f"{node_name}: no valid address found")
 
-        await self.__async_make_request(
+        await self._async_make_request(
             action=api.Actions.REBOOT,
             node_address=api.jnap_url(target=node_ip[0])
         )
@@ -964,7 +932,7 @@ class Mesh(LoggerFormatter):
             "isGuestNetworkEnabled": state,
             "radios": radios,
         }
-        await self.__async_make_request(action=api.Actions.SET_GUEST_NETWORK, payload=payload)
+        await self._async_make_request(action=api.Actions.SET_GUEST_NETWORK, payload=payload)
 
         _LOGGER.debug(self.message_format("exited"))
 
@@ -987,7 +955,7 @@ class Mesh(LoggerFormatter):
             "isParentalControlEnabled": state,
             "rules": rules,
         }
-        await self.__async_make_request(action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload)
+        await self._async_make_request(action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload)
 
         _LOGGER.debug(self.message_format("exited"))
 
@@ -1005,7 +973,7 @@ class Mesh(LoggerFormatter):
         payload = {
             "runHealthCheckModule": "SpeedTest"
         }
-        await self.__async_make_request(action=api.Actions.START_SPEEDTEST, payload=payload)
+        await self._async_make_request(action=api.Actions.START_SPEEDTEST, payload=payload)
 
         _LOGGER.debug(self.message_format("exited"))
 
@@ -1017,7 +985,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered"))
 
-        ret = await self.__async_make_request(action=api.Actions.CHECK_PASSWORD)
+        ret = await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
         ret = True if ret.get("result", False) else False
 
         _LOGGER.debug(self.message_format("exited"))
