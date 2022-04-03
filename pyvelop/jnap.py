@@ -3,10 +3,25 @@
 # region #-- imports --#
 from __future__ import annotations
 
-from typing import Dict
+import json
+import logging
+from typing import (
+    Any,
+    Dict,
+)
 
+from .exceptions import (
+    MeshBadResponse,
+    MeshInvalidCredentials,
+    MeshInvalidInput,
+    MeshInvalidOutput,
+    MeshNodeNotPrimary,
+)
+from .logger import LoggerFormatter
 
 # endregion
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def jnap_url(target) -> str:
@@ -59,8 +74,86 @@ class Defaults:
     }
 
 
-class Response:
+class Response(LoggerFormatter):
     """Represents a response from the API"""
 
     DATA_KEY_SINGLE: str = "output"
     DATA_KEY_TRANSACTION: str = "responses"
+    RESULT_KEY: str = "result"
+
+    def __init__(self, action: str, data: Dict[str, Any]) -> None:
+        """Constructor
+
+        :param action: The action that was issued in the request to cause the response
+        :param data: The JSON response received in response to the API call
+        """
+
+        super().__init__(prefix=f"{self.__class__.__name__}.")
+
+        self._action: str = action
+        self._data: Dict[str, Any] = data
+
+        self._process_data()
+
+    def _process_data(self) -> None:
+        """Process the given data to check for errors"""
+
+        if self._data.get(self.RESULT_KEY) != "OK":
+            responses = (
+                self.data
+                if self.action == Actions.TRANSACTION
+                else [self.data]
+            )
+
+            err = None
+            for resp in responses:
+                err = None
+                if resp.get(self.RESULT_KEY) == "_ErrorInvalidInput":
+                    err = MeshInvalidInput(resp.get("error"))
+                elif resp.get(self.RESULT_KEY) == "_ErrorInvalidOutput":
+                    err = MeshInvalidOutput(resp.get("error"))
+                elif resp.get(self.RESULT_KEY) == "_ErrorUnauthorized":
+                    err = MeshInvalidCredentials
+                elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
+                    action = (
+                        resp.get("error")
+                        if self.action == Actions.TRANSACTION
+                        else f"Unknown action URI '{self.action}'"
+                    )
+                    err = MeshInvalidInput(action)
+                elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
+                    err = MeshNodeNotPrimary
+                elif resp.get(self.RESULT_KEY).startswith("_"):
+                    err = MeshInvalidInput(resp.get(self.RESULT_KEY))
+
+                if err:
+                    break
+
+            if err is None:
+                _LOGGER.error(self.message_format("unknown error received: %s"), json.dumps(self._data))
+                err = MeshBadResponse
+
+            raise err
+
+    # region #-- properties --#
+    @property
+    def action(self) -> str:
+        """Return the action that resulted in the response
+
+        :return: string containing the action
+        """
+
+        return self._action
+
+    @property
+    def data(self) -> Dict[str, Any]:
+        """"""
+
+        ret = (
+            self._data.get(self.DATA_KEY_TRANSACTION)
+            if self.action == Actions.TRANSACTION
+            else self._data.get(self.DATA_KEY_SINGLE)
+        )
+
+        return ret
+    # endregion
