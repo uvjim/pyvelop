@@ -3,20 +3,17 @@ import asyncio
 import logging
 import sys
 from argparse import ArgumentParser
-from typing import (
-    List,
-    ValuesView,
-)
+from typing import List, ValuesView
 
 from pyvelop.const import _PACKAGE_VERSION
 from pyvelop.device import Device
-from pyvelop.exceptions import (
+from pyvelop.mesh import (
+    Mesh,
     MeshBadResponse,
     MeshNodeNotPrimary,
     MeshInvalidCredentials,
     MeshTimeoutError,
 )
-from pyvelop.mesh import Mesh
 from pyvelop.node import Node
 
 
@@ -101,7 +98,6 @@ async def main() -> None:
             logging.getLogger("pyvelop.mesh").setLevel(logging.DEBUG)
             logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.INFO)
             if args.verbose > 2:
-                logging.getLogger("pyvelop.jnap").setLevel(logging.DEBUG)
                 logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.DEBUG)
     # endregion
 
@@ -124,16 +120,6 @@ async def main() -> None:
             _LOGGER.error("Timeout connecting to %s", args.primary_node)
         else:
             if args.target == "mesh":
-                # region #-- general details --#
-                if all_args:
-                    _LOGGER.debug("Processing general details")
-                    section = "Overview"
-                    section += f"\n{'-' * len(section)}\n"
-                    section += f"Update Mode: {_mesh.update_type}\n"
-                    section += f"Speedtest Status: {_mesh.speedtest_status or 'N/A'}"
-                    sections.append(section)
-                # endregion
-
                 # region #-- get the node names --#
                 if args.get_nodes or all_args:
                     _LOGGER.debug("Preparing node names")
@@ -185,7 +171,7 @@ async def main() -> None:
                     sections.append(section)
                 # endregion
 
-                # region #-- get available storage --#
+                # region #-- get the storage server settings --#
                 if args.get_available_storage or all_args:
                     _LOGGER.debug("Preparing available storage")
                     section = "Available Storage"
@@ -332,7 +318,6 @@ async def main() -> None:
                             section = "Overview"
                             section += f"\n{'-' * len(section)}\n"
                             section += f"Device ID: {_d.unique_id}\n"\
-                                       f"Last Queried: {_d.results_time}\n"\
                                        f"Name: {_d.name}\n" \
                                        f"Manufacturer: {_d.manufacturer}\n" \
                                        f"Model: {_d.model}\n" \

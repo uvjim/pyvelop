@@ -1,103 +1,79 @@
 """Representation of the mesh"""
 
-# region #-- imports --#
-from __future__ import annotations
-
+import base64
 import json
 import logging
 import time
-from typing import (
-    Dict,
-    List,
-    Optional,
-)
+from asyncio.exceptions import TimeoutError
+from typing import Optional, Union, List
 
 import aiohttp
-
-from . import (
-    const,
-    jnap as api,
+from aiohttp.client_exceptions import (
+    ClientConnectionError,
+    ClientConnectorError,
 )
+
+from . import const
 from .device import Device
 from .exceptions import (
     MeshBadResponse,
+    MeshConnectionError,
     MeshDeviceNotFoundResponse,
     MeshInvalidArguments,
     MeshInvalidCredentials,
     MeshInvalidInput,
     MeshInvalidOutput,
     MeshNodeNotPrimary,
+    MeshTimeoutError,
     MeshTooManyMatches,
 )
-from .logger import LoggerFormatter
-from .node import (
-    Node,
-    NODE_TYPE_PRIMARY
-)
-
-# endregion
+from .node import Node
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
-# region #-- attributes used for the mesh --#
-ATTR_MESH_BACKHAUL: str = "backhaul"
-ATTR_MESH_CONNECTED_NODE: str = "connected_node"
-ATTR_MESH_DEVICES: str = "devices"
-ATTR_MESH_GUEST_NETWORK_INFO: str = "guest_network"
-ATTR_MESH_NODES: str = "nodes"
-ATTR_MESH_PARENTAL_CONTROL_INFO: str = "parental_control"
-ATTR_MESH_RAW_DEVICES: str = "raw_devices"
-ATTR_MESH_RAW_SPEEDTEST_STATE: str = "raw_speedtest_state"
-ATTR_MESH_SPEEDTEST_RESULTS: str = "speedtest_results"
-ATTR_MESH_SPEEDTEST_STATE: str = "speedtest_state"
-ATTR_MESH_STORAGE: str = "storage"
-ATTR_MESH_UPDATE_FIRMWARE_STATE: str = "check_update_state"
-ATTR_MESH_UPDATE_SETTINGS: str = "update_settings"
-ATTR_MESH_WAN_INFO: str = "wan_info"
-# endregion
 
-# region #-- default payloads --#
-DEF_JNAP_CHECK_FIRMWARE_PAYLOAD: dict = {
-    "onlyCheck": True
-}
-DEF_JNAP_SPEEDTEST_PAYLOAD: dict = {
-    "healthCheckModule": "SpeedTest",
-    "includeModuleResults": True,
-    "lastNumberOfResults": 1,
-}
-# endregion
+def _get_action_index(action: str, payload: List[dict]) -> Union[int, None]:
+    """Determine which index the supplied action is in the JNAP transaction results
 
-JNAP_TO_ATTRIBUTE: Dict[str, str] = {
-    api.Actions.GET_BACKHAUL: ATTR_MESH_BACKHAUL,
-    api.Actions.GET_DEVICES: ATTR_MESH_RAW_DEVICES,
-    api.Actions.GET_GUEST_NETWORK_INFO: ATTR_MESH_GUEST_NETWORK_INFO,
-    api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_MESH_PARENTAL_CONTROL_INFO,
-    api.Actions.GET_SPEEDTEST_RESULTS: ATTR_MESH_SPEEDTEST_RESULTS,
-    api.Actions.GET_SPEEDTEST_STATE: ATTR_MESH_RAW_SPEEDTEST_STATE,
-    api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_MESH_UPDATE_FIRMWARE_STATE,
-    api.Actions.GET_UPDATE_SETTINGS: ATTR_MESH_UPDATE_SETTINGS,
-    api.Actions.GET_WAN_INFO: ATTR_MESH_WAN_INFO,
-}
+    The results are returned in a list in the order they were requested, but we don't really
+    now which order this will be because actions could be added to the payload dynamically.
 
+    :param action: The JNAP action to look for
+    :param payload: The payload list as it was passed to the API
+    :return: The index of the action or None if it isn't found
+    """
 
-def _get_speedtest_status_text(results: Dict) -> str:
-    """"""
-
-    speedtest_results: Dict = results.get("speedTestResult", {})
-    if speedtest_results:
-        if speedtest_results.get("uploadBandwidth", 0):
-            ret = "Checking upload speed"
-        elif speedtest_results.get("downloadBandwidth", 0):
-            ret = "Checking download speed"
-        elif speedtest_results.get("latency"):
-            ret = "Checking latency"
-        elif speedtest_results.get("serverID", "") == '0':
-            ret = "Detecting server"
-        else:
-            ret = ""
+    ret = [idx for idx, p in enumerate(payload) if p.get("action") == action]
+    if ret:
+        ret = ret[0]
     else:
-        ret = ""
+        ret = None
+
+    return ret
+
+
+def _is_valid_response(response: Union[aiohttp.ClientResponse, dict]) -> bool:
+    """Check to see if the response returned from the API was valid.
+
+    At this point we're just checking if it is valid JSON and the result is 'OK'
+
+    :param response: Either the response as received from the API or a dictionary representing a response.
+    :return: True if the response is valid.  False if not.
+    """
+
+    ret = False
+    json_response = {}
+    if isinstance(response, aiohttp.ClientResponse):
+        try:
+            json_response = response.json()
+        except json.JSONDecodeError as err:
+            _LOGGER.error(err)
+    elif isinstance(response, dict):
+        json_response = response
+
+    if json_response.get("result") == "OK":
+        ret = True
 
     return ret
 
@@ -130,7 +106,7 @@ def _process_speedtest_results(speedtest_results=None, only_latest: bool = False
         ret = [
             result
             for result in ret
-            if result.get("exit_code", "").lower() not in ["unavailable"]
+            if result.get("exit_code", "").lower() not in const.DEF_JNAP_SPEEDTEST_RESULTS_INVALID
         ]
 
     if only_latest:
@@ -140,7 +116,46 @@ def _process_speedtest_results(speedtest_results=None, only_latest: bool = False
     return ret
 
 
-class Mesh(LoggerFormatter):
+def _get_speedtest_state(speedtest_results=None) -> str:
+    """Process the Speedtest results to get a textual state"""
+
+    if speedtest_results is None:
+        speedtest_results = {}
+
+    if speedtest_results:
+        if speedtest_results.get("uploadBandwidth", 0):
+            ret = "Checking upload speed"
+        elif speedtest_results.get("downloadBandwidth", 0):
+            ret = "Checking download speed"
+        elif speedtest_results.get("latency"):
+            ret = "Checking latency"
+        elif speedtest_results.get("serverID", "") == '0':
+            ret = "Detecting server"
+        else:
+            ret = ""
+    else:
+        ret = ""
+
+    return ret
+
+
+def _process_raw_device_results(device_results=None) -> None:
+    """Add the required details to the device results.
+
+    The results are modified in place.
+
+    :param device_results: list of the results as returned by the API
+    :return: No return
+    """
+
+    if device_results is None:
+        device_results = []
+
+    for device in device_results:
+        device["results_time"]: int = int(time.time())
+
+
+class Mesh:
     """Representation of the Velop Mesh
 
     **All properties are point in time from when the last async_gather_details was executed.**
@@ -148,13 +163,7 @@ class Mesh(LoggerFormatter):
     If you need live information then call the corresponding method.
     """
 
-    def __init__(
-        self,
-        node: str,
-        password: str,
-        username: str = "admin",
-        request_timeout: Optional[int] = None,
-    ) -> None:
+    def __init__(self, node: str, password: str, username: str = "admin", request_timeout: Union[int, None] = None):
         """Constructor
 
         :param node: The node we should make a connection to
@@ -163,37 +172,32 @@ class Mesh(LoggerFormatter):
         :param request_timeout: number of seconds to time out the request; default 10s
         """
 
-        super().__init__()
-        _LOGGER.debug(self.message_format("entered"))
-        # noinspection PyProtectedMember
-        _LOGGER.debug(self.message_format("%s version: %s"), __package__, const._PACKAGE_VERSION)
-
         if request_timeout is None:
             request_timeout = 10
 
-        self._password: str = password
         self._session: aiohttp.ClientSession
-        self._timeout: int = request_timeout
-        self._username: str = username
 
-        self._mesh_attributes: dict = {  # initialise the attributes for the mesh
-            ATTR_MESH_BACKHAUL: {},
-            ATTR_MESH_CONNECTED_NODE: node,
-            ATTR_MESH_DEVICES: [],
-            ATTR_MESH_GUEST_NETWORK_INFO: {},
-            ATTR_MESH_NODES: [],
-            ATTR_MESH_PARENTAL_CONTROL_INFO: {},
-            ATTR_MESH_RAW_DEVICES: {},
-            ATTR_MESH_SPEEDTEST_RESULTS: {},
-            ATTR_MESH_STORAGE: {},
-            ATTR_MESH_UPDATE_FIRMWARE_STATE: [],
-            ATTR_MESH_UPDATE_SETTINGS: {},
-            ATTR_MESH_WAN_INFO: {},
+        self.__mesh_attributes: dict = {  # initialise the attributes for the mesh
+            const.ATTR_MESH_CONNECTED_NODE: node,
+            const.ATTR_MESH_DEVICES: [],
+            const.ATTR_MESH_GUEST_NETWORK_INFO: {},
+            const.ATTR_MESH_NODES: [],
+            const.ATTR_MESH_PARENTAL_CONTROL_INFO: {},
+            const.ATTR_MESH_SPEEDTEST_RESULTS: [],
+            const.ATTR_MESH_STORAGE: {},
+            const.ATTR_MESH_UPDATE_FIRMWARE_STATE: [],
+            const.ATTR_MESH_WAN_INFO: {},
         }
 
+        self.__api_url: str = self.__get_api_url(self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
+        self.__username: str = username
+        self.__password: str = password
+        self.__timeout: int = request_timeout
         self.__create_session()
 
-        _LOGGER.debug(self.message_format("Initialised mesh for %s"), self._mesh_attributes[ATTR_MESH_CONNECTED_NODE])
+        # noinspection PyProtectedMember
+        _LOGGER.debug("%s version: %s", __package__, const._PACKAGE_VERSION)
+        _LOGGER.debug("Initialised mesh for %s", self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
 
     async def __aenter__(self):
         """Asynchronous enter magic method"""
@@ -202,7 +206,7 @@ class Mesh(LoggerFormatter):
 
     async def __aexit__(self, exc_type, exc, traceback) -> None:
         """Asynchronous exit magic method"""
-        await self.async_close()
+        await self.close()
 
     def __repr__(self) -> str:
         """Friendly string representation of the class
@@ -210,94 +214,101 @@ class Mesh(LoggerFormatter):
         :return: Uses the class name and the node we're connected to for the representation
         """
 
-        ret = f"{self.__class__.__name__}: {self._mesh_attributes[ATTR_MESH_CONNECTED_NODE]}"
+        ret = f"{self.__class__.__name__}: {self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]}"
 
         return ret
 
-    # region #-- private methods --#
-    def __create_session(self) -> None:
-        """Initialise a session and ensure that errors are raised based on the HTTP status codes
+    @staticmethod
+    def __get_api_url(host: str) -> str:
+        """Build the base URL for the API
 
-        :return: None
+        :host: the host name of the node
         """
 
-        _LOGGER_VERBOSE.debug(self.message_format("entered"))
-        self._session = aiohttp.ClientSession(raise_for_status=True)
-        _LOGGER_VERBOSE.debug(self.message_format("exited"))
+        # noinspection HttpUrlsUsage
+        return f"http://{host}/JNAP/"
 
-    async def _async_make_request(
-        self,
-        action: str,
-        node_address: Optional[str] = None,
-        payload: Optional[List[Dict] | Dict] = None
-    ) -> Dict:
-        """Send the API request
+    async def __async_make_request(self, action: str, payload=None, node_address: Optional[str] = None) -> dict:
+        """Execute the API request against the connected node.
 
-        :param action: the JNAP action to use in the request
-        :param node_address: the target to send the request to (defaults to the connected node)
-        :param payload: additional data for the request
-
-        :return: dictionary containing the results of the request
+        :param action: The JNAP action to execute
+        :param payload: The relevant payload for the action
+        :param node_address: The node to send the request to (only valid for a subset of actions)
+        :return: THe JSON response or raises an error if need be
         """
 
-        _LOGGER.debug(self.message_format("entered"))
-        target = node_address or self._mesh_attributes[ATTR_MESH_CONNECTED_NODE]
-        req = api.Request(
-            action=action,
-            password=self._password,
-            payload=payload,
-            session=self._session,
-            target=target,
-            username=self._username,
+        _LOGGER_VERBOSE.debug(
+            "URL: %s, Action: %s, Payload: %s, Timeout: %i",
+            node_address,
+            action,
+            json.dumps(payload),
+            self.__timeout
         )
-        _LOGGER.debug(self.message_format("request, target: %s, action: %s, payload: %s"), target, action, payload)
-        resp = await req.execute(timeout=self._timeout)
-        if resp.is_successful:
-            _LOGGER.debug(self.message_format("exited"))
-            return resp.data.get(api.Response.RESULT_KEY)
+
+        if node_address is not None and action != const.ACTION_JNAP_REBOOT:
+            raise MeshInvalidArguments
+
+        if node_address is None:
+            node_address = self.__api_url
+
+        if payload is None:
+            payload = []
+
+        headers = self.__get_headers()
+        headers["X-JNAP-Action"] = action
+        try:
+            if self._session.closed:  # session closed so recreate it
+                _LOGGER_VERBOSE.debug("Session was closed.")
+                self.__create_session()
+            resp = await self._session.post(url=node_address, headers=headers, json=payload, timeout=self.__timeout)
+        except TimeoutError:
+            raise MeshTimeoutError
+        except (ClientConnectionError, ClientConnectorError,):
+            raise MeshConnectionError
+        except aiohttp.ClientError:
+            raise
         else:
-            # -- process errors --#
-            responses = (
-                resp.data.get(api.Response.RESULT_KEY).get(api.Response.RESULTS_KEY_TRANSACTION)
-                if isinstance(resp.data.get(api.Response.RESULT_KEY).get(api.Response.RESULTS_KEY_TRANSACTION), List)
-                else
-                [resp.data]
-            )
+            try:
+                resp_json = await resp.json()
+            except aiohttp.ClientError:
+                raise MeshBadResponse
+            else:
+                _LOGGER_VERBOSE.debug("Response: %s", json.dumps(resp_json))
+                if _is_valid_response(response=resp_json):
+                    ret = resp_json
+                else:  # process API specific errors
+                    if "responses" not in resp_json:
+                        resp_json = {"responses": [resp_json]}
 
-            err = None
-            for r in responses:
-                err = None
-                res_error = (
-                    r.get(api.Response.RESULT_KEY)
-                    if isinstance(r.get(api.Response.RESULT_KEY), str)
-                    else r.get(api.Response.RESULT_KEY, {}).get(api.Response.RESULT_KEY)
-                )
-                if res_error == "_ErrorAbortedAction":
-                    err = MeshInvalidInput(r.get(api.Response.RESULTS_KEY_ERROR))
-                elif res_error == "_ErrorInvalidInput":
-                    err = MeshInvalidInput(r.get(api.Response.RESULTS_KEY_ERROR))
-                elif res_error == "_ErrorInvalidOutput":
-                    err = MeshInvalidOutput(r.get(api.Response.RESULTS_KEY_ERROR))
-                elif res_error == "_ErrorUnauthorized":
-                    err = MeshInvalidCredentials
-                elif res_error == "_ErrorUnknownAction":
-                    err = MeshInvalidInput((
-                        r.get(api.Response.RESULTS_KEY_ERROR)
-                        or f"Unknown action URI '{r.get(api.Response.ACTION_KEY)}'"
-                    ))
-                elif res_error == "ErrorDeviceNotInMasterMode":
-                    err = MeshNodeNotPrimary
+                    err = None
+                    for resp in resp_json.get("responses", []):
+                        err = None
+                        if resp.get("result") == "_ErrorInvalidInput":
+                            err = MeshInvalidInput(resp.get("error"))
+                        elif resp.get("result") == "_ErrorInvalidOutput":
+                            err = MeshInvalidOutput(resp.get("error"))
+                        elif resp.get("result") == "_ErrorUnauthorized":
+                            err = MeshInvalidCredentials
+                        elif resp.get("result") == "_ErrorUnknownAction":
+                            # noinspection PyTypeChecker
+                            err = MeshInvalidInput("Unknown JNAP Action")
+                        elif resp.get("result") == "ErrorDeviceNotInMasterMode":
+                            err = MeshNodeNotPrimary
+                        elif resp.get("result") != "OK" and not resp.get("result").startswith("_"):
+                            err = MeshInvalidInput(resp.get("result"))
 
-                if err:
-                    break
+                        if err:
+                            break
 
-            if err is None:
-                _LOGGER.error("Unknown error received: %s", json.dumps(responses))
-                err = MeshBadResponse
+                    if not err:
+                        _LOGGER.error("Unknown error received: %s", json.dumps(resp_json))
+                        err = MeshBadResponse
 
-            raise err from None
+                    raise err
 
-    async def _async_gather_details(
+        return ret
+
+    async def __async_gather_details(
             self,
             **kwargs,
     ) -> dict:
@@ -310,12 +321,11 @@ class Mesh(LoggerFormatter):
         :param include_parental_control: True to include details about Parental Control
         :param include_speedtest_results: True to include the latest completed Speedtest result
         :param include_storage: True to include the external storage details if available
-        :param include_update_settings: True to include the fiwmware update settings
         :param include_wan: True to include WAN details
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
         """
 
-        _LOGGER.debug(self.message_format("entered, args: %s"), json.dumps(kwargs))
+        _LOGGER.debug("Gathering details: %s", json.dumps(kwargs))
 
         ret = {}
         payload: List = []
@@ -323,180 +333,246 @@ class Mesh(LoggerFormatter):
         # -- get the devices --#
         if kwargs.get("include_devices"):
             payload.append({
-                "action": api.Actions.GET_DEVICES,
+                "action": const.ACTION_JNAP_GET_DEVICES,
                 "request": {},
             })
 
         # -- get the backhaul info  --#
-        if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
+        if kwargs.get("include_backhaul"):
             payload.append({
-                "action": api.Actions.GET_BACKHAUL,
+                "action": const.ACTION_JNAP_GET_BACKHAUL,
                 "request": {},
             })
 
         # -- get the guest WiFi details --#
         if kwargs.get("include_guest_wifi"):
             payload.append({
-                "action": api.Actions.GET_GUEST_NETWORK_INFO,
+                "action": const.ACTION_JNAP_GET_GUEST_NETWORK_INFO,
                 "request": {},
             })
 
         # -- get the Parental Control details --#
         if kwargs.get("include_parental_control"):
             payload.append({
-                "action": api.Actions.GET_PARENTAL_CONTROL_INFO,
+                "action": const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
                 "request": {},
             })
 
         # -- get the current Speedtest state --#
         if kwargs.get("include_speedtest_state"):
             payload.append({
-                "action": api.Actions.GET_SPEEDTEST_STATE,
+                "action": const.ACTION_JNAP_GET_SPEEDTEST_STATE,
                 "request": {}
             })
 
         # -- get the latest Speedtest result --#
         if kwargs.get("include_speedtest_results"):
             payload.append({
-                "action": api.Actions.GET_SPEEDTEST_RESULTS,
-                "request": {**DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": 10},
+                "action": const.ACTION_JNAP_GET_SPEEDTEST_RESULTS,
+                "request": {**const.DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": 10},
             })
 
         # -- get the update check details --#
         if kwargs.get("include_firmware_update"):
             payload.append({
-                "action": api.Actions.GET_UPDATE_FIRMWARE_STATE,
-                "request": {},
-            })
-
-        # -- get the settings for firmware updates --#
-        if kwargs.get("include_update_settings"):
-            payload.append({
-                "action": api.Actions.GET_UPDATE_SETTINGS,
+                "action": const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
                 "request": {},
             })
 
         # -- get the WAN details --#
         if kwargs.get("include_wan"):
             payload.append({
-                "action": api.Actions.GET_WAN_INFO,
+                "action": const.ACTION_JNAP_GET_WAN_INFO,
                 "request": {},
             })
 
-        responses = await self._async_make_request(action=api.Actions.TRANSACTION, payload=payload)
+        resp = await self.__async_make_request(action=const.ACTION_JNAP_TRANSACTION, payload=payload)
+        responses = resp.get("responses", [])
         if responses:
-            # region #-- populate standard attributes --#
-            # these are attributes that need no further processing
-            for idx, itm in enumerate(payload):
-                action = itm.get("action")
-                if action:
-                    attr = JNAP_TO_ATTRIBUTE.get(action)
-                    if attr:
-                        ret[attr] = responses[idx].get(api.Response.RESULTS_KEY_SINGLE, {})
+            # region #-- populate the update check details --#
+            # this needs to happen early because we'll use the results when populating the node details
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_UPDATE_FIRMWARE_STATE,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
             # endregion
 
             # region #-- populate device and node details --#
-            if ret.get(ATTR_MESH_RAW_DEVICES) is not None:
-                device_info = ret[ATTR_MESH_RAW_DEVICES].get("devices", [])
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_DEVICES,
+                payload=payload
+            )
+            device_info: List[dict] = []
+            if idx is not None:
+                device_info = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
+                    .get("devices", [])
+                _process_raw_device_results(device_results=device_info)
 
-                # region #-- build the properties for the device types --#
-                devices = []
-                backhaul_info = ret[ATTR_MESH_BACKHAUL].get("backhaulDevices", [])
-                for device in device_info:
-                    if "nodeType" in device:
-                        # region #-- determine the backhaul information --#
-                        device_backhaul = [bi for bi in backhaul_info if bi.get("deviceUUID") == device.get("deviceID")]
-                        if device_backhaul:
-                            device_backhaul = device_backhaul[0]
-                        else:
-                            device_backhaul = {}
-                        # endregion
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_BACKHAUL,
+                payload=payload
+            )
+            backhaul_info: dict = {}
+            if idx is not None:
+                backhaul_info = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
+                    .get("backhaulDevices", [])
 
-                        # region #-- calculate if there is a firmware update available --#
-                        node_firmware: List | dict = {}
-                        if ATTR_MESH_UPDATE_FIRMWARE_STATE in ret:
-                            firmware_status = ret[ATTR_MESH_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
-                            node_firmware = [
-                                firmware_details
-                                for firmware_details in firmware_status
-                                if firmware_details.get("deviceUUID") == device.get("deviceID")
-                            ]
-                            if node_firmware:
-                                node_firmware = node_firmware[0]
-                            else:
-                                node_firmware = {}
-                        # endregion
-
-                        n = Node(
-                            **device,
-                            **{
-                                "backhaul": device_backhaul,
-                                "updates": node_firmware,
-                                "results_time": int(time.time())
-                            }
-                        )
-                        devices.append(n)
+            # region #-- build the properties for the device types --#
+            devices = []
+            for device in device_info:
+                if "nodeType" in device:
+                    # region #-- determine the backhaul information --#
+                    device_backhaul = [bi for bi in backhaul_info if bi.get("deviceUUID") == device.get("deviceID")]
+                    if device_backhaul:
+                        device_backhaul = device_backhaul[0]
                     else:
-                        d = Device(
-                            **device,
-                            **{
-                                "results_time": int(time.time())
-                            }
+                        device_backhaul = {}
+                    # endregion
+                    # region #-- calculate if there is a firmware update available --#
+                    node_firmware: Union[List, dict] = {}
+                    if const.ATTR_MESH_UPDATE_FIRMWARE_STATE in ret:
+                        firmware_status = ret[const.ATTR_MESH_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
+                        node_firmware = [
+                            firmware_details
+                            for firmware_details in firmware_status
+                            if firmware_details.get("deviceUUID") == device.get("deviceID")
+                        ]
+                        if node_firmware:
+                            node_firmware = node_firmware[0]
+                        else:
+                            node_firmware = {}
+                    # endregion
+                    n = Node(**device, **{"backhaul": device_backhaul, "updates": node_firmware})
+                    devices.append(n)
+                else:
+                    d = Device(**device)
+                    devices.append(d)
+            # endregion
+
+            # region #-- post processing devices and nodes --#
+            for node in devices:
+                if node.__class__.__name__.lower() == "node":
+                    # region #-- calculate the connected devices for nodes --#
+                    connected_devices: List = []
+                    parent_name: Union[str, None] = None
+                    for device in devices:
+                        for adapter in device.network:
+                            if adapter.get("parent_id") == node.unique_id:
+                                connected_devices.append({
+                                    "name": device.name,
+                                    "ip": adapter.get("ip"),
+                                    "type": adapter.get("type"),
+                                    "guest_network": adapter.get("guest_network")
+                                })
+                            if node.parent_ip and not parent_name:
+                                if node.parent_ip == adapter.get("ip"):
+                                    parent_name = device.name
+                    setattr(node, "_Node__parent_name", parent_name)
+                    setattr(node, "_Node__connected_devices", connected_devices)
+                    # endregion
+                elif node.__class__.__name__.lower() == "device":
+                    # region #-- calculate parent name for devices --#
+                    attrib_connections = getattr(node, "_attribs", {}).get("connections", [])
+                    parent: Union[str, None] = None
+                    for conn in attrib_connections:
+                        if conn.get("parentDeviceID", ""):
+                            try:
+                                parent = [
+                                    device.name
+                                    for device in devices
+                                    if device.unique_id == conn.get("parentDeviceID")
+                                ][0]
+                            except IndexError:
+                                pass
+                    setattr(node, "_Device__parent_name", parent)
+                    # endregion
+                    # region #-- get the parental control details --#
+                    pc_schedule: List = []
+                    if kwargs.get("include_parental_control"):
+                        idx = _get_action_index(
+                            action=const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
+                            payload=payload
                         )
-                        devices.append(d)
-                # endregion
+                        if idx is not None:
+                            pc_details = responses[idx] \
+                                .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+                            network_adapater_macs = [adapter.get("mac") for adapter in node.network]
+                            for mac in network_adapater_macs:
+                                for rule in pc_details.get("rules", []):
+                                    if mac in rule.get("macAddresses", []):
+                                        pc_schedule.append(rule)
+                                        break
+                    getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
+                    # endregion
+            # endregion
 
-                # region #-- post processing devices and nodes --#
-                for node in devices:
-                    if node.__class__.__name__.lower() == "node":
-                        # region #-- calculate the connected devices for nodes --#
-                        connected_devices: List = []
-                        parent_name: Optional[str] = None
-                        for device in devices:
-                            for adapter in device.network:
-                                if adapter.get("parent_id") == node.unique_id:
-                                    connected_devices.append({
-                                        "name": device.name,
-                                        "ip": adapter.get("ip"),
-                                        "type": adapter.get("type"),
-                                        "guest_network": adapter.get("guest_network")
-                                    })
-                                if node.parent_ip and not parent_name:
-                                    if node.parent_ip == adapter.get("ip"):
-                                        parent_name = device.name
-                        setattr(node, "_Node__parent_name", parent_name)
-                        setattr(node, "_Node__connected_devices", connected_devices)
-                        # endregion
-                    elif node.__class__.__name__.lower() == "device":
-                        # region #-- calculate parent name for devices --#
-                        attrib_connections = getattr(node, "_attribs", {}).get("connections", [])
-                        parent: Optional[str] = None
-                        for conn in attrib_connections:
-                            if conn.get("parentDeviceID", ""):
-                                try:
-                                    parent = [
-                                        device.name
-                                        for device in devices
-                                        if device.unique_id == conn.get("parentDeviceID")
-                                    ][0]
-                                except IndexError:
-                                    pass
-                        setattr(node, "_Device__parent_name", parent)
-                        # endregion
-                        # region #-- get the parental control details --#
-                        pc_schedule: List = []
-                        network_adapater_macs = [adapter.get("mac") for adapter in node.network]
-                        for mac in network_adapater_macs:
-                            for rule in ret[ATTR_MESH_PARENTAL_CONTROL_INFO].get("rules", []):
-                                if mac in rule.get("macAddresses", []):
-                                    pc_schedule.append(rule)
-                                    break
-                        getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
-                        # endregion
-                # endregion
+            if devices:
+                ret[const.ATTR_MESH_DEVICES] = devices
+            # endregion
 
-                if devices:
-                    ret[ATTR_MESH_DEVICES] = devices
+            # region #-- populate the Guest Wi-Fi details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_GUEST_NETWORK_INFO,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_GUEST_NETWORK_INFO] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
+            # region #-- populate the Parental Control details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_PARENTAL_CONTROL_INFO,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_PARENTAL_CONTROL_INFO] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
+            # region #-- populate the WAN details --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_WAN_INFO,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_WAN_INFO] = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+            # endregion
+
+            # region #-- populate the latest Speedtest results --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_SPEEDTEST_RESULTS,
+                payload=payload
+            )
+            if idx is not None:
+                speedtest_results = responses[idx] \
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}) \
+                    .get("healthCheckResults", [])
+                speedtest_results = _process_speedtest_results(
+                    speedtest_results,
+                    only_completed=True,
+                    only_latest=True
+                )
+                ret[const.ATTR_MESH_SPEEDTEST_RESULTS] = speedtest_results
+            # endregion
+
+            # region #-- populate the current Speedtest status --#
+            idx = _get_action_index(
+                action=const.ACTION_JNAP_GET_SPEEDTEST_STATE,
+                payload=payload
+            )
+            if idx is not None:
+                ret[const.ATTR_MESH_SPEEDTEST_STATE] = _get_speedtest_state(
+                    speedtest_results=responses[idx]
+                    .get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
+                    .get("speedTestResult", {})
+                )
             # endregion
 
         # region #-- separate requests where they could easily cause an error if not supported --#
@@ -504,31 +580,95 @@ class Mesh(LoggerFormatter):
         if kwargs.get("include_storage"):
             payload = [
                 {
-                    "action": api.Actions.GET_STORAGE_SMB_SERVER,
+                    "action": const.ACTION_JNAP_GET_STORAGE_SMB_SERVER,
                     "request": {},
                 },
                 {
-                    "action": api.Actions.GET_STORAGE_PARTITIONS,
+                    "action": const.ACTION_JNAP_GET_STORAGE_PARTITIONS,
                     "request": {},
                 },
             ]
             try:
-                responses = await self._async_make_request(action=api.Actions.TRANSACTION, payload=payload)
+                resp = await self.__async_make_request(action=const.ACTION_JNAP_TRANSACTION, payload=payload)
             except MeshInvalidInput:
-                pass
+                _LOGGER.debug("storage function not supported")
             else:
+                responses = resp.get("responses", [])
                 if responses:
-                    ret[ATTR_MESH_STORAGE] = {
-                        "smb_server_settings": responses[0].get(api.Response.RESULTS_KEY_SINGLE, {}),
-                        "available_partitions": responses[1].get(api.Response.RESULTS_KEY_SINGLE, {})
+                    ret[const.ATTR_MESH_STORAGE] = {
+                        "smb_server_settings": responses[0].get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}),
+                        "available_partitions": responses[1].get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {})
                     }
         # endregion
 
-        _LOGGER.debug(self.message_format("exited"))
         return ret
-    # endregion
 
-    # region #-- public methods --#
+    async def __async_set_guest_wifi_state(self, state: bool, radios: Union[List, None] = None) -> None:
+        """Set the state of the guest Wi-Fi in the mesh
+
+        :param state: True to enable, False to disable
+        :param radios: The radio information that should also be supplied
+        :return: None
+        """
+
+        if radios is None:
+            radios = []
+
+        _LOGGER.debug("Setting the guest Wi-Fi to: %s", 'on' if state else 'off')
+        payload = {
+            "isGuestNetworkEnabled": state,
+            "radios": radios,
+        }
+        await self.__async_make_request(action=const.ACTION_JNAP_SET_GUEST_NETWORK, payload=payload)
+
+    async def __async_set_parental_control_state(self, state: bool, rules: Union[List, None] = None) -> None:
+        """Set the state of Parental Control in the mesh
+
+        :param state: True to enable, False to disable
+        :param rules: The rules that should also be supplied
+        :return: None
+        """
+
+        if rules is None:
+            rules = []
+
+        _LOGGER.debug("Setting parental controls to: %s", 'on' if state else 'off')
+        payload = {
+            "isParentalControlEnabled": state,
+            "rules": rules,
+        }
+        await self.__async_make_request(action=const.ACTION_JNAP_SET_PARENTAL_CONTROL_INFO, payload=payload)
+
+        return
+
+    def __create_session(self) -> None:
+        """Initialise a session and ensure that errors are raised based on the HTTP status codes
+
+        :return: None
+        """
+
+        _LOGGER_VERBOSE.debug("Creating session.")
+        self._session = aiohttp.ClientSession(raise_for_status=True)
+
+    def __credentials(self) -> str:
+        """Get the authorisation string for the Mesh
+
+        :return:
+        """
+
+        return base64.b64encode(bytes(f"{self.__username}:{self.__password}", "utf-8")).decode("ascii")
+
+    def __get_headers(self) -> dict:
+        """Get the headers base headers for making an API call
+
+        :return: dictionary of the required information
+        """
+
+        return {
+            "X-JNAP-Authorization": f"Basic {self.__credentials()}",
+            "Content-Type": "application/json; charset=UTF-8"
+        }
+
     async def async_check_for_updates(self) -> None:
         """Ask the mesh to look for new versions of firmware for the nodes
 
@@ -537,23 +677,14 @@ class Mesh(LoggerFormatter):
         :return: None
         """
 
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug("Initiating a check for new firmware")
 
-        await self._async_make_request(
-            action=api.Actions.UPDATE_FIRMWARE,
-            payload=DEF_JNAP_CHECK_FIRMWARE_PAYLOAD,
+        await self.__async_make_request(
+            action=const.ACTION_JNAP_UPDATE_FIRMWARE,
+            payload=const.DEF_JNAP_CHECK_FIRMWARE_PAYLOAD,
         )
 
-        _LOGGER.debug(self.message_format("exited"))
-
-    async def async_close(self) -> None:
-        """Close the session to the mesh
-
-        :return: None
-        """
-
-        _LOGGER.debug(self.message_format("Closing session to: %s"), self.connected_node)
-        return await self._session.close()
+        return
 
     async def async_delete_device(self, **kwargs) -> None:
         """Delete a device from the device list on the mesh
@@ -566,14 +697,14 @@ class Mesh(LoggerFormatter):
         :return: None
         """
 
-        _LOGGER.debug(self.message_format("entered, args: %s"), kwargs)
+        _LOGGER.debug("Deleting device: %s", kwargs)
 
         device_id: str
         if "device_id" in kwargs:
             device_id = kwargs.get("device_id")
         elif "device_name" in kwargs:
             d: Device
-            device = [d for d in self._mesh_attributes[ATTR_MESH_DEVICES] if d.name == kwargs.get("device_name")]
+            device = [d for d in self.__mesh_attributes[const.ATTR_MESH_DEVICES] if d.name == kwargs.get("device_name")]
             if len(device) == 0:
                 raise MeshDeviceNotFoundResponse
             elif len(device) > 1:
@@ -587,11 +718,9 @@ class Mesh(LoggerFormatter):
             payload = {
                 "deviceID": device_id
             }
-            await self._async_make_request(action=api.Actions.DELETE_DEVICE, payload=payload)
+            await self.__async_make_request(action=const.ACTION_JNAP_DELETE_DEVICE, payload=payload)
         else:
             raise MeshInvalidArguments
-
-        _LOGGER.debug(self.message_format("exited"))
 
     async def async_gather_details(self) -> None:
         """Gather all the details and initialise what the mesh looks like
@@ -601,9 +730,7 @@ class Mesh(LoggerFormatter):
         :return: None
         """
 
-        _LOGGER.debug(self.message_format("entered"))
-
-        details = await self._async_gather_details(
+        details = await self.__async_gather_details(
             include_backhaul=True,
             include_devices=True,
             include_guest_wifi=True,
@@ -613,37 +740,34 @@ class Mesh(LoggerFormatter):
             include_firmware_update=True,
             include_speedtest_state=True,
             include_storage=True,
-            include_update_settings=True,
         )
 
         # region #-- split the devices into their types --#
-        _LOGGER.debug(self.message_format("Populating nodes"))
-        self._mesh_attributes[ATTR_MESH_NODES] = [
+        _LOGGER.debug("Populating nodes")
+        self.__mesh_attributes[const.ATTR_MESH_NODES] = [
             device
-            for device in details[ATTR_MESH_DEVICES]
+            for device in details[const.ATTR_MESH_DEVICES]
             if device.__class__.__name__.lower() == "node"
         ]
-        _LOGGER.debug(self.message_format("Populated %i nodes"), len(self._mesh_attributes[ATTR_MESH_NODES]))
+        _LOGGER.debug("Populated %i nodes", len(self.__mesh_attributes[const.ATTR_MESH_NODES]))
 
-        _LOGGER.debug(self.message_format("Populating devices"))
-        self._mesh_attributes[ATTR_MESH_DEVICES] = [
+        _LOGGER.debug("Populating devices")
+        self.__mesh_attributes[const.ATTR_MESH_DEVICES] = [
             device
-            for device in details.get(ATTR_MESH_DEVICES, [])
+            for device in details.get(const.ATTR_MESH_DEVICES, [])
             if device.__class__.__name__.lower() == "device"
         ]
-        _LOGGER.debug(self.message_format("Populated %i devices"), len(self._mesh_attributes[ATTR_MESH_DEVICES]))
+        _LOGGER.debug("Populated %i devices", len(self.__mesh_attributes[const.ATTR_MESH_DEVICES]))
         # endregion
 
         # region #-- manage the other attributes --#
-        details.pop(ATTR_MESH_DEVICES)
+        details.pop(const.ATTR_MESH_DEVICES)
         for attr in details:
-            _LOGGER_VERBOSE.debug(self.message_format("Populating %s"), attr)
-            self._mesh_attributes[attr] = details[attr]
+            _LOGGER_VERBOSE.debug("Populating %s", attr)
+            self.__mesh_attributes[attr] = details[attr]
         # endregion
 
-        _LOGGER.debug(self.message_format("exited"))
-
-    async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Device | Node:
+    async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Union[Device, Node]:
         """Get a Device or Node object based on the ID.
 
         By default, the stored information is used, but you can refresh it from the API.
@@ -654,30 +778,29 @@ class Mesh(LoggerFormatter):
         :return: Device or Node object whichever is applicable
         """
 
-        _LOGGER.debug(self.message_format("entered, device_id: %s, force_refresh: %s"), device_id, force_refresh)
+        _LOGGER.debug("Getting device for ID: %s (force_refresh=%s)", device_id, force_refresh)
 
-        all_devices: List[Device | Node]
+        all_devices: List[Union[Device, Node]]
         if not force_refresh:
             all_devices = self.devices + self.nodes
         else:
-            resp = await self._async_gather_details(
+            resp = await self.__async_gather_details(
                 include_devices=True,
             )
-            all_devices = resp.get(ATTR_MESH_DEVICES)
+            all_devices = resp.get(const.ATTR_MESH_DEVICES)
 
         try:
             ret = [device for device in all_devices if device.unique_id == device_id][0]
         except IndexError:
             raise MeshDeviceNotFoundResponse
 
-        _LOGGER.debug(self.message_format("exited"))
         return ret
 
     async def async_get_device_from_mac_address(
             self,
             mac_address: str,
             force_refresh: bool = False
-    ) -> Device | Node:
+    ) -> Union[Device, Node]:
         """To get a Device or Node object based on the MAC address.
 
         Searches through all known adapters on the device to find a match.
@@ -689,19 +812,19 @@ class Mesh(LoggerFormatter):
         :return:  Device or Node object whichever is applicable
         """
 
-        _LOGGER.debug(self.message_format("entered, MAC: %s, force_refresh: %s"), mac_address, force_refresh)
+        _LOGGER.debug("Getting device for MAC: %s (force_refresh=%s)", mac_address, force_refresh)
 
         # noinspection PyTypeChecker
-        ret: Optional[Device | Node] = None
+        ret: Union[Device, Node] = None
 
-        all_devices: List[Device | Node]
+        all_devices: List[Union[Device, Node]]
         if not force_refresh:
             all_devices = self.nodes + self.devices
         else:
-            resp = await self._async_gather_details(
+            resp = await self.__async_gather_details(
                 include_devices=True,
             )
-            all_devices = resp.get(ATTR_MESH_DEVICES)
+            all_devices = resp.get(const.ATTR_MESH_DEVICES)
 
         for device in all_devices:
             if device.network:
@@ -713,7 +836,6 @@ class Mesh(LoggerFormatter):
         if not ret:
             raise MeshDeviceNotFoundResponse
 
-        _LOGGER.debug(self.message_format("exited"))
         return ret
 
     async def async_get_devices(self) -> List[Device]:
@@ -725,19 +847,18 @@ class Mesh(LoggerFormatter):
         :return: List of device objects
         """
 
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug("Getting devices from the API")
 
-        all_devices = await self._async_gather_details(
+        all_devices = await self.__async_gather_details(
             include_devices=True,
         )
         ret: List[Device] = [
             device
-            for device in all_devices.get(ATTR_MESH_DEVICES, [])
+            for device in all_devices.get(const.ATTR_MESH_DEVICES, [])
             if device.__class__.__name__.lower() == "device"
         ]
         ret = sorted(ret, key=lambda device: device.name)
 
-        _LOGGER.debug(self.message_format("exited"))
         return ret
 
     async def async_get_speedtest_results(
@@ -754,13 +875,12 @@ class Mesh(LoggerFormatter):
         :return: List of dictionaries containing the result details
         """
 
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug("Gathering Speedtest results: %s")
 
-        payload = {**DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": count}
-        resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload)
-        healthcheck_results = resp.get("healthCheckResults")
+        payload = {**const.DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": count}
+        resp = await self.__async_make_request(action=const.ACTION_JNAP_GET_SPEEDTEST_RESULTS, payload=payload)
+        healthcheck_results = resp.get(const.KEY_ACTION_JNAP_RESPONSE_RESULTS, {}).get("healthCheckResults")
 
-        _LOGGER.debug(self.message_format("exited"))
         return _process_speedtest_results(
             speedtest_results=healthcheck_results,
             only_latest=only_latest,
@@ -775,12 +895,16 @@ class Mesh(LoggerFormatter):
         :return: A string containing the stage
         """
 
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug("Getting the current state of the Speedtest")
 
-        resp = await self._async_gather_details(include_speedtest_state=True)
+        resp = await self.__async_gather_details(
+            include_speedtest_state=True,
+        )
+        ret = resp[const.ATTR_MESH_SPEEDTEST_STATE]
 
-        _LOGGER.debug(self.message_format("exited"))
-        return _get_speedtest_status_text(results=resp.get(ATTR_MESH_RAW_SPEEDTEST_STATE, {}))
+        _LOGGER.debug("Speedtest state: %s", ret)
+
+        return ret
 
     async def async_get_update_state(self) -> bool:
         """Get the state of the running check for updates
@@ -788,17 +912,18 @@ class Mesh(LoggerFormatter):
         :return: True if still running, False if not
         """
 
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug("Getting the current state of the update check")
 
-        resp = await self._async_gather_details(
+        resp = await self.__async_gather_details(
             include_firmware_update=True
         )
-        node_results = resp.get(ATTR_MESH_UPDATE_FIRMWARE_STATE, {}).get("firmwareUpdateStatus", [])
+        node_results = resp.get(const.ATTR_MESH_UPDATE_FIRMWARE_STATE, {}).get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
 
         ret: bool = any(all_states)
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug("Update check state: %s", ret)
+
         return ret
 
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
@@ -812,7 +937,7 @@ class Mesh(LoggerFormatter):
         :return: None
         """
 
-        _LOGGER.debug(self.message_format("entered, node: %s, force: %s"), node_name, force)
+        _LOGGER.debug("Rebooting node: %s", node_name)
 
         node_details: List[Node] = [
             node
@@ -822,7 +947,7 @@ class Mesh(LoggerFormatter):
         if not node_details:
             raise MeshDeviceNotFoundResponse
 
-        if node_details[0].type == NODE_TYPE_PRIMARY and not force:
+        if node_details[0].type == const.NODE_TYPE_PRIMARY and not force:
             # noinspection PyTypeChecker
             raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
 
@@ -835,12 +960,10 @@ class Mesh(LoggerFormatter):
             # noinspection PyTypeChecker
             raise MeshInvalidInput(f"{node_name}: no valid address found")
 
-        await self._async_make_request(
-            action=api.Actions.REBOOT,
-            node_address=api.Request.jnap_url(target=node_ip[0])
+        await self.__async_make_request(
+            action=const.ACTION_JNAP_REBOOT,
+            node_address=self.__get_api_url(host=node_ip[0])
         )
-
-        _LOGGER.debug(self.message_format("exited"))
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
@@ -853,19 +976,11 @@ class Mesh(LoggerFormatter):
         :return: None
         """
 
-        _LOGGER.debug(self.message_format("entered, state %s"), 'on' if state else 'off')
-
-        resp = await self._async_gather_details(  # get the current radio settings from the API; they may have changed
+        resp = await self.__async_gather_details(  # get the current radio settings from the API; they may have changed
             include_guest_wifi=True,
         )
         radios = resp.get("radios", [])
-        payload = {
-            "isGuestNetworkEnabled": state,
-            "radios": radios,
-        }
-        await self._async_make_request(action=api.Actions.SET_GUEST_NETWORK, payload=payload)
-
-        _LOGGER.debug(self.message_format("exited"))
+        await self.__async_set_guest_wifi_state(state=state, radios=radios)
 
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature.
@@ -877,18 +992,11 @@ class Mesh(LoggerFormatter):
         :return: None
         """
 
-        _LOGGER.debug(self.message_format("entered, state: %s"), 'on' if state else 'off')
-        resp = await self._async_gather_details(  # get the current rules from the API because they may be different
+        resp = await self.__async_gather_details(  # get the current rules from the API because they may be different
             include_parental_control=True,
         )
         rules = resp.get("rules", [])
-        payload = {
-            "isParentalControlEnabled": state,
-            "rules": rules,
-        }
-        await self._async_make_request(action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload)
-
-        _LOGGER.debug(self.message_format("exited"))
+        await self.__async_set_parental_control_state(state=state, rules=rules)
 
     async def async_start_speedtest(self) -> None:
         """Instruct the mesh to carry out a Speedtest
@@ -899,14 +1007,14 @@ class Mesh(LoggerFormatter):
         :return: None
         """
 
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug("Executing Speedtest")
 
         payload = {
             "runHealthCheckModule": "SpeedTest"
         }
-        await self._async_make_request(action=api.Actions.START_SPEEDTEST, payload=payload)
+        await self.__async_make_request(action=const.ACTION_JNAP_START_SPEEDTEST, payload=payload)
 
-        _LOGGER.debug(self.message_format("exited"))
+        return
 
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid
@@ -914,16 +1022,23 @@ class Mesh(LoggerFormatter):
         :return: True if valid, False if not
         """
 
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug("Checking credentials against %s", self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
 
-        ret = await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
+        ret = await self.__async_make_request(action=const.ACTION_JNAP_CHECK_PASSWORD)
         ret = True if ret.get("result", False) else False
 
-        _LOGGER.debug(self.message_format("exited"))
         return ret
-    # endregion
 
-    # region #-- properties --#
+    async def close(self) -> None:
+        """Close the session to the mesh
+
+        :return: None
+        """
+
+        _LOGGER.debug("Closing session to: %s", self.connected_node)
+
+        return await self._session.close()
+
     @property
     def check_for_update_status(self) -> bool:
         """Get the state of checking for an update as at the last time details were gathered.
@@ -933,7 +1048,7 @@ class Mesh(LoggerFormatter):
         :return: True if checking, False if not
         """
 
-        node_results = self._mesh_attributes[ATTR_MESH_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
+        node_results = self.__mesh_attributes[const.ATTR_MESH_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
 
         return any(all_states)
@@ -945,7 +1060,7 @@ class Mesh(LoggerFormatter):
         :return: A string containing the node IP address
         """
 
-        return self._mesh_attributes[ATTR_MESH_CONNECTED_NODE]
+        return self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE]
 
     @property
     def devices(self) -> List:
@@ -957,7 +1072,7 @@ class Mesh(LoggerFormatter):
         :return: A list containing Device objects
         """
 
-        return sorted(self._mesh_attributes[ATTR_MESH_DEVICES], key=lambda device: device.name)
+        return sorted(self.__mesh_attributes[const.ATTR_MESH_DEVICES], key=lambda device: device.name)
 
     @property
     def guest_wifi_enabled(self) -> bool:
@@ -966,7 +1081,7 @@ class Mesh(LoggerFormatter):
         :return: True if enabled, False if not
         """
 
-        return self._mesh_attributes[ATTR_MESH_GUEST_NETWORK_INFO].get("isGuestNetworkEnabled", False)
+        return self.__mesh_attributes[const.ATTR_MESH_GUEST_NETWORK_INFO].get("isGuestNetworkEnabled", False)
 
     @property
     def guest_wifi_details(self) -> List:
@@ -980,7 +1095,7 @@ class Mesh(LoggerFormatter):
                 "ssid": radio.get("guestSSID"),
                 "band": radio.get("radioID").split("_")[-1],
             }
-            for idx, radio in enumerate(self._mesh_attributes[ATTR_MESH_GUEST_NETWORK_INFO].get("radios", []))
+            for idx, radio in enumerate(self.__mesh_attributes[const.ATTR_MESH_GUEST_NETWORK_INFO].get("radios", []))
         ]
         return ret
 
@@ -993,7 +1108,7 @@ class Mesh(LoggerFormatter):
         :return: A list of Node objects
         """
 
-        return sorted(self._mesh_attributes[ATTR_MESH_NODES], key=lambda node: node.name)
+        return sorted(self.__mesh_attributes[const.ATTR_MESH_NODES], key=lambda node: node.name)
 
     @property
     def parental_control_enabled(self) -> bool:
@@ -1002,13 +1117,13 @@ class Mesh(LoggerFormatter):
         :return: True if enabled, False if not
         """
 
-        return self._mesh_attributes[ATTR_MESH_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
+        return self.__mesh_attributes[const.ATTR_MESH_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
 
     @property
     def speedtest_status(self) -> str:
         """Returns the current status of the Speedtest"""
 
-        return _get_speedtest_status_text(results=self._mesh_attributes[ATTR_MESH_RAW_SPEEDTEST_STATE])
+        return self.__mesh_attributes[const.ATTR_MESH_SPEEDTEST_STATE]
 
     @property
     def speedtest_results(self) -> List:
@@ -1020,12 +1135,7 @@ class Mesh(LoggerFormatter):
         :return: A list containing the Speedtest results
         """
 
-        ret = _process_speedtest_results(
-            self._mesh_attributes[ATTR_MESH_SPEEDTEST_RESULTS].get("healthCheckResults", []),
-            only_completed=True,
-            only_latest=True
-        )
-        return ret
+        return self.__mesh_attributes[const.ATTR_MESH_SPEEDTEST_RESULTS]
 
     @property
     def storage_available(self) -> List:
@@ -1034,7 +1144,7 @@ class Mesh(LoggerFormatter):
         ret: List = []
         n: List[Node]
         device: dict
-        storage_available = self._mesh_attributes.get(ATTR_MESH_STORAGE, {}).get("available_partitions", {})
+        storage_available = self.__mesh_attributes.get(const.ATTR_MESH_STORAGE, {}).get("available_partitions", {})
         for node in storage_available.get("storageNodes", []):
             for device in node.get("storageDevices", []):
                 for partition in device.get("partitions", []):
@@ -1056,27 +1166,13 @@ class Mesh(LoggerFormatter):
     def storage_settings(self) -> dict:
         """Get the settings for shared partitions"""
 
-        ret = self._mesh_attributes.get(ATTR_MESH_STORAGE, {}).get("smb_server_settings", {})
+        ret = self.__mesh_attributes.get(const.ATTR_MESH_STORAGE, {}).get("smb_server_settings", {})
         if ret:
             ret = {
                 "anonymous_access": ret.get("isAnonymousAccessEnabled")
             }
 
         return ret
-
-    @property
-    def update_type(self) -> Optional[str]:
-        """Get the update setting for firmware
-
-        N.B. Known values: "manual", "automaticallycheckandinstall"
-
-        :return: representation of the update type
-        """
-
-        update_setting: Optional[str] = self._mesh_attributes.get(
-            ATTR_MESH_UPDATE_SETTINGS, {}
-        ).get("updatePolicy")
-        return update_setting.lower() if update_setting is not None else None
 
     @property
     def wan_dns(self) -> List:
@@ -1087,7 +1183,7 @@ class Mesh(LoggerFormatter):
 
         return [
             val
-            for key, val in self._mesh_attributes[ATTR_MESH_WAN_INFO].get("wanConnection", {}).items()
+            for key, val in self.__mesh_attributes[const.ATTR_MESH_WAN_INFO].get("wanConnection", {}).items()
             if key.startswith("dnsServer")
         ]
 
@@ -1098,7 +1194,7 @@ class Mesh(LoggerFormatter):
         :return: A string containing the IP address for the WAN
         """
 
-        return self._mesh_attributes[ATTR_MESH_WAN_INFO].get("wanConnection", {}).get("ipAddress")
+        return self.__mesh_attributes[const.ATTR_MESH_WAN_INFO].get("wanConnection", {}).get("ipAddress")
 
     @property
     def wan_mac(self) -> str:
@@ -1107,7 +1203,7 @@ class Mesh(LoggerFormatter):
         :return: A string containing the MAC address for the WAN adapter
         """
 
-        return self._mesh_attributes[ATTR_MESH_WAN_INFO].get("macAddress", "")
+        return self.__mesh_attributes[const.ATTR_MESH_WAN_INFO].get("macAddress", "")
 
     @property
     def wan_status(self) -> bool:
@@ -1116,5 +1212,4 @@ class Mesh(LoggerFormatter):
         :return: True if connected, False if not
         """
 
-        return self._mesh_attributes[ATTR_MESH_WAN_INFO].get("wanStatus", "").lower() == "connected"
-    # endregion
+        return self.__mesh_attributes[const.ATTR_MESH_WAN_INFO].get("wanStatus", "").lower() == "connected"
