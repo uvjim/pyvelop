@@ -3,19 +3,26 @@
 # region #-- imports --#
 from __future__ import annotations
 
+import aiohttp
+import asyncio
+import base64
 import json
 import logging
 from typing import (
     Any,
     Dict,
+    List,
+    Optional,
 )
 
 from .exceptions import (
     MeshBadResponse,
+    MeshConnectionError,
     MeshInvalidCredentials,
     MeshInvalidInput,
     MeshInvalidOutput,
     MeshNodeNotPrimary,
+    MeshTimeoutError,
 )
 from .logger import LoggerFormatter
 
@@ -72,6 +79,80 @@ class Defaults:
             "lastNumberOfResults": 1,
         },
     }
+
+
+class Request(LoggerFormatter):
+    """Represents a request for the API"""
+
+    def __init__(
+        self,
+        action: str,
+        password: str,
+        target: str,
+        payload: Optional[List[Dict], Dict] = None,
+        session: Optional[aiohttp.ClientSession] = None,
+        username: str = "admin",
+    ) -> None:
+        """Constructor
+
+        :param action: the JNAP action to carry out
+        :param password: the password required to communicate with the target
+        :param target: the node to send the request to
+        :param payload: the additional configuration to pass along with the action
+        :param session: an existing session to use
+        :param username: the username required to communicate with the target
+        """
+
+        super().__init__(prefix=f"{self.__class__.__name__}.")
+
+        self._action: str = action
+        self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
+        self._payload: Optional[List[Dict], Dict] = payload
+        self._session: Optional[aiohttp.ClientSession] = session or aiohttp.ClientSession(raise_for_status=True)
+        self._target: str = target
+
+        self._jnap_url: str = jnap_url(target=self._target)
+
+    async def execute(self, timeout: int = 10) -> Response:
+        """Send the request
+
+        :param timeout: the timeout in seconds for the request, defaults to 10s
+        :return: a Response object representing the returned results
+        """
+
+        _LOGGER.debug(self.message_format("entered"))
+
+        headers: Dict[str, str] = {
+            "X-JNAP-Authorization": f"Basic {self._creds}",
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-JNAP-Action": self._action
+        }
+
+        _LOGGER.debug(
+            self.message_format("URL: %s, Headers: %s, Payload: %s, Timeout: %i"),
+            self._jnap_url,
+            headers,
+            json.dumps(self._payload),
+            timeout
+        )
+
+        try:
+            resp = await self._session.post(
+                url=self._jnap_url,
+                headers=headers,
+                json=self._payload or {},
+                timeout=timeout
+            )
+            resp_json = await resp.json()
+        except asyncio.TimeoutError:
+            raise MeshTimeoutError
+        except (aiohttp.ClientConnectionError, aiohttp.ClientConnectorError, aiohttp.ContentTypeError,):
+            raise MeshConnectionError from None
+        except json.JSONDecodeError as err:
+            raise err from None
+
+        _LOGGER.debug(self.message_format("exited"))
+        return Response(action=self._action, data=resp_json)
 
 
 class Response(LoggerFormatter):
