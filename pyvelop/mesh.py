@@ -3,21 +3,15 @@
 # region #-- imports --#
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import time
-from asyncio.exceptions import TimeoutError
 from typing import (
     List,
     Optional,
 )
 
 import aiohttp
-from aiohttp.client_exceptions import (
-    ClientConnectionError,
-    ClientConnectorError,
-)
 
 from . import (
     const,
@@ -25,12 +19,9 @@ from . import (
 )
 from .device import Device
 from .exceptions import (
-    MeshBadResponse,
-    MeshConnectionError,
     MeshDeviceNotFoundResponse,
     MeshInvalidArguments,
     MeshInvalidInput,
-    MeshTimeoutError,
     MeshTooManyMatches,
 )
 from .logger import LoggerFormatter
@@ -58,31 +49,6 @@ def _get_action_index(action: str, payload: List[dict]) -> Optional[int]:
         ret = ret[0]
     else:
         ret = None
-
-    return ret
-
-
-def _is_valid_response(response: aiohttp.ClientResponse | dict) -> bool:
-    """Check to see if the response returned from the API was valid.
-
-    At this point we're just checking if it is valid JSON and the result is 'OK'
-
-    :param response: Either the response as received from the API or a dictionary representing a response.
-    :return: True if the response is valid.  False if not.
-    """
-
-    ret = False
-    json_response = {}
-    if isinstance(response, aiohttp.ClientResponse):
-        try:
-            json_response = response.json()
-        except json.JSONDecodeError as err:
-            _LOGGER.error(err)
-    elif isinstance(response, dict):
-        json_response = response
-
-    if json_response.get("result") == "OK":
-        ret = True
 
     return ret
 
@@ -239,60 +205,37 @@ class Mesh(LoggerFormatter):
         :param action: The JNAP action to execute
         :param payload: The relevant payload for the action
         :param node_address: The node to send the request to (only valid for a subset of actions)
-        :return: THe JSON response or raises an error if need be
+        :return: The JSON response or raises an error if need be
         """
 
         _LOGGER.debug(self.message_format("entered"))
-        _LOGGER_VERBOSE.debug(
-            self.message_format("URL: %s, Action: %s, Payload: %s, Timeout: %i"),
-            node_address,
-            action,
-            json.dumps(payload),
-            self.__timeout
-        )
 
         if node_address is not None and action != api.Actions.REBOOT:
             raise MeshInvalidArguments
 
-        if node_address is None:
-            node_address = self.__api_url
-
         if payload is None:
             payload = []
 
-        credentials: str = base64.b64encode(bytes(f"{self.__username}:{self.__password}", "utf-8")).decode("ascii")
-        headers = {
-            "X-JNAP-Authorization": f"Basic {credentials}",
-            "Content-Type": "application/json; charset=UTF-8",
-            "X-JNAP-Action": action
-        }
+        if self._session.closed:  # session closed so recreate it
+            _LOGGER_VERBOSE.debug(self.message_format("session was closed, reopening"))
+            self.__create_session()
+        req = api.Request(
+            action=action,
+            password=self.__password,
+            payload=payload,
+            session=self._session,
+            target=node_address or self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE],
+            username=self.__username,
+        )
         try:
-            if self._session.closed:  # session closed so recreate it
-                _LOGGER_VERBOSE.debug("Session was closed.")
-                self.__create_session()
-            resp = await self._session.post(url=node_address, headers=headers, json=payload, timeout=self.__timeout)
-        except TimeoutError:
-            raise MeshTimeoutError
-        except (ClientConnectionError, ClientConnectorError,):
-            raise MeshConnectionError
-        except aiohttp.ClientError:
-            raise
+            req_resp = await req.execute(timeout=self.__timeout)
+        except Exception as err:
+            raise err from None
         else:
-            try:
-                resp_json = await resp.json()
-            except aiohttp.ClientError:
-                raise MeshBadResponse
-            else:
-                _LOGGER_VERBOSE.debug(self.message_format("response: %s"), json.dumps(resp_json))
-                try:
-                    req_resp = api.Response(action=action, data=resp_json)
-                except Exception as err:
-                    raise err from None
-                else:
-                    _LOGGER.debug(self.message_format("exited"))
-                    return req_resp.data
+            _LOGGER.debug(self.message_format("exited"))
+            return req_resp.data
 
-    async def __async_gather_details(self, **kwargs) -> dict:
+    async def _async_gather_details(self, **kwargs) -> dict:
         """Work is done here to gather the necessary details for mesh.
 
         :param include_backhaul: True to include backhaul details
@@ -674,7 +617,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered"))
 
-        details = await self.__async_gather_details(
+        details = await self._async_gather_details(
             include_backhaul=True,
             include_devices=True,
             include_guest_wifi=True,
@@ -730,7 +673,7 @@ class Mesh(LoggerFormatter):
         if not force_refresh:
             all_devices = self.devices + self.nodes
         else:
-            resp = await self.__async_gather_details(
+            resp = await self._async_gather_details(
                 include_devices=True,
             )
             all_devices = resp.get(const.ATTR_MESH_DEVICES)
@@ -764,7 +707,7 @@ class Mesh(LoggerFormatter):
         if not force_refresh:
             all_devices = self.nodes + self.devices
         else:
-            resp = await self.__async_gather_details(
+            resp = await self._async_gather_details(
                 include_devices=True,
             )
             all_devices = resp.get(const.ATTR_MESH_DEVICES)
@@ -793,7 +736,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered"))
 
-        all_devices = await self.__async_gather_details(
+        all_devices = await self._async_gather_details(
             include_devices=True,
         )
         ret: List[Device] = [
@@ -843,7 +786,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered"))
 
-        resp = await self.__async_gather_details(
+        resp = await self._async_gather_details(
             include_speedtest_state=True,
         )
         ret = resp[const.ATTR_MESH_SPEEDTEST_STATE]
@@ -859,7 +802,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered"))
 
-        resp = await self.__async_gather_details(
+        resp = await self._async_gather_details(
             include_firmware_update=True
         )
         node_results = resp.get(const.ATTR_MESH_UPDATE_FIRMWARE_STATE, {}).get("firmwareUpdateStatus", [])
@@ -906,7 +849,7 @@ class Mesh(LoggerFormatter):
 
         await self._async_make_request(
             action=api.Actions.REBOOT,
-            node_address=api.jnap_url(target=node_ip[0])
+            node_address=node_ip[0]
         )
 
         _LOGGER.debug(self.message_format("exited"))
@@ -925,7 +868,7 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("entered, state: %s"), state)
 
         # get the current radio settings from the API; they may have changed
-        resp = await self.__async_gather_details(include_guest_wifi=True)
+        resp = await self._async_gather_details(include_guest_wifi=True)
         radios = resp.get("radios", [])
 
         payload = {
@@ -948,7 +891,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("entered, state: %s"), state)
         # get the current rules from the API because they may be different
-        resp = await self.__async_gather_details(include_parental_control=True)
+        resp = await self._async_gather_details(include_parental_control=True)
         rules = resp.get("rules", [])
 
         payload = {
