@@ -1,5 +1,12 @@
 """Represents a node in the mesh"""
-from typing import List, Optional, Union
+
+# region #-- imports --#
+from __future__ import annotations
+
+from typing import (
+    List,
+    Optional,
+)
 
 from .base import MeshDevice
 from .const import (
@@ -7,6 +14,8 @@ from .const import (
     NODE_TYPE_SECONDARY,
 )
 
+
+# endregion
 
 class Node(MeshDevice):
     """Representation of a node in the mesh.  A node provides the connectivity for a device."""
@@ -110,7 +119,7 @@ class Node(MeshDevice):
         return self._attribs.get("model", {}).get("modelNumber")
 
     @property
-    def parent_ip(self) -> Union[str, None]:
+    def parent_ip(self) -> Optional[str]:
         """Get the IP address of the node that this node is attached to.
 
         :return: A string containing the IP address of the parent or None if no parent
