@@ -202,7 +202,7 @@ class Mesh(LoggerFormatter):
             const.ATTR_MESH_WAN_INFO: {},
         }
 
-        self.__api_url: str = self.__get_api_url(self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
+        self.__api_url: str = self._get_api_url(self.__mesh_attributes[const.ATTR_MESH_CONNECTED_NODE])
         self.__username: str = username
         self.__password: str = password
         self.__timeout: int = request_timeout
@@ -234,7 +234,7 @@ class Mesh(LoggerFormatter):
 
     # region #-- private methods --#
     @staticmethod
-    def __get_api_url(host: str) -> str:
+    def _get_api_url(host: str) -> str:
         """Build the base URL for the API
 
         :host: the host name of the node
@@ -270,8 +270,12 @@ class Mesh(LoggerFormatter):
         if payload is None:
             payload = []
 
-        headers = self.__get_headers()
-        headers["X-JNAP-Action"] = action
+        credentials: str = base64.b64encode(bytes(f"{self.__username}:{self.__password}", "utf-8")).decode("ascii")
+        headers = {
+            "X-JNAP-Authorization": f"Basic {credentials}",
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-JNAP-Action": action
+        }
         try:
             if self._session.closed:  # session closed so recreate it
                 _LOGGER_VERBOSE.debug("Session was closed.")
@@ -618,46 +622,6 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("exited"))
         return ret
 
-    async def __async_set_guest_wifi_state(self, state: bool, radios: Optional[List] = None) -> None:
-        """Set the state of the guest Wi-Fi in the mesh
-
-        :param state: True to enable, False to disable
-        :param radios: The radio information that should also be supplied
-        :return: None
-        """
-
-        _LOGGER.debug(self.message_format("entered, state: %s"), state)
-        if radios is None:
-            radios = []
-
-        payload = {
-            "isGuestNetworkEnabled": state,
-            "radios": radios,
-        }
-        await self.__async_make_request(action=const.ACTION_JNAP_SET_GUEST_NETWORK, payload=payload)
-
-        _LOGGER.debug(self.message_format("exited"))
-
-    async def __async_set_parental_control_state(self, state: bool, rules: Optional[List] = None) -> None:
-        """Set the state of Parental Control in the mesh
-
-        :param state: True to enable, False to disable
-        :param rules: The rules that should also be supplied
-        :return: None
-        """
-
-        _LOGGER.debug(self.message_format("entered, state: %s"), state)
-        if rules is None:
-            rules = []
-
-        payload = {
-            "isParentalControlEnabled": state,
-            "rules": rules,
-        }
-        await self.__async_make_request(action=const.ACTION_JNAP_SET_PARENTAL_CONTROL_INFO, payload=payload)
-
-        _LOGGER.debug(self.message_format("exited"))
-
     def __create_session(self) -> None:
         """Initialise a session and ensure that errors are raised based on the HTTP status codes
 
@@ -667,25 +631,6 @@ class Mesh(LoggerFormatter):
         _LOGGER_VERBOSE.debug(self.message_format("entered"))
         self._session = aiohttp.ClientSession(raise_for_status=True)
         _LOGGER.debug(self.message_format("exited"))
-
-    def __credentials(self) -> str:
-        """Get the authorisation string for the Mesh
-
-        :return: Base64 encoded string representing the credentials
-        """
-
-        return base64.b64encode(bytes(f"{self.__username}:{self.__password}", "utf-8")).decode("ascii")
-
-    def __get_headers(self) -> dict:
-        """Get the headers base headers for making an API call
-
-        :return: dictionary of the required information
-        """
-
-        return {
-            "X-JNAP-Authorization": f"Basic {self.__credentials()}",
-            "Content-Type": "application/json; charset=UTF-8"
-        }
     # endregion
 
     # region #-- public methods --#
@@ -899,10 +844,10 @@ class Mesh(LoggerFormatter):
         return ret
 
     async def async_get_speedtest_results(
-            self,
-            count: int = 1,
-            only_latest: bool = False,
-            only_completed: bool = False
+        self,
+        count: int = 1,
+        only_latest: bool = False,
+        only_completed: bool = False
     ) -> List:
         """Retrieve Speedtest results.
 
@@ -998,7 +943,7 @@ class Mesh(LoggerFormatter):
 
         await self.__async_make_request(
             action=const.ACTION_JNAP_REBOOT,
-            node_address=self.__get_api_url(host=node_ip[0])
+            node_address=self._get_api_url(host=node_ip[0])
         )
 
         _LOGGER.debug(self.message_format("exited"))
@@ -1015,11 +960,16 @@ class Mesh(LoggerFormatter):
         """
 
         _LOGGER.debug(self.message_format("entered, state: %s"), state)
-        resp = await self.__async_gather_details(  # get the current radio settings from the API; they may have changed
-            include_guest_wifi=True,
-        )
+
+        # get the current radio settings from the API; they may have changed
+        resp = await self.__async_gather_details(include_guest_wifi=True)
         radios = resp.get("radios", [])
-        await self.__async_set_guest_wifi_state(state=state, radios=radios)
+
+        payload = {
+            "isGuestNetworkEnabled": state,
+            "radios": radios,
+        }
+        await self.__async_make_request(action=const.ACTION_JNAP_SET_GUEST_NETWORK, payload=payload)
 
         _LOGGER.debug(self.message_format("exited"))
 
@@ -1034,11 +984,15 @@ class Mesh(LoggerFormatter):
         """
 
         _LOGGER.debug(self.message_format("entered, state: %s"), state)
-        resp = await self.__async_gather_details(  # get the current rules from the API because they may be different
-            include_parental_control=True,
-        )
+        # get the current rules from the API because they may be different
+        resp = await self.__async_gather_details(include_parental_control=True)
         rules = resp.get("rules", [])
-        await self.__async_set_parental_control_state(state=state, rules=rules)
+
+        payload = {
+            "isParentalControlEnabled": state,
+            "rules": rules,
+        }
+        await self.__async_make_request(action=const.ACTION_JNAP_SET_PARENTAL_CONTROL_INFO, payload=payload)
 
         _LOGGER.debug(self.message_format("exited"))
 
