@@ -222,7 +222,7 @@ class Mesh(LoggerFormatter):
 
     async def __aexit__(self, exc_type, exc, traceback) -> None:
         """Asynchronous exit magic method"""
-        await self.close()
+        await self.async_close()
 
     def __repr__(self) -> str:
         """Friendly string representation of the class
@@ -706,6 +706,18 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("exited"))
 
+    async def async_close(self) -> None:
+        """Close the session to the mesh
+
+        :return: None
+        """
+
+        _LOGGER.debug(self.message_format("entered"))
+
+        await self._session.close()
+
+        _LOGGER.debug(self.message_format("exited"))
+
     async def async_delete_device(self, **kwargs) -> None:
         """Delete a device from the device list on the mesh
 
@@ -1061,18 +1073,6 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("exited"))
         return ret
-
-    async def close(self) -> None:
-        """Close the session to the mesh
-
-        :return: None
-        """
-
-        _LOGGER.debug(self.message_format("entered"))
-
-        await self._session.close()
-
-        _LOGGER.debug(self.message_format("exited"))
     # endregion
 
     # region #-- properties --#
