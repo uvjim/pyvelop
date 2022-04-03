@@ -48,6 +48,7 @@ ATTR_MESH_GUEST_NETWORK_INFO: str = "guest_network"
 ATTR_MESH_NODES: str = "nodes"
 ATTR_MESH_PARENTAL_CONTROL_INFO: str = "parental_control"
 ATTR_MESH_RAW_DEVICES: str = "raw_devices"
+ATTR_MESH_RAW_SPEEDTEST_STATE: str = "raw_speedtest_state"
 ATTR_MESH_SPEEDTEST_RESULTS: str = "speedtest_results"
 ATTR_MESH_SPEEDTEST_STATE: str = "speedtest_state"
 ATTR_MESH_STORAGE: str = "storage"
@@ -73,11 +74,32 @@ JNAP_TO_ATTRIBUTE: Dict[str, str] = {
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_MESH_GUEST_NETWORK_INFO,
     api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_MESH_PARENTAL_CONTROL_INFO,
     api.Actions.GET_SPEEDTEST_RESULTS: ATTR_MESH_SPEEDTEST_RESULTS,
-    api.Actions.GET_SPEEDTEST_STATE: ATTR_MESH_SPEEDTEST_STATE,
+    api.Actions.GET_SPEEDTEST_STATE: ATTR_MESH_RAW_SPEEDTEST_STATE,
     api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_MESH_UPDATE_FIRMWARE_STATE,
     api.Actions.GET_UPDATE_SETTINGS: ATTR_MESH_UPDATE_SETTINGS,
     api.Actions.GET_WAN_INFO: ATTR_MESH_WAN_INFO,
 }
+
+
+def _get_speedtest_status_text(results: Dict) -> str:
+    """"""
+
+    speedtest_results: Dict = results.get("speedTestResult", {})
+    if speedtest_results:
+        if speedtest_results.get("uploadBandwidth", 0):
+            ret = "Checking upload speed"
+        elif speedtest_results.get("downloadBandwidth", 0):
+            ret = "Checking download speed"
+        elif speedtest_results.get("latency"):
+            ret = "Checking latency"
+        elif speedtest_results.get("serverID", "") == '0':
+            ret = "Detecting server"
+        else:
+            ret = ""
+    else:
+        ret = ""
+
+    return ret
 
 
 def _process_speedtest_results(speedtest_results=None, only_latest: bool = False, only_completed: bool = False) -> List:
@@ -114,29 +136,6 @@ def _process_speedtest_results(speedtest_results=None, only_latest: bool = False
     if only_latest:
         if ret:
             ret = [ret[0]]
-
-    return ret
-
-
-def _get_speedtest_state(speedtest_results=None) -> str:
-    """Process the Speedtest results to get a textual state"""
-
-    if speedtest_results is None:
-        speedtest_results = {}
-
-    if speedtest_results:
-        if speedtest_results.get("uploadBandwidth", 0):
-            ret = "Checking upload speed"
-        elif speedtest_results.get("downloadBandwidth", 0):
-            ret = "Checking download speed"
-        elif speedtest_results.get("latency"):
-            ret = "Checking latency"
-        elif speedtest_results.get("serverID", "") == '0':
-            ret = "Detecting server"
-        else:
-            ret = ""
-    else:
-        ret = ""
 
     return ret
 
@@ -215,6 +214,7 @@ class Mesh(LoggerFormatter):
 
         return ret
 
+    # region #-- private methods --#
     def __create_session(self) -> None:
         """Initialise a session and ensure that errors are raised based on the HTTP status codes
 
@@ -396,7 +396,7 @@ class Mesh(LoggerFormatter):
             # endregion
 
             # region #-- populate device and node details --#
-            if ret[ATTR_MESH_RAW_DEVICES]:
+            if ret.get(ATTR_MESH_RAW_DEVICES) is not None:
                 device_info = ret[ATTR_MESH_RAW_DEVICES].get("devices", [])
 
                 # region #-- build the properties for the device types --#
@@ -526,6 +526,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("exited"))
         return ret
+    # endregion
 
     # region #-- public methods --#
     async def async_check_for_updates(self) -> None:
@@ -757,7 +758,7 @@ class Mesh(LoggerFormatter):
 
         payload = {**DEF_JNAP_SPEEDTEST_PAYLOAD, "lastNumberOfResults": count}
         resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload)
-        healthcheck_results = resp.get(api.Response.RESULTS_KEY_SINGLE, {}).get("healthCheckResults")
+        healthcheck_results = resp.get("healthCheckResults")
 
         _LOGGER.debug(self.message_format("exited"))
         return _process_speedtest_results(
@@ -777,10 +778,9 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("entered"))
 
         resp = await self._async_gather_details(include_speedtest_state=True)
-        ret = resp[ATTR_MESH_SPEEDTEST_STATE]
 
         _LOGGER.debug(self.message_format("exited"))
-        return ret
+        return _get_speedtest_status_text(results=resp.get(ATTR_MESH_RAW_SPEEDTEST_STATE, {}))
 
     async def async_get_update_state(self) -> bool:
         """Get the state of the running check for updates
@@ -1008,7 +1008,7 @@ class Mesh(LoggerFormatter):
     def speedtest_status(self) -> str:
         """Returns the current status of the Speedtest"""
 
-        return self._mesh_attributes[ATTR_MESH_SPEEDTEST_STATE].get("speedTestResult", "")
+        return _get_speedtest_status_text(results=self._mesh_attributes[ATTR_MESH_RAW_SPEEDTEST_STATE])
 
     @property
     def speedtest_results(self) -> List:
