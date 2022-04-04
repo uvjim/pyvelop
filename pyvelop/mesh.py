@@ -35,6 +35,7 @@ _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 # region #-- attributes for results --#
 ATTR_BACKHAUL_INFO: str = "backhaul"
+ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
 ATTR_GUEST_NETWORK_INFO: str = "guest_network"
 ATTR_NODES: str = "nodes"
 ATTR_PARENTAL_CONTROL_INFO: str = "parental_control"
@@ -50,6 +51,7 @@ ATTR_WAN_INFO: str = "wan_info"
 JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_BACKHAUL: ATTR_BACKHAUL_INFO,
     api.Actions.GET_DEVICES: ATTR_RAW_DEVICES,
+    api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
     api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_PARENTAL_CONTROL_INFO,
     api.Actions.GET_SPEEDTEST_RESULTS: ATTR_SPEEDTEST_RESULTS,
@@ -220,6 +222,7 @@ class Mesh(LoggerFormatter):
         :param include_backhaul: True to include backhaul details
         :param include_devices: True to include devices
         :param include_firmware_update: True to include the current firmware update details (does not issue a check)
+        :param include_firmware_update_settings: True to include the current settings for firmware updates
         :param include_guest_wifi: True to include details about the guest Wi-Fi
         :param include_parental_control: True to include details about Parental Control
         :param include_speedtest_results: True to include the latest completed Speedtest result
@@ -238,6 +241,9 @@ class Mesh(LoggerFormatter):
         # -- get the devices --#
         if kwargs.get("include_devices"):
             payload.append({"action": api.Actions.GET_DEVICES})
+
+        if kwargs.get("include_firmware_update_settings"):
+            payload.append({"action": api.Actions.GET_FIRMWARE_UPDATE_SETTINGS})
 
         # -- get the backhaul info  --#
         if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
@@ -493,6 +499,7 @@ class Mesh(LoggerFormatter):
             include_backhaul=True,
             include_devices=True,
             include_firmware_update=True,
+            include_firmware_update_settings=True,
             include_guest_wifi=True,
             include_parental_control=True,
             include_speedtest_results=True,
@@ -840,6 +847,15 @@ class Mesh(LoggerFormatter):
         """
 
         return sorted(self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, []), key=lambda device: device.name)
+
+    @property
+    def firmware_update_setting(self) -> Optional[str]:
+        """Get the current setting for firmware updates
+
+        :return: a lowercase string representing the update method
+        """
+
+        return self._mesh_attributes.get(ATTR_FIRMWARE_UPDATE_SETTINGS, {}).get("updatePolicy", "").lower() or None
 
     @property
     def guest_wifi_enabled(self) -> bool:
