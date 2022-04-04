@@ -145,13 +145,12 @@ class Mesh(LoggerFormatter):
             request_timeout = 10
 
         self._node: str = node
+        self._mesh_attributes: Dict = {}
         self._session: aiohttp.ClientSession
-
-        self.__mesh_attributes: Dict = {}
+        self._timeout: int = request_timeout
 
         self.__username: str = username
         self.__password: str = password
-        self.__timeout: int = request_timeout
         self.__create_session()
 
         # noinspection PyProtectedMember
@@ -208,7 +207,7 @@ class Mesh(LoggerFormatter):
             username=self.__username,
         )
         try:
-            req_resp = await req.execute(timeout=self.__timeout)
+            req_resp = await req.execute(timeout=self._timeout)
         except Exception as err:
             raise err from None
         else:
@@ -460,7 +459,7 @@ class Mesh(LoggerFormatter):
             device_id = kwargs.get("device_id")
         elif "device_name" in kwargs:
             d: Device
-            device = [d for d in self.__mesh_attributes[ATTR_PROCESSED_DEVICES] if d.name == kwargs.get("device_name")]
+            device = [d for d in self._mesh_attributes[ATTR_PROCESSED_DEVICES] if d.name == kwargs.get("device_name")]
             if len(device) == 0:
                 raise MeshDeviceNotFoundResponse
             elif len(device) > 1:
@@ -504,27 +503,27 @@ class Mesh(LoggerFormatter):
 
         # region #-- split the devices into their types --#
         _LOGGER.debug(self.message_format("Populating nodes"))
-        self.__mesh_attributes[ATTR_NODES] = [
+        self._mesh_attributes[ATTR_NODES] = [
             device
             for device in details[ATTR_PROCESSED_DEVICES]
             if device.__class__.__name__.lower() == "node"
         ]
-        _LOGGER.debug(self.message_format("Populated %i nodes"), len(self.__mesh_attributes[ATTR_NODES]))
+        _LOGGER.debug(self.message_format("Populated %i nodes"), len(self._mesh_attributes[ATTR_NODES]))
 
         _LOGGER.debug(self.message_format("Populating devices"))
-        self.__mesh_attributes[ATTR_PROCESSED_DEVICES] = [
+        self._mesh_attributes[ATTR_PROCESSED_DEVICES] = [
             device
             for device in details.get(ATTR_PROCESSED_DEVICES, [])
             if device.__class__.__name__.lower() == "device"
         ]
-        _LOGGER.debug(self.message_format("Populated %i devices"), len(self.__mesh_attributes[ATTR_PROCESSED_DEVICES]))
+        _LOGGER.debug(self.message_format("Populated %i devices"), len(self._mesh_attributes[ATTR_PROCESSED_DEVICES]))
         # endregion
 
         # region #-- manage the other attributes --#
         details.pop(ATTR_PROCESSED_DEVICES)
         for attr in details:
             _LOGGER_VERBOSE.debug(self.message_format("Populating %s"), attr)
-            self.__mesh_attributes[attr] = details[attr]
+            self._mesh_attributes[attr] = details[attr]
         # endregion
 
         _LOGGER.debug(self.message_format("exited"))
@@ -815,7 +814,7 @@ class Mesh(LoggerFormatter):
         :return: True if checking, False if not
         """
 
-        node_results = self.__mesh_attributes[ATTR_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
+        node_results = self._mesh_attributes[ATTR_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
         ret = any(all_states)
 
@@ -840,7 +839,7 @@ class Mesh(LoggerFormatter):
         :return: A list containing Device objects
         """
 
-        return sorted(self.__mesh_attributes.get(ATTR_PROCESSED_DEVICES, []), key=lambda device: device.name)
+        return sorted(self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, []), key=lambda device: device.name)
 
     @property
     def guest_wifi_enabled(self) -> bool:
@@ -849,7 +848,7 @@ class Mesh(LoggerFormatter):
         :return: True if enabled, False if not
         """
 
-        return self.__mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("isGuestNetworkEnabled", False)
+        return self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("isGuestNetworkEnabled", False)
 
     @property
     def guest_wifi_details(self) -> List:
@@ -863,7 +862,7 @@ class Mesh(LoggerFormatter):
                 "ssid": radio.get("guestSSID"),
                 "band": radio.get("radioID").split("_")[-1],
             }
-            for idx, radio in enumerate(self.__mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("radios", []))
+            for idx, radio in enumerate(self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("radios", []))
         ]
         return ret
 
@@ -877,7 +876,7 @@ class Mesh(LoggerFormatter):
         """
 
         ret = _process_speedtest_results(
-            speedtest_results=self.__mesh_attributes[ATTR_SPEEDTEST_RESULTS].get("healthCheckResults", []),
+            speedtest_results=self._mesh_attributes[ATTR_SPEEDTEST_RESULTS].get("healthCheckResults", []),
             only_completed=True,
             only_latest=True
         )
@@ -895,7 +894,7 @@ class Mesh(LoggerFormatter):
         :return: A list of Node objects
         """
 
-        return sorted(self.__mesh_attributes[ATTR_NODES], key=lambda node: node.name)
+        return sorted(self._mesh_attributes[ATTR_NODES], key=lambda node: node.name)
 
     @property
     def parental_control_enabled(self) -> bool:
@@ -904,14 +903,14 @@ class Mesh(LoggerFormatter):
         :return: True if enabled, False if not
         """
 
-        return self.__mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
+        return self._mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
 
     @property
     def speedtest_status(self) -> str:
         """Returns the current status of the Speedtest"""
 
         ret = _get_speedtest_state(
-            speedtest_results=self.__mesh_attributes.get(ATTR_SPEEDTEST_STATUS, {}).get("speedTestResult", {})
+            speedtest_results=self._mesh_attributes.get(ATTR_SPEEDTEST_STATUS, {}).get("speedTestResult", {})
         )
 
         return ret
@@ -923,7 +922,7 @@ class Mesh(LoggerFormatter):
         ret: List = []
         n: List[Node]
         device: dict
-        storage_available = self.__mesh_attributes.get(ATTR_STORAGE_INFO, {}).get("available_partitions", {})
+        storage_available = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get("available_partitions", {})
         for node in storage_available.get("storageNodes", []):
             for device in node.get("storageDevices", []):
                 for partition in device.get("partitions", []):
@@ -945,7 +944,7 @@ class Mesh(LoggerFormatter):
     def storage_settings(self) -> dict:
         """Get the settings for shared partitions"""
 
-        ret = self.__mesh_attributes.get(ATTR_STORAGE_INFO, {}).get("smb_server_settings", {})
+        ret = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get("smb_server_settings", {})
         if ret:
             ret = {
                 "anonymous_access": ret.get("isAnonymousAccessEnabled")
@@ -962,7 +961,7 @@ class Mesh(LoggerFormatter):
 
         ret = [
             val
-            for key, val in self.__mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanConnection", {}).items()
+            for key, val in self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanConnection", {}).items()
             if key.startswith("dnsServer")
         ]
 
@@ -975,7 +974,7 @@ class Mesh(LoggerFormatter):
         :return: A string containing the IP address for the WAN
         """
 
-        return self.__mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanConnection", {}).get("ipAddress")
+        return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanConnection", {}).get("ipAddress")
 
     @property
     def wan_mac(self) -> Optional[str]:
@@ -984,7 +983,7 @@ class Mesh(LoggerFormatter):
         :return: A string containing the MAC address for the WAN adapter
         """
 
-        return self.__mesh_attributes.get(ATTR_WAN_INFO, {}).get("macAddress", "")
+        return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("macAddress", "")
 
     @property
     def wan_status(self) -> bool:
@@ -993,5 +992,5 @@ class Mesh(LoggerFormatter):
         :return: True if connected, False if not
         """
 
-        return self.__mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanStatus", "").lower() == "connected"
+        return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanStatus", "").lower() == "connected"
     # endregion
