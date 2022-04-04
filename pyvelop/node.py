@@ -9,13 +9,12 @@ from typing import (
 )
 
 from .base import MeshDevice
-from .const import (
-    NODE_TYPE_PRIMARY,
-    NODE_TYPE_SECONDARY,
-)
-
 
 # endregion
+
+NODE_TYPE_PRIMARY = "primary"
+NODE_TYPE_SECONDARY = "secondary"
+
 
 class Node(MeshDevice):
     """Representation of a node in the mesh.  A node provides the connectivity for a device."""
