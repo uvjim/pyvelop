@@ -149,7 +149,6 @@ class Mesh(LoggerFormatter):
 
         self.__mesh_attributes: Dict = {}
 
-        self.__api_url: str = api.jnap_url(target=self._node)
         self.__username: str = username
         self.__password: str = password
         self.__timeout: int = request_timeout
