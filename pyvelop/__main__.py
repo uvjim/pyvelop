@@ -185,13 +185,12 @@ async def main() -> None:
                 # region #-- get the latest Speedtest results --#
                 if args.get_latest_speedtest or all_args:
                     _LOGGER.debug("Preparing latest Speedtest results")
-                    latest_results = _mesh.speedtest_results
+                    latest_results = _mesh.latest_speedtest_result
                     section = "Latest Speedtest Results"
                     section += f"\n{'-' * len(section)}\n"
-                    if not latest_results:
+                    if latest_results is None:
                         section += "None available"
                     else:
-                        latest_results = latest_results[0]
                         download_bandwidth = round(latest_results.get('download_bandwidth') / 1024, 2)
                         upload_bandwidth = round(latest_results.get('upload_bandwidth') / 1024, 2)
                         section += f"Executed: {latest_results.get('timestamp')}\n"\
@@ -250,7 +249,7 @@ async def main() -> None:
 
                     # region #-- get the overview details --#
                     if args.get_overview or all_args:
-                        _LOGGER.debug("Preparing ndoe overview details")
+                        _LOGGER.debug("Preparing node overview details")
                         section = "Overview"
                         section += f"\n{'-' * len(section)}\n"
                         section += f"Device ID: {_node.unique_id}\n"\
