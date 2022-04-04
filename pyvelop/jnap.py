@@ -55,7 +55,7 @@ class Actions:
     GET_GUEST_NETWORK_INFO: str = f"{ROOT}/guestnetwork/GetGuestRadioSettings2"
     GET_PARENTAL_CONTROL_INFO: str = f"{ROOT}/parentalcontrol/GetParentalControlSettings"
     GET_SPEEDTEST_RESULTS: str = f"{ROOT}/healthcheck/GetHealthCheckResults"
-    GET_SPEEDTEST_STATE: str = f"{ROOT}/healthcheck/GetHealthCheckStatus"
+    GET_SPEEDTEST_STATUS: str = f"{ROOT}/healthcheck/GetHealthCheckStatus"
     GET_STORAGE_PARTITIONS: str = f"{ROOT}/nodes/storage/GetNodesPartitions"
     GET_STORAGE_SMB_SERVER: str = f"{ROOT}/nodes/storage/GetSMBServerSettings"
     GET_UPDATE_FIRMWARE_STATE: str = f"{ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
