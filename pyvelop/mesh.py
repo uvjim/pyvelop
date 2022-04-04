@@ -59,26 +59,6 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
 }
 
 
-def _get_action_index(action: str, payload: List[dict]) -> Optional[int]:
-    """Determine which index the supplied action is in the JNAP transaction results
-
-    The results are returned in a list in the order they were requested, but we don't really
-    now which order this will be because actions could be added to the payload dynamically.
-
-    :param action: The JNAP action to look for
-    :param payload: The payload list as it was passed to the API
-    :return: The index of the action or None if it isn't found
-    """
-
-    ret = [idx for idx, p in enumerate(payload) if p.get("action") == action]
-    if ret:
-        ret = ret[0]
-    else:
-        ret = None
-
-    return ret
-
-
 def _process_speedtest_results(speedtest_results=None, only_latest: bool = False, only_completed: bool = False) -> List:
     """Take the results from the API for a Speedtest instance and convert to something usable/more compact.
 
@@ -138,22 +118,6 @@ def _get_speedtest_state(speedtest_results=None) -> str:
         ret = ""
 
     return ret
-
-
-def _process_raw_device_results(device_results=None) -> None:
-    """Add the required details to the device results.
-
-    The results are modified in place.
-
-    :param device_results: list of the results as returned by the API
-    :return: No return
-    """
-
-    if device_results is None:
-        device_results = []
-
-    for device in device_results:
-        device["results_time"]: int = int(time.time())
 
 
 class Mesh(LoggerFormatter):
@@ -332,9 +296,9 @@ class Mesh(LoggerFormatter):
             # region #-- handle devices --#
             if ATTR_RAW_DEVICES in ret:
                 devices = []
-                _process_raw_device_results(device_results=ret[ATTR_RAW_DEVICES].get("devices", []))
                 # region #-- build the properties for the device types --#
                 for device in ret[ATTR_RAW_DEVICES].get("devices", []):
+                    device["results_time"]: int = int(time.time())
                     if "nodeType" in device:
                         # region #-- determine the backhaul information --#
                         device_backhaul = [
