@@ -254,6 +254,7 @@ async def main() -> None:
                         section += f"\n{'-' * len(section)}\n"
                         section += f"Device ID: {_node.unique_id}\n"\
                                    f"Name: {_node.name}\n"\
+                                   f"Results Time: {_node.results_time}\n"\
                                    f"Online: {_node.status}\n"\
                                    f"IP: {','.join([adapter.get('ip') for adapter in _node.connected_adapters])}\n"\
                                    f"Type: {_node.type.title()}\n"\
@@ -319,6 +320,7 @@ async def main() -> None:
                             section += f"\n{'-' * len(section)}\n"
                             section += f"Device ID: {_d.unique_id}\n"\
                                        f"Name: {_d.name}\n" \
+                                       f"Results Time: {_d.results_time}\n" \
                                        f"Manufacturer: {_d.manufacturer}\n" \
                                        f"Model: {_d.model}\n" \
                                        f"Description: {_d.description}\n" \
