@@ -26,7 +26,10 @@ from .exceptions import (
     MeshTooManyMatches,
 )
 from .logger import LoggerFormatter
-from .node import Node
+from .node import (
+    Node,
+    NODE_TYPE_PRIMARY,
+)
 
 # endregion
 
@@ -710,7 +713,7 @@ class Mesh(LoggerFormatter):
         if not node_details:
             raise MeshDeviceNotFoundResponse
 
-        if node_details[0].type == const.NODE_TYPE_PRIMARY and not force:
+        if node_details[0].type == NODE_TYPE_PRIMARY and not force:
             # noinspection PyTypeChecker
             raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
 
