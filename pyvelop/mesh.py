@@ -133,30 +133,40 @@ class Mesh(LoggerFormatter):
     If you need live information then call the corresponding method.
     """
 
-    def __init__(self, node: str, password: str, username: str = "admin", request_timeout: Optional[int] = None):
+    def __init__(
+        self,
+        node: str,
+        password: str,
+        request_timeout: Optional[int] = 10,
+        session: Optional[aiohttp.ClientSession] = None,
+        username: str = "admin",
+    ) -> None:
         """Constructor
 
         :param node: The node we should make a connection to
         :param password: password to use
-        :param username: username to use; default admin
         :param request_timeout: number of seconds to time out the request; default 10s
+        :param session: session to use in for interacting with the Mesh
+        :param username: username to use; default admin
         """
 
         super().__init__()
 
         _LOGGER.debug(self.message_format("entered"))
 
-        if request_timeout is None:
-            request_timeout = 10
-
         self._node: str = node
         self._mesh_attributes: Dict = {}
-        self._session: aiohttp.ClientSession
-        self._timeout: int = request_timeout
+        self._session: aiohttp.ClientSession = session
+        self._timeout: int = request_timeout or 10
 
         self.__username: str = username
         self.__password: str = password
-        self.__create_session()
+        self.__passed_session: bool = False
+
+        _LOGGER.debug(self.message_format("Session was passed in: %s"), "Yes" if self._session is not None else "No")
+        if self._session is None:
+            self.__passed_session = True
+            self.__create_session()
 
         # noinspection PyProtectedMember
         _LOGGER.debug(self.message_format("%s version: %s"), __package__, const._PACKAGE_VERSION)
@@ -200,7 +210,7 @@ class Mesh(LoggerFormatter):
         if payload is None:
             payload = []
 
-        if self._session.closed:  # session closed so recreate it
+        if not self.__passed_session and self._session.closed:  # session closed so recreate it
             _LOGGER_VERBOSE.debug(self.message_format("session was closed, reopening"))
             self.__create_session()
         req = api.Request(
@@ -424,7 +434,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER_VERBOSE.debug(self.message_format("entered"))
         self._session = aiohttp.ClientSession(raise_for_status=True)
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER_VERBOSE.debug(self.message_format("exited"))
     # endregion
 
     # region #-- public methods --#
