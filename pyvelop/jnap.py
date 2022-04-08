@@ -137,6 +137,7 @@ class Request(LoggerFormatter):
             timeout
         )
 
+        resp: Optional[aiohttp.ClientResponse] = None
         try:
             resp = await self._session.post(
                 url=self._jnap_url,
@@ -150,6 +151,8 @@ class Request(LoggerFormatter):
         except (aiohttp.ClientConnectionError, aiohttp.ClientConnectorError, aiohttp.ContentTypeError,):
             raise MeshConnectionError from None
         except json.JSONDecodeError as err:
+            _LOGGER.debug(self.message_format("resp: %s"), resp)
+            _LOGGER.error(self.message_format("%s"), err)
             raise err from None
 
         _LOGGER.debug(self.message_format("exited"))
@@ -212,7 +215,7 @@ class Response(LoggerFormatter):
                     break
 
             if err is None:
-                _LOGGER.error(self.message_format("unknown error received: %s"), json.dumps(self._data))
+                _LOGGER.error(self.message_format("unknown error received: %s"), self._data)
                 err = MeshBadResponse
 
             raise err
