@@ -522,21 +522,24 @@ class Mesh(LoggerFormatter):
         )
 
         # region #-- split the devices into their types --#
-        _LOGGER.debug(self.message_format("Populating nodes"))
+        _LOGGER_VERBOSE.debug(self.message_format("Populating nodes"))
         self._mesh_attributes[ATTR_NODES] = [
             device
             for device in details[ATTR_PROCESSED_DEVICES]
             if device.__class__.__name__.lower() == "node"
         ]
-        _LOGGER.debug(self.message_format("Populated %i nodes"), len(self._mesh_attributes[ATTR_NODES]))
+        _LOGGER_VERBOSE.debug(self.message_format("Populated %i nodes"), len(self._mesh_attributes[ATTR_NODES]))
 
-        _LOGGER.debug(self.message_format("Populating devices"))
+        _LOGGER_VERBOSE.debug(self.message_format("Populating devices"))
         self._mesh_attributes[ATTR_PROCESSED_DEVICES] = [
             device
             for device in details.get(ATTR_PROCESSED_DEVICES, [])
             if device.__class__.__name__.lower() == "device"
         ]
-        _LOGGER.debug(self.message_format("Populated %i devices"), len(self._mesh_attributes[ATTR_PROCESSED_DEVICES]))
+        _LOGGER_VERBOSE.debug(
+            self.message_format("Populated %i devices"),
+            len(self._mesh_attributes[ATTR_PROCESSED_DEVICES])
+        )
         # endregion
 
         # region #-- manage the other attributes --#
