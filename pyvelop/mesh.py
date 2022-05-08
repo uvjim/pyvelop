@@ -961,13 +961,18 @@ class Mesh(LoggerFormatter):
                     n = [_n for _n in self.nodes if _n.unique_id == node.get("deviceID")]
                     if n:
                         ip = [adapter.get("ip") for adapter in n[0].connected_adapters if adapter.get("ip")]
+                        used_percent: Optional[int] = None
+                        try:
+                            used_percent = round((partition.get("usedKB") / partition.get("availableKB")) * 100, 2)
+                        except ZeroDivisionError:
+                            pass
                         ret.append({
                             "available_kb": partition.get("availableKB"),
                             "ip": ip[0],
                             "label": partition.get("label"),
                             "last_checked": node.get("timestamp"),
                             "used_kb": partition.get("usedKB"),
-                            "used_percent": round((partition.get("usedKB") / partition.get("availableKB")) * 100, 2),
+                            "used_percent": used_percent,
                         })
 
         return ret
