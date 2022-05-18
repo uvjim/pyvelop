@@ -36,11 +36,16 @@ class Node(MeshDevice):
 
         ret = {}
         backhaul = self._attribs.get("backhaul", {})
+        speed_mbps: Optional[float] = None
+        try:
+            speed_mbps = float(backhaul.get("speedMbps"))
+        except (TypeError, ValueError):
+            pass
         if backhaul:
             ret = {
                 "connection": backhaul.get("connectionType"),
                 "last_checked": backhaul.get("timestamp"),
-                "speed_mbps": float(backhaul.get("speedMbps")),
+                "speed_mbps": speed_mbps,
             }
 
         return ret
