@@ -1,12 +1,13 @@
-from setuptools import setup, find_packages
-# noinspection PyProtectedMember
-from pyvelop.const import (
-    _PACKAGE_AUTHOR,
-    _PACKAGE_NAME,
-    _PACKAGE_VERSION,
-)
+"""Setup."""
 
-with open("README.rst", "r") as f:
+# region #-- imports --#
+from setuptools import find_packages, setup
+
+from pyvelop.const import _PACKAGE_AUTHOR, _PACKAGE_NAME, _PACKAGE_VERSION
+
+# endregion
+
+with open("README.rst", "r", encoding="utf-8") as f:
     long_description: str = f.read()
 
 setup(
