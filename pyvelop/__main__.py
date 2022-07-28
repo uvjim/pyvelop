@@ -1,3 +1,5 @@
+"""CLI."""
+
 import argparse
 import asyncio
 import logging
@@ -14,8 +16,7 @@ from pyvelop.node import Node
 
 
 def _setup_args(parser: ArgumentParser) -> None:
-    """Initialise the arguments for the CLI"""
-
+    """Initialise the arguments for the CLI."""
     parser.add_argument('--version', action="version", version=_PACKAGE_VERSION)
 
     sub_parsers = parser.add_subparsers(
@@ -64,8 +65,7 @@ def _setup_args(parser: ArgumentParser) -> None:
 
 
 async def main() -> None:
-    """Main processing"""
-
+    """Execute main."""
     sections: List = []
 
     # region #-- handle arguments --#
@@ -75,7 +75,7 @@ async def main() -> None:
     all_args: bool = False
     arg_values: dict = args.__dict__.copy()
     arg_values: ValuesView = arg_values.values()
-    if not any([val for val in arg_values if isinstance(val, bool)]):
+    if not any(val for val in arg_values if isinstance(val, bool)):
         all_args = True
     # endregion
 
@@ -87,10 +87,10 @@ async def main() -> None:
 
     # region #-- setup the logger --#
     logging.basicConfig()
-    _LOGGER = logging.getLogger("pyvelop.cli")
+    _logger = logging.getLogger("pyvelop.cli")
     if args.verbose >= 1:
-        _LOGGER.setLevel(logging.DEBUG)
-        _LOGGER.debug("Arguments: %s", args.__dict__)
+        _logger.setLevel(logging.DEBUG)
+        _logger.debug("Arguments: %s", args.__dict__)
         if args.verbose > 1:
             logging.getLogger("pyvelop.mesh").setLevel(logging.DEBUG)
             logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.INFO)
@@ -106,20 +106,20 @@ async def main() -> None:
         request_timeout=args.timeout,
     ) as _mesh:
         try:
-            _LOGGER.debug("Gathering details about the Velop system")
+            _logger.debug("Gathering details about the Velop system")
             await _mesh.async_gather_details()
         except MeshInvalidCredentials:
-            _LOGGER.error("Invalid Credentials")
+            _logger.error("Invalid Credentials")
         except MeshBadResponse:
-            _LOGGER.error("Bad response received.  Are you sure %s is a Velop node?", args.primary_node)
+            _logger.error("Bad response received.  Are you sure %s is a Velop node?", args.primary_node)
         except MeshNodeNotPrimary:
-            _LOGGER.error("%s is not the primary node", args.primary_node)
+            _logger.error("%s is not the primary node", args.primary_node)
         except MeshTimeoutError:
-            _LOGGER.error("Timeout connecting to %s", args.primary_node)
+            _logger.error("Timeout connecting to %s", args.primary_node)
         else:
             if args.target == "mesh":
                 # region #-- overview --#
-                _LOGGER.debug("Preparing mesh overview details")
+                _logger.debug("Preparing mesh overview details")
                 section = "Overview"
                 section += f"\n{'-' * len(section)}\n"
                 section += f"Firmware Update: {_mesh.firmware_update_setting}"
@@ -128,7 +128,7 @@ async def main() -> None:
 
                 # region #-- get the node names --#
                 if args.get_nodes or all_args:
-                    _LOGGER.debug("Preparing node names")
+                    _logger.debug("Preparing node names")
                     section = "Nodes"
                     section += f"\n{'-' * len(section)}\n"
                     section += "\n".join([node.name for node in _mesh.nodes])
@@ -137,7 +137,7 @@ async def main() -> None:
 
                 # region #-- get WAN details --#
                 if args.get_wan or all_args:
-                    _LOGGER.debug("Preparing WAN details")
+                    _logger.debug("Preparing WAN details")
                     section = "WAN Details"
                     section += f"\n{'-' * len(section)}\n"
                     section += f"Connected: {_mesh.wan_status}\n"\
@@ -149,7 +149,7 @@ async def main() -> None:
 
                 # region #-- get the Parental Control detail --#
                 if args.get_parental_control or all_args:
-                    _LOGGER.debug("Preparing Parental Control details")
+                    _logger.debug("Preparing Parental Control details")
                     section = "Parental Control"
                     section += f"\n{'-' * len(section)}\n"
                     section += f"Enabled: {_mesh.parental_control_enabled}"
@@ -158,18 +158,18 @@ async def main() -> None:
 
                 # region #-- get the guest Wi-Fi details: format = SSID (band) --#
                 if args.get_guest_wifi_details or all_args:
-                    _LOGGER.debug("Preparing guest Wi-Fi details")
+                    _logger.debug("Preparing guest Wi-Fi details")
                     section = "Guest Wi-Fi"
                     section += f"\n{'-' * len(section)}\n"
                     section += f"Enabled: {_mesh.guest_wifi_enabled}\n"
-                    for idx, details in enumerate(_mesh.guest_wifi_details):
+                    for _, details in enumerate(_mesh.guest_wifi_details):
                         section += f"{details.get('ssid')} ({details.get('band')})\n"
                     sections.append(section.rstrip("\n"))
                 # endregion
 
                 # region #-- get the storage server settings --#
                 if args.get_storage_settings or all_args:
-                    _LOGGER.debug("Preparing storage server settings")
+                    _logger.debug("Preparing storage server settings")
                     section = "Storage Settings"
                     section += f"\n{'-' * len(section)}"
                     for ss_k, ss_v in _mesh.storage_settings.items():
@@ -179,7 +179,7 @@ async def main() -> None:
 
                 # region #-- get the storage server settings --#
                 if args.get_available_storage or all_args:
-                    _LOGGER.debug("Preparing available storage")
+                    _logger.debug("Preparing available storage")
                     section = "Available Storage"
                     section += f"\n{'-' * len(section)}"
                     for partition in _mesh.storage_available:
@@ -189,7 +189,7 @@ async def main() -> None:
 
                 # region #-- get the latest Speedtest results --#
                 if args.get_latest_speedtest or all_args:
-                    _LOGGER.debug("Preparing latest Speedtest results")
+                    _logger.debug("Preparing latest Speedtest results")
                     latest_results = _mesh.latest_speedtest_result
                     section = "Latest Speedtest Results"
                     section += f"\n{'-' * len(section)}\n"
@@ -208,7 +208,7 @@ async def main() -> None:
 
                 # region #-- get the online devices: format = name (ip) --#
                 if args.get_online_devices or all_args:
-                    _LOGGER.debug("Preparing online devices")
+                    _logger.debug("Preparing online devices")
                     adapter: dict
                     device: Device
                     section = "Online Devices"
@@ -226,7 +226,7 @@ async def main() -> None:
 
                 # region #-- get the offline device names --#
                 if args.get_offline_devices or all_args:
-                    _LOGGER.debug("Preparing offline devices")
+                    _logger.debug("Preparing offline devices")
                     device: Device
                     section = "Offline Devices"
                     section += f"\n{'-' * len(section)}\n"
@@ -248,13 +248,13 @@ async def main() -> None:
                     _node: Node = _node[0]
                     # region #-- reboot the node --#
                     if args.reboot:
-                        _LOGGER.debug("Requesting node reboot")
+                        _logger.debug("Requesting node reboot")
                         await _mesh.async_reboot_node(node_name=_node.name)
                     # endregion
 
                     # region #-- get the overview details --#
                     if args.get_overview or all_args:
-                        _LOGGER.debug("Preparing node overview details")
+                        _logger.debug("Preparing node overview details")
                         section = "Overview"
                         section += f"\n{'-' * len(section)}\n"
                         section += f"Device ID: {_node.unique_id}\n"\
@@ -275,7 +275,7 @@ async def main() -> None:
 
                     # region #-- get the network details --#
                     if args.get_network or all_args:
-                        _LOGGER.debug("Preparing node network details")
+                        _logger.debug("Preparing node network details")
                         section = "Network Details"
                         section += f"\n{'-' * len(section)}"
                         for adapter in _node.network:
@@ -286,7 +286,7 @@ async def main() -> None:
 
                     # region #-- backhaul details --#
                     if args.get_backhaul or all_args:
-                        _LOGGER.debug("Preparing backhaul details")
+                        _logger.debug("Preparing backhaul details")
                         section = "Backhaul"
                         section += f"\n{'-' * len(section)}\n"
                         section += f"Parent: {_node.parent_name} ({_node.parent_ip})"
@@ -297,15 +297,15 @@ async def main() -> None:
 
                     # region #-- get the connected devices: format = name (IP) (Type) (Guest Network) --#
                     if args.get_connected_devices or all_args:
-                        _LOGGER.debug("Preparing node connected devices")
+                        _logger.debug("Preparing node connected devices")
                         section = "Connected Devices"
                         section += f"\n{'-' * len(section)}\n"
-                        d: dict
-                        for d in _node.connected_devices:
-                            section += f"{d.get('name')} " \
-                                       f"({d.get('ip')}) " \
-                                       f"({d.get('type')}) " \
-                                       f"({d.get('guest_network')})\n"
+                        connected_device: dict
+                        for connected_device in _node.connected_devices:
+                            section += f"{connected_device.get('name')} " \
+                                       f"({connected_device.get('ip')}) " \
+                                       f"({connected_device.get('type')}) " \
+                                       f"({connected_device.get('guest_network')})\n"
                         sections.append(section.rstrip("\n"))
                     # endregion
             elif args.target == "device":
@@ -316,11 +316,21 @@ async def main() -> None:
                     for _d in _device:
                         # region #-- get the overview details --#
                         if all_args:
-                            _LOGGER.debug("Preparing device overview")
+                            _logger.debug("Preparing device overview")
                             connected_adapters: List = [
-                                f"{adapter.get('ip')} {'(Guest Network)' if adapter.get('guest_network') else ''}"
+                                f"{adapter.get('ip')} "
+                                f"{'(Guest Network) ' if adapter.get('guest_network') else ''}"
                                 for adapter in _d.connected_adapters
                             ]
+                            signal_details: str = "N/A"
+                            if len(_d.connected_adapters):
+                                adapter = _d.connected_adapters[0]
+                                if (
+                                    (signal_strength := adapter.get("signal_strength")) and
+                                    (signal_rssi := adapter.get("rssi"))
+                                ):
+                                    signal_details = f"{signal_strength} ({signal_rssi}dBm)"
+
                             section = "Overview"
                             section += f"\n{'-' * len(section)}\n"
                             section += f"Device ID: {_d.unique_id}\n"\
@@ -333,17 +343,15 @@ async def main() -> None:
                                        f"Serial #: {_d.serial}\n" \
                                        f"Online: {_d.status}\n"\
                                        f"IP: {','.join(connected_adapters)}\n"\
+                                       f"Signal Strength: {signal_details}\n"\
                                        f"Parent: {_d.parent_name}\n"\
                                        f"Parental Control:\n"\
                                        f"  Blocked Times:"
-                            for day, rule in _d.parental_control_schedule.get(
-                                    'blocked_internet_access',
-                                    {}
-                            ).items():
+                            for day, rule in _d.parental_control_schedule.get('blocked_internet_access', {}).items():
                                 section += f"\n    {day.title()}: {', '.join(rule)}"
-                            else:
-                                if not _d.parental_control_schedule.get('blocked_internet_access', {}):
-                                    section += " N/A"
+
+                            if not _d.parental_control_schedule.get('blocked_internet_access', {}):
+                                section += " N/A"
                             blocked_sites_text = ", ".join(_d.parental_control_schedule.get('blocked_sites', []))\
                                                  if _d.parental_control_schedule.get('blocked_sites', [])\
                                                  else "N/A"
