@@ -42,6 +42,7 @@ class Actions:
     GET_DEVICES: str = f"{ROOT}/devicelist/GetDevices3"
     GET_FIRMWARE_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
     GET_GUEST_NETWORK_INFO: str = f"{ROOT}/guestnetwork/GetGuestRadioSettings2"
+    GET_NETWORK_CONNECTIONS: str = f"{ROOT}/networkconnections/GetNetworkConnections2"
     GET_PARENTAL_CONTROL_INFO: str = f"{ROOT}/parentalcontrol/GetParentalControlSettings"
     GET_SPEEDTEST_RESULTS: str = f"{ROOT}/healthcheck/GetHealthCheckResults"
     GET_SPEEDTEST_STATUS: str = f"{ROOT}/healthcheck/GetHealthCheckStatus"

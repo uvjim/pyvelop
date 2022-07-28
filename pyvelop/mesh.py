@@ -27,6 +27,7 @@ _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 ATTR_BACKHAUL_INFO: str = "backhaul"
 ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
 ATTR_GUEST_NETWORK_INFO: str = "guest_network"
+ATTR_NETWORK_CONNECTIONS: str = "network_connections"
 ATTR_NODES: str = "nodes"
 ATTR_PARENTAL_CONTROL_INFO: str = "parental_control"
 ATTR_PROCESSED_DEVICES: str = "devices"
@@ -43,6 +44,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_DEVICES: ATTR_RAW_DEVICES,
     api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
+    api.Actions.GET_NETWORK_CONNECTIONS: ATTR_NETWORK_CONNECTIONS,
     api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_PARENTAL_CONTROL_INFO,
     api.Actions.GET_SPEEDTEST_RESULTS: ATTR_SPEEDTEST_RESULTS,
     api.Actions.GET_SPEEDTEST_STATUS: ATTR_SPEEDTEST_STATUS,
@@ -219,6 +221,7 @@ class Mesh(LoggerFormatter):
         :param include_firmware_update: True to include the current firmware update details (does not issue a check)
         :param include_firmware_update_settings: True to include the current settings for firmware updates
         :param include_guest_wifi: True to include details about the guest Wi-Fi
+        :param include_network_connections: True to include details about network connections
         :param include_parental_control: True to include details about Parental Control
         :param include_speedtest_results: True to include the latest completed Speedtest result
         :param include_speedtest_status: True to include the currently running speedtest status
@@ -246,6 +249,10 @@ class Mesh(LoggerFormatter):
         # -- get the guest WiFi details --#
         if kwargs.get("include_guest_wifi"):
             payload.append({"action": api.Actions.GET_GUEST_NETWORK_INFO})
+
+        # -- get the network connection details --#
+        if kwargs.get("include_network_connections"):
+            payload.append({"action": api.Actions.GET_NETWORK_CONNECTIONS})
 
         # -- get the Parental Control details --#
         if kwargs.get("include_parental_control") or kwargs.get("include_devices"):
@@ -362,15 +369,23 @@ class Mesh(LoggerFormatter):
                         setattr(node, "_Device__parent_name", parent)
                         # endregion
 
+                        network_adapater_macs = [adapter.get("mac") for adapter in node.network]
                         # region #-- get the parental control details --#
                         pc_schedule: List = []
-                        network_adapater_macs = [adapter.get("mac") for adapter in node.network]
                         for mac in network_adapater_macs:
                             for rule in ret[ATTR_PARENTAL_CONTROL_INFO].get("rules", []):
                                 if mac in rule.get("macAddresses", []):
                                     pc_schedule.append(rule)
                                     break
                         getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
+                        # endregion
+
+                        # region #-- get additional connection details --#
+                        for mac in network_adapater_macs:
+                            for connection in ret[ATTR_NETWORK_CONNECTIONS].get("connections", []):
+                                if mac == connection.get("macAddress"):
+                                    getattr(node, "_attribs", {})["connection_details"] = connection
+                                    break
                         # endregion
                 # endregion
 
@@ -493,6 +508,7 @@ class Mesh(LoggerFormatter):
             include_firmware_update=True,
             include_firmware_update_settings=True,
             include_guest_wifi=True,
+            include_network_connections=True,
             include_parental_control=True,
             include_speedtest_results=True,
             include_speedtest_status=True,

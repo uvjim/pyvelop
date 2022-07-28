@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from . import signal_strength_to_text
+
 # endregion
 
 
@@ -59,6 +61,13 @@ class MeshDevice:
             }
             for adapter in self._attribs.get("connections", [])
         ]
+
+        for idx, adapter in enumerate(ret):
+            if (conn_details := self._attribs.get("connection_details", {})):
+                if conn_details["macAddress"] == adapter["mac"]:
+                    ret[idx]["rssi"] = conn_details.get("wireless", {}).get("signalDecibels")
+                    ret[idx]["signal_strength"] = signal_strength_to_text(ret[idx]["rssi"])
+
         return ret
 
     @property
@@ -95,7 +104,7 @@ class MeshDevice:
                 if adapter.get("band"):
                     props["band"] = adapter.get("band")
                 ret.append(props)
-        # -- get the IP addresses and parentId if relevant --#
+        # -- get the IP addresses, parentId and additional connection details if relevant --#
         for idx, adapter in enumerate(ret):
             adapter_details = self._attribs.get("connections", [])
             adapter_details = [details for details in adapter_details if details["macAddress"] == adapter["mac"]]
@@ -104,6 +113,9 @@ class MeshDevice:
                 ret[idx]["guest_network"] = adapter_details[0].get("isGuest", False)
                 if self.__class__.__name__.lower() == "device":
                     ret[idx]["parent_id"] = adapter_details[0].get("parentDeviceID")
+            if (conn_details := self._attribs.get("connection_details", {})):
+                ret[idx]["rssi"] = conn_details.get("wireless", {}).get("signalDecibels")
+                ret[idx]["signal_strength"] = signal_strength_to_text(ret[idx]["rssi"])
         return ret
 
     @property

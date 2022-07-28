@@ -318,9 +318,19 @@ async def main() -> None:
                         if all_args:
                             _logger.debug("Preparing device overview")
                             connected_adapters: List = [
-                                f"{adapter.get('ip')} {'(Guest Network)' if adapter.get('guest_network') else ''}"
+                                f"{adapter.get('ip')} "
+                                f"{'(Guest Network) ' if adapter.get('guest_network') else ''}"
                                 for adapter in _d.connected_adapters
                             ]
+                            signal_details: str = "N/A"
+                            if len(_d.connected_adapters):
+                                adapter = _d.connected_adapters[0]
+                                if (
+                                    (signal_strength := adapter.get("signal_strength")) and
+                                    (signal_rssi := adapter.get("rssi"))
+                                ):
+                                    signal_details = f"{signal_strength} ({signal_rssi}dBm)"
+
                             section = "Overview"
                             section += f"\n{'-' * len(section)}\n"
                             section += f"Device ID: {_d.unique_id}\n"\
@@ -333,6 +343,7 @@ async def main() -> None:
                                        f"Serial #: {_d.serial}\n" \
                                        f"Online: {_d.status}\n"\
                                        f"IP: {','.join(connected_adapters)}\n"\
+                                       f"Signal Strength: {signal_details}\n"\
                                        f"Parent: {_d.parent_name}\n"\
                                        f"Parental Control:\n"\
                                        f"  Blocked Times:"
