@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from . import signal_strength_to_text
 from .base import MeshDevice
 
 # endregion
@@ -38,10 +39,13 @@ class Node(MeshDevice):
         except (TypeError, ValueError):
             pass
         if backhaul:
+            signal_strength_raw: int = backhaul.get("wirelessConnectionInfo", {}).get("stationRSSI")
             ret = {
                 "connection": backhaul.get("connectionType"),
                 "last_checked": backhaul.get("timestamp"),
                 "speed_mbps": speed_mbps,
+                "rrsi_dbm": signal_strength_raw,
+                "signal_strength": signal_strength_to_text(rssi=signal_strength_raw),
             }
 
         return ret
