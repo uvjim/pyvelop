@@ -7,12 +7,8 @@ from typing import List, ValuesView
 
 from pyvelop.const import _PACKAGE_VERSION
 from pyvelop.device import Device
-from pyvelop.exceptions import (
-    MeshBadResponse,
-    MeshNodeNotPrimary,
-    MeshInvalidCredentials,
-    MeshTimeoutError,
-)
+from pyvelop.exceptions import (MeshBadResponse, MeshInvalidCredentials,
+                                MeshNodeNotPrimary, MeshTimeoutError)
 from pyvelop.mesh import Mesh
 from pyvelop.node import Node
 
@@ -36,6 +32,7 @@ def _setup_args(parser: ArgumentParser) -> None:
     parser_shared.add_argument("-t", "--timeout", type=int, help="Set the timeout for a request. 0 = infinite")
     parser_shared.add_argument("-u", "--username", default="admin", help="Linksys Velop username")
     parser_shared.add_argument("-v", "--verbose", action="count", default=0, help="Set verbosity level")
+    # endregion
 
     # region #-- Mesh arguments --#
     parser_mesh = sub_parsers.add_parser("mesh", parents=[parser_shared], help="Interact with the Velop mesh")
@@ -357,5 +354,9 @@ async def main() -> None:
         print("\n\n".join(sections))
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
     loop.run_until_complete(main())

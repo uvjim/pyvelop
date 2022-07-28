@@ -1,12 +1,9 @@
-"""Represents a node in the mesh"""
+"""Represents a node in the mesh."""
 
 # region #-- imports --#
 from __future__ import annotations
 
-from typing import (
-    List,
-    Optional,
-)
+from typing import List, Optional
 
 from .base import MeshDevice
 
@@ -20,7 +17,7 @@ class Node(MeshDevice):
     """Representation of a node in the mesh.  A node provides the connectivity for a device."""
 
     def __init__(self, **kwargs):
-        """Constructor
+        """Initialise the Node.
 
         All supplied are arguments are deemed as attributes and are stored in a private variable.
 
@@ -32,8 +29,7 @@ class Node(MeshDevice):
 
     @property
     def backhaul(self) -> dict:
-        """"""
-
+        """Get details about the backhaul."""
         ret = {}
         backhaul = self._attribs.get("backhaul", {})
         speed_mbps: Optional[float] = None
@@ -52,11 +48,10 @@ class Node(MeshDevice):
 
     @property
     def connected_devices(self) -> List:
-        """List of the devices that are connected to the node
+        """List of the devices that are connected to the node.
 
         :return: List of connected devices in alphabetical order sorted by device name
         """
-
         connected_devices = self.__connected_devices
         return sorted(connected_devices, key=lambda device: device.get("name"))
 
@@ -69,7 +64,6 @@ class Node(MeshDevice):
 
         :return: A dictionary containing the firmware version and date
         """
-
         ret = {}
         if self._attribs.get("unit", {}):
             ret["version"] = self._attribs.get("unit", {}).get("firmwareVersion")
@@ -87,39 +81,35 @@ class Node(MeshDevice):
 
     @property
     def hardware_version(self) -> str:
-        """Get the hardware version of the node
+        """Get the hardware version of the node.
 
         :return: A string containing the hardware version
         """
-
         return self._attribs.get("model", {}).get("hardwareVersion")
 
     @property
     def last_update_check(self) -> Optional[str]:
-        """Get the last time an update was checked for
+        """Get the last time an update was checked for.
 
         :return: String containing the last update time as per the API
         """
-
         ret = self._attribs.get("updates", {}).get("lastSuccessfulCheckTime", None)
         return ret
 
     @property
     def manufacturer(self) -> str:
-        """Get the node manufacturer
+        """Get the node manufacturer.
 
         :return: String containing the name of the manufacturer
         """
-
         return self._attribs.get("model", {}).get("manufacturer")
 
     @property
     def model(self) -> str:
-        """Get the model of the node
+        """Get the model of the node.
 
         :return: A string containing the model
         """
-
         return self._attribs.get("model", {}).get("modelNumber")
 
     @property
@@ -128,22 +118,19 @@ class Node(MeshDevice):
 
         :return: A string containing the IP address of the parent or None if no parent
         """
-
         return self._attribs.get("backhaul", {}).get("parentIPAddress")
 
     @property
     def parent_name(self) -> str:
-        """"""
-
+        """Return the parent name."""
         return self.__parent_name
 
     @property
     def serial(self) -> str:
-        """Get the serial number of the node
+        """Get the serial number of the node.
 
         :return: A string containing the serial number
         """
-
         return self._attribs.get("unit", {}).get("serialNumber")
 
     @property
@@ -154,7 +141,6 @@ class Node(MeshDevice):
 
         :return: A string containing the node type.
         """
-
         ret = ""
         native_type = self._attribs.get("nodeType", "").lower()
         if native_type == "master":

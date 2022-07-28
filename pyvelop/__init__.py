@@ -1,1 +1,1 @@
-"""The pyvelop module"""
+"""The pyvelop module."""
