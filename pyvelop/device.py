@@ -1,16 +1,13 @@
-"""Representation of a mesh device"""
+"""Representation of a mesh device."""
 
 import datetime
-from typing import (
-    List,
-    Optional,
-)
+from typing import List, Optional
 
 from .base import MeshDevice
 
 
 def _textualise_schedule(schedules: dict) -> dict:
-    """Establish a textual version of the schedule
+    """Establish a textual version of the schedule.
 
     The schedule is stored in a string of 48 characters ('0's and '1's) representing 30-minute periods.
     '0' is blocked, '1' is allowed.
@@ -18,7 +15,6 @@ def _textualise_schedule(schedules: dict) -> dict:
     :param schedules: dictionary representing the schedules as per the API
     :return: a dictionary showing the times that internet access is blocked and the sites that are also blocked
     """
-
     _pc_schedule_blocked: str = "0"
     _pc_schedule_unblocked: str = "1"
 
@@ -52,10 +48,10 @@ def _textualise_schedule(schedules: dict) -> dict:
 
 
 class Device(MeshDevice):
-    """Represents a user device in the mesh, i.e. not a node"""
+    """Represents a user device in the mesh, i.e. not a node."""
 
     def __init__(self, **kwargs):
-        """Constructor
+        """Initialise the Device.
 
         :param kwargs: keyword arguments
         """
@@ -64,23 +60,20 @@ class Device(MeshDevice):
 
     @property
     def description(self) -> Optional[str]:
-        """Get the description"""
-
+        """Get the description."""
         return self._attribs.get("model", {}).get("description", None)
 
     @property
     def manufacturer(self) -> Optional[str]:
-        """Get the manufacturer"""
-
+        """Get the manufacturer."""
         return (
-                self._get_user_property(name="userDeviceManufacturer")
-                or self._attribs.get("model", {}).get("manufacturer", None)
+            self._get_user_property(name="userDeviceManufacturer")
+            or self._attribs.get("model", {}).get("manufacturer", None)
         )
 
     @property
     def model(self) -> Optional[str]:
-        """Get the model"""
-
+        """Get the model."""
         return (
             self._get_user_property(name="userDeviceModelNumber")
             or self._attribs.get("model", {}).get("modelNumber", None)
@@ -88,20 +81,18 @@ class Device(MeshDevice):
 
     @property
     def operating_system(self) -> Optional[str]:
-        """Get the OS"""
-
+        """Get the OS."""
         return (
-                self._get_user_property(name="userDeviceOS")
-                or self._attribs.get("unit", {}).get("operatingSystem", None)
+            self._get_user_property(name="userDeviceOS")
+            or self._attribs.get("unit", {}).get("operatingSystem", None)
         )
 
     @property
     def parental_control_schedule(self) -> dict:
-        """Return the schedule of the parental controls for the device
+        """Return the schedule of the parental controls for the device.
 
         An empty dictionary means that there are no parental controls in place
         """
-
         ret: dict = {}
         if self._attribs.get("parental_controls"):
             for rule in self._attribs.get("parental_controls"):
@@ -114,12 +105,10 @@ class Device(MeshDevice):
 
     @property
     def parent_name(self) -> Optional[str]:
-        """Name of the node the device is connected to"""
-
+        """Name of the node the device is connected to."""
         return self.__parent_name
 
     @property
     def serial(self) -> Optional[str]:
-        """Get the serial number"""
-
+        """Get the serial number."""
         return self._attribs.get("unit", {}).get("serialNumber", None)

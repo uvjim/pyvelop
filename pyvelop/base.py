@@ -1,45 +1,37 @@
-"""Base class for devices in the Velop mesh"""
+"""Base class for devices in the Velop mesh."""
 
 # region #-- imports --#
 from __future__ import annotations
 
-from typing import (
-    List,
-    Optional,
-)
-
+from typing import List, Optional
 
 # endregion
 
 
 class MeshDevice:
-    """A class that manages the common properties between the devices in the Velop mesh network"""
+    """A class that manages the common properties between the devices in the Velop mesh network."""
 
     def __init__(self, **kwargs) -> None:
-        """Constructor.
+        """Initialise the Mesh device.
 
         :param kwargs: Dictionary of named arguments
         """
-
         # -- make the private attributes for subclasses available to this class
         self._attribs: dict = kwargs
         self.__device_id = self._attribs.get("deviceID")
-        return
 
     def __repr__(self) -> str:
-        """Make a pretty string representation of the class
+        """Make a pretty string representation of the class.
 
         :return: Takes the class name and the name of the device to build the representation
         """
-
         ret = f"{self.__class__.__name__}: "
         if self.name:
             ret += self.name
         return ret
 
     def _get_user_property(self, name: str) -> Optional[str]:
-        """Get the given property from the user properties"""
-
+        """Get the given property from the user properties."""
         ret = None
 
         user_properties: List[dict] = self._attribs.get("properties", [])
@@ -55,11 +47,10 @@ class MeshDevice:
 
     @property
     def connected_adapters(self) -> List[dict]:
-        """Get the network adapters that are connected to the mesh
+        """Get the network adapters that are connected to the mesh.
 
         :return: a list of dictionaries that contain the MAC, IP and Guest Network status of the adapter
         """
-
         ret = [
             {
                 "mac": adapter.get("macAddress"),
@@ -72,7 +63,9 @@ class MeshDevice:
 
     @property
     def name(self) -> str:
-        """Get the name of the device.  Decision on the name to use is as follows: -
+        """Get the name of the device.
+
+        Decision on the name to use is as follows: -
 
             - User set name
             - Friendly name
@@ -80,7 +73,6 @@ class MeshDevice:
 
         :return: A string containing the name of the device
         """
-
         return (
             self._get_user_property(name="userDeviceName")
             or self._attribs.get("friendlyName")
@@ -89,11 +81,10 @@ class MeshDevice:
 
     @property
     def network(self) -> List[dict]:
-        """Get all the adapters the device has installed
+        """Get all the adapters the device has installed.
 
         :return: List of dictionaries containing MAC, IP, Wi-Fi band, Parent unique ID.
         """
-
         ret = []
 
         # -- get the adapters --#
@@ -117,11 +108,10 @@ class MeshDevice:
 
     @property
     def results_time(self) -> str:
-        """Get the time that the API was queried for the device results
+        """Get the time that the API was queried for the device results.
 
         :return: The time the scan was executed
         """
-
         return self._attribs.get("results_time")
 
     @property
@@ -132,13 +122,11 @@ class MeshDevice:
 
         :return: True if connected.  False if not.
         """
-
         conns = self._attribs.get("connections", [])
         ret = True if conns else False
         return ret
 
     @property
     def unique_id(self) -> str:
-        """"""
-
+        """Return the device_id as unique_id."""
         return self.__device_id

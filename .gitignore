@@ -134,3 +134,5 @@ tests/
 
 doco_package.py
 logo.ico
+*.code-workspace
+.vscode/launch.json

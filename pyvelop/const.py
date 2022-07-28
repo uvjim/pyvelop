@@ -1,4 +1,4 @@
-"""Constants for the pyvelop module"""
+"""Constants for the pyvelop module."""
 
 # region #-- generic details --#
 _PACKAGE_NAME = "pyvelop"
