@@ -1,18 +1,21 @@
-# noinspection PyUnresolvedReferences
+"""Sphinx configuration.
+
+isort:skip_file
+"""
+
+import os
+import sys
+
 import sphinx_rtd_theme
 
-# -- Imports for package constants -------------------------------------------
-# noinspection PyProtectedMember
-from pyvelop.const import (
-    _PACKAGE_AUTHOR,
-    _PACKAGE_NAME,
-)
+sys.path.insert(0, os.path.abspath('../..'))
 
+from pyvelop.const import (_PACKAGE_AUTHOR,  # noqa pylint: disable=import-error, wrong-import-position
+                           _PACKAGE_NAME)
 
 # -- Project information -----------------------------------------------------
 project = _PACKAGE_NAME
-# noinspection PyShadowingBuiltins
-copyright = f"2021, {_PACKAGE_AUTHOR}"
+copyright = f"2022, {_PACKAGE_AUTHOR}"  # pylint: disable=redefined-builtin
 author = _PACKAGE_AUTHOR
 
 
@@ -22,11 +25,7 @@ extensions = [
     "sphinx_rtd_theme",
 ]
 
-# Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
-
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = "sphinx_rtd_theme"
-html_static_path = ['_static']
+html_theme = "sphinx_rtd_theme"  # pylint: disable=invalid-name
 html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
