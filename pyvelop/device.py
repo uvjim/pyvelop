@@ -60,12 +60,18 @@ class Device(MeshDevice):
 
     @property
     def description(self) -> Optional[str]:
-        """Get the description."""
+        """Get the description.
+
+        :return: Device description as per Velop
+        """
         return self._attribs.get("model", {}).get("description", None)
 
     @property
     def manufacturer(self) -> Optional[str]:
-        """Get the manufacturer."""
+        """Get the manufacturer.
+
+        :return: Manufacturer as found by the Velop
+        """
         return (
             self._get_user_property(name="userDeviceManufacturer")
             or self._attribs.get("model", {}).get("manufacturer", None)
@@ -73,7 +79,10 @@ class Device(MeshDevice):
 
     @property
     def model(self) -> Optional[str]:
-        """Get the model."""
+        """Get the model.
+
+        :return: Model as found by the Velop
+        """
         return (
             self._get_user_property(name="userDeviceModelNumber")
             or self._attribs.get("model", {}).get("modelNumber", None)
@@ -81,7 +90,10 @@ class Device(MeshDevice):
 
     @property
     def operating_system(self) -> Optional[str]:
-        """Get the OS."""
+        """Get the OS.
+
+        :return: The OS as identified by the Velop
+        """
         return (
             self._get_user_property(name="userDeviceOS")
             or self._attribs.get("unit", {}).get("operatingSystem", None)

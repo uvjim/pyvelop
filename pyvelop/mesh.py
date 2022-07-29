@@ -914,7 +914,10 @@ class Mesh(LoggerFormatter):
 
     @property
     def speedtest_status(self) -> str:
-        """Return the current status of the Speedtest."""
+        """Return the current status of the Speedtest.
+
+        :return: Textual representation of the Speedtest state
+        """
         ret = _get_speedtest_state(
             speedtest_results=self._mesh_attributes.get(ATTR_SPEEDTEST_STATUS, {}).get("speedTestResult", {})
         )
@@ -923,7 +926,10 @@ class Mesh(LoggerFormatter):
 
     @property
     def storage_available(self) -> List:
-        """Get available shared partitions."""
+        """Get available shared partitions.
+
+        :return: List of the available storage devices and their properties
+        """
         ret: List = []
         node: List[Node]
         device: dict
@@ -952,7 +958,10 @@ class Mesh(LoggerFormatter):
 
     @property
     def storage_settings(self) -> dict:
-        """Get the settings for shared partitions."""
+        """Get the settings for shared partitions.
+
+        :return: Dictionary of the storage settings
+        """
         ret = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get("smb_server_settings", {})
         if ret:
             ret = {
