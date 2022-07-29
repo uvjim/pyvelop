@@ -6,9 +6,9 @@ from typing import Optional
 # endregion
 
 
-def signal_strength_to_text(rssi: Optional[int]) -> str:
+def signal_strength_to_text(rssi: Optional[int]) -> Optional[str]:
     """Convert the given RSSI value to a textual representation."""
-    ret: str = ""
+    ret: Optional[str] = None
     if rssi is not None:
         if rssi <= 0:
             ret = "Excellent"
