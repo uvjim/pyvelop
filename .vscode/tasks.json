@@ -17,8 +17,8 @@
         },
         {
             "label": "Build: Library",
-            "type": "process",
-            "command": ".venv/Scripts/python.exe",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
             "args": [
                 "setup.py",
                 "bdist_wheel",
@@ -43,9 +43,9 @@
         },
         {
             "label": "Release: Documentation",
-            "type": "process",
+            "type": "shell",
             "group": "build",
-            "command": ".venv/Scripts/python.exe",
+            "command": "${command:python.interpreterPath}",
             "args": [
                 "doco_package.py"
             ],
@@ -69,6 +69,17 @@
                 "Release: Library and EXE",
                 "Release: Documentation"
             ],
+        },
+        {
+            "label": "Upload: PyPi",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
+            "args": [
+                "-m", "twine",
+                "upload",
+                "--skip-existing",
+                "dist/*2022.7.*"
+            ]
         }
     ]
 }
