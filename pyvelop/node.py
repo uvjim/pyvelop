@@ -44,7 +44,7 @@ class Node(MeshDevice):
                 "connection": backhaul.get("connectionType"),
                 "last_checked": backhaul.get("timestamp"),
                 "speed_mbps": speed_mbps,
-                "rrsi_dbm": signal_strength_raw,
+                "rssi_dbm": signal_strength_raw,
                 "signal_strength": signal_strength_to_text(rssi=signal_strength_raw),
             }
 
