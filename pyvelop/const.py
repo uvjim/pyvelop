@@ -3,5 +3,5 @@
 # region #-- generic details --#
 _PACKAGE_NAME = "pyvelop"
 _PACKAGE_AUTHOR = "uvjim"
-_PACKAGE_VERSION = "2022.7.1"
+_PACKAGE_VERSION = "2022.7.2"
 # endregion
