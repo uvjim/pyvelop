@@ -1,0 +1,74 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build: Documentation",
+            "type": "process",
+            "command": ".venv/Scripts/sphinx-build.exe",
+            "args": [
+                "-a",
+                "-b", "html",
+                "-E",
+                "docs/source",
+                "docs/build"
+            ]
+        },
+        {
+            "label": "Build: Library",
+            "type": "process",
+            "command": ".venv/Scripts/python.exe",
+            "args": [
+                "setup.py",
+                "bdist_wheel",
+                "sdist",
+                "clean", "--all"
+            ]
+        },
+        {
+            "label": "Build: Windows Executable",
+            "type": "process",
+            "command": ".venv/Scripts/pyinstaller.exe",
+            "args": [
+                "--clean",
+                "--distpath", "pyinstaller_files/dist",
+                "--workpath", "pyinstaller_files/build",
+                "--specpath", "pyinstaller_files",
+                "--onefile",
+                "--name", "pyvelop",
+                "--icon", "logo.ico",
+                "pyvelop/__main__.py"
+            ]
+        },
+        {
+            "label": "Release: Documentation",
+            "type": "process",
+            "group": "build",
+            "command": ".venv/Scripts/python.exe",
+            "args": [
+                "doco_package.py"
+            ],
+            "dependsOn": [
+                "Build: Documentation"
+            ],
+            "dependsOrder": "sequence"
+        },
+        {
+            "label": "Release: Library and EXE",
+            "group": "build",
+            "dependsOn": [
+                "Build: Library",
+                "Build: Windows Executable"
+            ],
+        },
+        {
+            "label": "Release: Full",
+            "group": "build",
+            "dependsOn": [
+                "Release: Library and EXE",
+                "Release: Documentation"
+            ],
+        }
+    ]
+}
