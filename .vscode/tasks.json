@@ -78,7 +78,7 @@
                 "-m", "twine",
                 "upload",
                 "--skip-existing",
-                "dist/*2022.7.*"
+                "dist/*2022.8.*"
             ]
         }
     ]
