@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 import aiohttp
 
@@ -154,7 +154,6 @@ class Mesh(LoggerFormatter):
             self.__passed_session = True
             self.__create_session()
 
-        # noinspection PyProtectedMember
         _LOGGER.debug(self.message_format("%s version: %s"), __package__, const._PACKAGE_VERSION)
         _LOGGER.debug(
             self.message_format("Initialised mesh for %s"),
@@ -383,10 +382,12 @@ class Mesh(LoggerFormatter):
                         # region #-- get additional connection details --#
                         if ATTR_NETWORK_CONNECTIONS in ret:
                             for mac in network_adapater_macs:
-                                for connection in ret[ATTR_NETWORK_CONNECTIONS].get("connections", []):
-                                    if mac == connection.get("macAddress"):
-                                        getattr(node, "_attribs", {})["connection_details"] = connection
-                                        break
+                                for conn_details in ret[ATTR_NETWORK_CONNECTIONS].get("nodeWirelessConnections", []):
+                                    node_connections: List[Mapping] = conn_details.get("connections", {})
+                                    for connection in node_connections:
+                                        if mac == connection.get("macAddress"):
+                                            getattr(node, "_attribs", {})["connection_details"] = connection
+                                            break
                         # endregion
                 # endregion
 
@@ -589,7 +590,6 @@ class Mesh(LoggerFormatter):
         """
         _LOGGER.debug(self.message_format("entered, mac_address: %s, force_refresh: %s"), mac_address, force_refresh)
 
-        # noinspection PyTypeChecker
         ret: Optional[Device | Node] = None
 
         all_devices: List[Device | Node]
@@ -716,7 +716,6 @@ class Mesh(LoggerFormatter):
             raise MeshDeviceNotFoundResponse
 
         if node_details[0].type == NODE_TYPE_PRIMARY and not force:
-            # noinspection PyTypeChecker
             raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
 
         node_ip = [
@@ -725,7 +724,6 @@ class Mesh(LoggerFormatter):
             if adapter.get("ip")
         ]
         if not node_ip:
-            # noinspection PyTypeChecker
             raise MeshInvalidInput(f"{node_name}: no valid address found")
 
         await self._async_make_request(
