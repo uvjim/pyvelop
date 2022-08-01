@@ -381,11 +381,12 @@ class Mesh(LoggerFormatter):
                         # endregion
 
                         # region #-- get additional connection details --#
-                        for mac in network_adapater_macs:
-                            for connection in ret[ATTR_NETWORK_CONNECTIONS].get("connections", []):
-                                if mac == connection.get("macAddress"):
-                                    getattr(node, "_attribs", {})["connection_details"] = connection
-                                    break
+                        if ATTR_NETWORK_CONNECTIONS in ret:
+                            for mac in network_adapater_macs:
+                                for connection in ret[ATTR_NETWORK_CONNECTIONS].get("connections", []):
+                                    if mac == connection.get("macAddress"):
+                                        getattr(node, "_attribs", {})["connection_details"] = connection
+                                        break
                         # endregion
                 # endregion
 
