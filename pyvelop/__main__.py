@@ -319,6 +319,7 @@ async def main() -> None:
                             _logger.debug("Preparing device overview")
                             connected_adapters: List = [
                                 f"{adapter.get('ip')} "
+                                f"{'(' + adapter.get('ipv6') + ')' if adapter.get('ipv6') else ''}"
                                 f"{'(Guest Network) ' if adapter.get('guest_network') else ''}"
                                 for adapter in _d.connected_adapters
                             ]
