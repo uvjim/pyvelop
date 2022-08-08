@@ -57,6 +57,7 @@ class MeshDevice:
             {
                 "mac": adapter.get("macAddress"),
                 "ip": adapter.get("ipAddress"),
+                "ipv6": adapter.get("ipv6Address"),
                 "guest_network": adapter.get("isGuest", False),
             }
             for adapter in self._attribs.get("connections", [])
@@ -109,8 +110,9 @@ class MeshDevice:
             adapter_details = self._attribs.get("connections", [])
             adapter_details = [details for details in adapter_details if details["macAddress"] == adapter["mac"]]
             if adapter_details:
-                ret[idx]["ip"] = adapter_details[0].get("ipAddress")
                 ret[idx]["guest_network"] = adapter_details[0].get("isGuest", False)
+                ret[idx]["ip"] = adapter_details[0].get("ipAddress")
+                ret[idx]["ipv6"] = adapter_details[0].get("ipv6Address")
                 if self.__class__.__name__.lower() == "device":
                     ret[idx]["parent_id"] = adapter_details[0].get("parentDeviceID")
             if (conn_details := self._attribs.get("connection_details", {})):
