@@ -150,8 +150,9 @@ class Mesh(LoggerFormatter):
         self.__passed_session: bool = False
 
         _LOGGER.debug(self.message_format("Session was passed in: %s"), "Yes" if self._session is not None else "No")
-        if self._session is None:
+        if self._session:
             self.__passed_session = True
+        else:
             self.__create_session()
 
         _LOGGER.debug(self.message_format("%s version: %s"), __package__, const._PACKAGE_VERSION)
@@ -449,9 +450,10 @@ class Mesh(LoggerFormatter):
 
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered"))
-        await self._session.close()
-        _LOGGER.debug(self.message_format("exited"))
+        if not self.__passed_session:
+            _LOGGER.debug(self.message_format("entered"))
+            await self._session.close()
+            _LOGGER.debug(self.message_format("exited"))
 
     async def async_delete_device(self, **kwargs) -> None:
         """Delete a device from the device list on the mesh.
@@ -626,6 +628,7 @@ class Mesh(LoggerFormatter):
 
         all_devices = await self._async_gather_details(
             include_devices=True,
+            include_network_connections=True,
         )
         ret: List[Device] = [
             device
@@ -803,8 +806,12 @@ class Mesh(LoggerFormatter):
         """
         _LOGGER.debug(self.message_format("entered"))
 
-        ret = await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
-        ret = True if ret.get("result", False) else False
+        ret: bool = False
+        try:
+            await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
+            ret = True
+        except Exception:  # pylint: disable=broad-except
+            pass
 
         _LOGGER.debug(self.message_format("exited"))
         return ret
