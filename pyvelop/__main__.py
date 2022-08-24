@@ -13,10 +13,9 @@ from pyvelop.exceptions import (MeshConnectionError,
                                 MeshDeviceNotFoundResponse,
                                 MeshInvalidCredentials, MeshInvalidInput,
                                 MeshNodeNotPrimary, MeshTimeoutError)
+from pyvelop.logger import LoggerFormatter as Logger
 from pyvelop.mesh import Mesh
 from pyvelop.node import Node
-
-from .logger import LoggerFormatter as Logger
 
 # endregion
 
