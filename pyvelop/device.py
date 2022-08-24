@@ -124,8 +124,3 @@ class Device(MeshDevice):
     def serial(self) -> Optional[str]:
         """Get the serial number."""
         return self._attribs.get("unit", {}).get("serialNumber", None)
-
-    @property
-    def ui_type(self) -> Optional[str]:
-        """Get the type assigned to the device as per the web UI."""
-        return self._get_user_property(name="userDeviceType")
