@@ -1,371 +1,492 @@
-"""CLI."""
+"""pyvelop CLI."""
 
-import argparse
-import asyncio
+# region #-- imports --#
 import logging
-import sys
-from argparse import ArgumentParser
-from typing import List, ValuesView
+from typing import Dict, List, Optional, Tuple
 
-from pyvelop.const import _PACKAGE_VERSION
+import aiohttp
+import asyncclick as click
+
+from pyvelop.const import _PACKAGE_NAME, _PACKAGE_VERSION
 from pyvelop.device import Device
-from pyvelop.exceptions import (MeshBadResponse, MeshInvalidCredentials,
+from pyvelop.exceptions import (MeshConnectionError,
+                                MeshDeviceNotFoundResponse,
+                                MeshInvalidCredentials, MeshInvalidInput,
                                 MeshNodeNotPrimary, MeshTimeoutError)
 from pyvelop.mesh import Mesh
 from pyvelop.node import Node
 
+from .logger import LoggerFormatter as Logger
 
-def _setup_args(parser: ArgumentParser) -> None:
-    """Initialise the arguments for the CLI."""
-    parser.add_argument('--version', action="version", version=_PACKAGE_VERSION)
+# endregion
 
-    sub_parsers = parser.add_subparsers(
-        dest="target",
-        title="Targets",
-        description="Object to target in the Velop system",
-        help="Select one of these objects to target"
+
+class StandardCommand(click.Command):
+    """Define standard options that should be used with all commands."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialise."""
+        super().__init__(*args, **kwargs)
+
+        def _create_session(ctx: click.Context, param: click.Option, value) -> None:
+            """Create the session and store for late use."""
+            if param.name == "create_session":
+                if value:
+                    _LOGGER.debug("Pre-creating a session")
+                    ctx.obj = ctx.with_async_resource(aiohttp.ClientSession(raise_for_status=True))
+
+        def _setup_logging(_: click.Context, param: click.Option, value) -> None:
+            """Handle logging."""
+            if param.name == "verbose":
+                if value:
+                    logging.basicConfig()
+                    _LOGGER.setLevel(logging.DEBUG)
+                    _LOGGER.debug("Setting up logging")
+                    if value > 1:
+                        logging.getLogger(_PACKAGE_NAME).setLevel(logging.DEBUG)
+                        logging.getLogger(f"{_PACKAGE_NAME}.jnap").setLevel(logging.WARNING)
+                        logging.getLogger(f"{_PACKAGE_NAME}.mesh.verbose").setLevel(logging.WARNING)
+                        if value > 2:
+                            logging.getLogger(f"{_PACKAGE_NAME}.mesh.verbose").setLevel(logging.DEBUG)
+                            if value > 3:
+                                logging.getLogger(f"{_PACKAGE_NAME}.jnap").setLevel(logging.DEBUG)
+
+        standard_options: List[click.Option] = [
+            click.Option(
+                ("-a", "--primary-node"),
+                help="The primary node to direct all queries to.",
+                required=True,
+                type=str,
+            ),
+            click.Option(
+                ("-c", "--create-session"),
+                callback=_create_session,
+                default=False,
+                help="Supply this argument to create a session to pass into the library.",
+                hidden=True,
+                is_flag=True,
+            ),
+            click.Option(
+                ("-p", "--password"),
+                help="The local mesh password.",
+                prompt=True,
+                required=True,
+            ),
+            click.Option(
+                ("-t", "--timeout"),
+                default=30,
+                help="The timeout for a request.",
+                type=int,
+            ),
+            click.Option(
+                ("-u", "--username"),
+                default="admin",
+                help="The username for communications.",
+                type=str,
+            ),
+            click.Option(
+                ("-v", "--verbose"),
+                callback=_setup_logging,
+                count=True,
+                help="Set the verbosity of logging.",
+            )
+        ]
+
+        standard_options.reverse()
+        for opt in standard_options:
+            self.params.insert(0, opt)
+
+
+DEF_INDENT: int = 2
+
+click.anyio_backend = "aysncio"
+_LOGGER = logging.getLogger(f"{_PACKAGE_NAME}.cli")
+log_formatter: Logger = Logger()
+
+
+@click.group()
+@click.version_option(version=_PACKAGE_VERSION, message="%(version)s")
+def cli() -> None:
+    """CLI for interacting with the pyvelop module."""
+
+
+@cli.command(cls=StandardCommand)
+@click.pass_context
+@click.argument("device_name")
+async def device(
+    ctx: click.Context,
+    device_name: str,
+    **_,
+) -> None:
+    """Get details about a device on the Mesh."""
+    if (mesh_details := await mesh_connect(ctx)):
+        async with mesh_details:
+            device_details: List[Device] = await mesh_details.async_get_devices()
+            for found_device in device_details:
+                if found_device.name == device_name:
+                    _display_data(_build_display_data(
+                        mappings=[
+                            ("results_time", "Queried at"),
+                            ("unique_id", "Device ID"),
+                            ("ui_type", "Icon Type"),
+                            ("manufacturer", "Manufacturer"),
+                            ("model", "Model"),
+                            ("description", "Description"),
+                            ("operating_system", "Operating System"),
+                            ("serial", "Serial #"),
+                            ("status", "Online"),
+                            ("parent_name", "Parent"),
+                            ("connected_adapters", "Connections", _connected_details(
+                                adapters=found_device.connected_adapters
+                            )),
+                            ("parental_control_schedule", "Parental Control", _parental_control_schedule_details(
+                                schedule=found_device.parental_control_schedule
+                            )),
+                        ],
+                        obj=found_device,
+                        title=found_device.name,
+                    ))
+                    break
+
+
+@cli.command(cls=StandardCommand)
+@click.pass_context
+async def mesh(
+    ctx: click.Context,
+    **_,
+) -> None:
+    """Get details about the Mesh."""
+    indent: int = DEF_INDENT
+    prefix: str = f"\n{indent * ' '}"
+    if (mesh_details := await mesh_connect(ctx)):
+        async with mesh_details:
+            await mesh_details.async_gather_details()
+            _display_data(_build_display_data(
+                mappings=[
+                    ("wan_status", "Internet Connected"),
+                    ("wan_ip", "Public IP"),
+                    ("wan_dns", "DNS Servers", ", ".join(mesh_details.wan_dns)),
+                    ("wan_mac", "MAC"),
+                    (
+                        "nodes",
+                        "Nodes",
+                        prefix + prefix.join([node.name for node in mesh_details.nodes])
+                    ),
+                    ("latest_speedtest_result", "Latest Speedtest Result"),
+                    ("parental_control_enabled", "Parental Control Enabled"),
+                    ("guest_wifi_details", "Guest Wi-Fi Details", _guest_wifi_details(
+                        state=mesh_details.guest_wifi_enabled,
+                        networks=mesh_details.guest_wifi_details,
+                    )),
+                    ("storage_details", "Storage Details", _storage_details(
+                        available_shares=mesh_details.storage_available,
+                        server_details=mesh_details.storage_settings,
+                    )),
+                    (
+                        "devices",
+                        f"Online Devices ({len([device for device in mesh_details.devices if device.status])})",
+                        prefix + prefix.join([
+                            f"{device.name} ({device.connected_adapters[0].get('ip')})"
+                            for device in mesh_details.devices if device.status
+                        ])
+                    ),
+                    (
+                        "devices",
+                        "Offline Devices "
+                        f"({len([device for device in mesh_details.devices if not device.status])})",
+                        prefix + prefix.join([
+                            device.name
+                            for device in mesh_details.devices if not device.status
+                        ])
+                    ),
+                ],
+                obj=mesh_details,
+                title="Mesh Overview"
+            ))
+
+
+@cli.group()
+@click.help_option()
+async def node() -> None:
+    """Work with nodes on the Mesh."""
+
+
+@node.command(cls=StandardCommand)
+@click.argument("node_name")
+@click.pass_context
+async def details(
+    ctx: click.Context,
+    node_name: str,
+    **_,
+) -> None:
+    """Get details about a node on the Mesh."""
+    indent: int = DEF_INDENT
+    prefix: str = f"\n{indent * ' '}"
+    if (mesh_details := await mesh_connect(ctx)):
+        async with mesh_details:
+            await mesh_details.async_gather_details()
+            node_details: List[Node] = mesh_details.nodes
+            if not node_details:
+                print("No nodes found")
+            else:
+                found_node: Node
+                for found_node in node_details:
+                    if found_node.name == node_name:
+                        _display_data(_build_display_data(
+                            mappings=[
+                                ("results_time", "Queried at"),
+                                ("unique_id", "Device ID"),
+                                ("type", "Node type", found_node.type.title()),
+                                ("manufacturer", "Manufacturer"),
+                                ("model", "Model"),
+                                ("hardware_version", "Hardware version"),
+                                ("serial", "Serial #"),
+                                ("firmware", "Firmware", found_node.firmware.get("version")),
+                                ("firmware", "Latest firmware", found_node.firmware.get("latest_version")),
+                                ("last_update_check", "Last update check"),
+                                ("status", "Online"),
+                                ("connected_adapters", "Connections", _connected_details(
+                                    adapters=found_node.connected_adapters
+                                )),
+                                ("backhaul", "Backhaul", "\n" + _build_display_data(
+                                    indent=indent,
+                                    mappings=[
+                                        ("parent_name", "Parent"),
+                                        ("connection", "Connection type"),
+                                        (
+                                            "speed_mbps",
+                                            "Speed",
+                                            f"{found_node.backhaul.get('speed_mbps')}mbps"
+                                            if found_node.backhaul.get('speed_mbps')
+                                            else None
+                                        ),
+                                        ("signal_strength", "Signal strength"),
+                                        (
+                                            "rssi_dbm",
+                                            "RSSI",
+                                            f"{found_node.backhaul.get('rssi_dbm')}dBm"
+                                            if found_node.backhaul.get('rssi_dbm')
+                                            else None
+                                        ),
+                                        ("last_checked", "Last checked"),
+                                    ],
+                                    obj=dict(**found_node.backhaul, parent_name=found_node.parent_name)
+                                )),
+                                (
+                                    "connected_devices",
+                                    f"Connected devices ({len(found_node.connected_devices)})",
+                                    prefix + prefix.join([
+                                        device.get("name")
+                                        for device in found_node.connected_devices
+                                    ])
+                                ),
+                            ],
+                            obj=found_node,
+                            title=node_name,
+                        ))
+                        break
+
+
+@node.command(cls=StandardCommand)
+@click.argument("node_name")
+@click.pass_context
+async def restart(
+    ctx: click.Context,
+    node_name: str,
+    **_,
+) -> None:
+    """Restart a node on the Mesh."""
+    if (mesh_details := await mesh_connect(ctx)):
+        async with mesh_details:
+            try:
+                await mesh_details.async_gather_details()
+                _LOGGER.debug("Restarting %s", node_name)
+                await mesh_details.async_reboot_node(node_name=node_name)
+            except (MeshDeviceNotFoundResponse, MeshInvalidInput) as err:
+                _LOGGER.error(err)
+
+
+async def mesh_connect(ctx: click.Context = None) -> Optional[Mesh]:
+    """Return the Mesh object."""
+    if ctx is not None:
+        mesh_object: Mesh = Mesh(
+            node=ctx.params.get("primary_node"),
+            password=ctx.params.get("password"),
+            request_timeout=ctx.params.get("timeout"),
+            session=await ctx.obj if ctx.obj else None,
+            username=ctx.params.get("username")
+        )
+        try:
+            async with mesh_object:
+                if not await mesh_object.async_test_credentials():
+                    raise MeshInvalidCredentials
+        except MeshConnectionError:
+            _LOGGER.error("Unable to connect to %s", mesh_object.connected_node)
+        except MeshInvalidCredentials:
+            _LOGGER.error("Unable to authenticate with %s using provided credentials", mesh_object.connected_node)
+        except MeshNodeNotPrimary:
+            _LOGGER.error("%s is not the primary node", mesh_object.connected_node)
+        except MeshTimeoutError:
+            _LOGGER.error("Timed out connecting to %s", mesh_object.connected_node)
+        else:
+            return mesh_object
+
+    return None
+
+
+def _build_display_data(
+    mappings: List[Tuple],
+    obj: Device | Dict | Mesh | Node,
+    indent: int = 0,
+    title: str = "",
+):
+    """Build the string to display the given data."""
+    ret: str = ""
+    if title:
+        ret = f"{title}\n"
+        ret += f"{len(title) * '-'}\n"
+
+    for properties in mappings:
+        try:
+            property_name, display_name, display_value = properties
+        except ValueError:
+            display_value = None
+            property_name, display_name = properties
+
+        if display_value is None:
+            if isinstance(obj, Dict):
+                display_value = obj.get(property_name)
+            else:
+                display_value = getattr(obj, property_name, None)
+
+        ret += f"{indent * ' '}{display_name}: {display_value}\n"
+
+    return ret.rstrip()
+
+
+def _connected_details(adapters: List[Dict]) -> str:
+    """Format the connected adapter details for display."""
+    ret: str = ""
+    indent: int = DEF_INDENT
+    if not adapters:
+        return "N/A"
+
+    adapter = adapters[0]
+
+    ret = _build_display_data(
+        indent=indent,
+        mappings=[
+            ("mac", "MAC"),
+            ("ip", "IPv4"),
+            ("ipv6", "IPv6"),
+            ("guest_network", "Guest"),
+            (
+                "signal_strength", "Signal Strength",
+                f"{adapter.get('signal_strength', None)} ({adapter.get('rssi', None)}dBm)"
+                if adapter.get('signal_strength', None)
+                else "N/A"
+            ),
+        ],
+        obj=adapter,
     )
 
-    # region #-- shared arguments --#
-    parser_shared = argparse.ArgumentParser(add_help=False)
-    parser_shared.add_argument("-a", "--primary-node", required=True, help="Address of the primary node in the mesh")
-    parser_shared.add_argument("-p", "--password", required=True, help="Linksys Velop password")
-    parser_shared.add_argument("-t", "--timeout", type=int, help="Set the timeout for a request. 0 = infinite")
-    parser_shared.add_argument("-u", "--username", default="admin", help="Linksys Velop username")
-    parser_shared.add_argument("-v", "--verbose", action="count", default=0, help="Set verbosity level")
-    # endregion
-
-    # region #-- Mesh arguments --#
-    parser_mesh = sub_parsers.add_parser("mesh", parents=[parser_shared], help="Interact with the Velop mesh")
-    parser_mesh.add_argument("--get-nodes", action="store_true", help="Retrieve names of nodes")
-    parser_mesh.add_argument("--get-wan", action="store_true", help="Retrieve WAN details")
-    parser_mesh.add_argument("--get-online-devices", action="store_true", help="Retrieve online devices")
-    parser_mesh.add_argument("--get-offline-devices", action="store_true", help="Retrieve offline devices")
-    parser_mesh.add_argument("--get-parental-control", action="store_true", help="Retrieve Parental Control state")
-    parser_mesh.add_argument("--get-guest-wifi-details", action="store_true", help="Retrieve guest Wi-Fi details")
-    parser_mesh.add_argument("--get-latest-speedtest", action="store_true", help="Retrieve latest Speedtest results")
-    parser_mesh.add_argument("--get-available-storage", action="store_true", help="Retrieve external storage details")
-    parser_mesh.add_argument("--get-storage-settings", action="store_true", help="Retrieve external storage settings")
-    # endregion
-
-    # region #-- Node arguments --#
-    parser_node = sub_parsers.add_parser("node", parents=[parser_shared], help="Interact with a node")
-    parser_node.add_argument("-r", "--reboot", action="store_true", help="Reboot a node")
-    parser_node.add_argument("name", help="The name of the node to interact with")
-    parser_node.add_argument("--get-backhaul", action="store_true", help="Retrieve backhaul details for the node")
-    parser_node.add_argument("--get-overview", action="store_true", help="Retrieve high level details about the node")
-    parser_node.add_argument("--get-network", action="store_true", help="Retrieve network details for the node")
-    parser_node.add_argument("--get-connected-devices", action="store_true", help="Retrieve connected devices")
-    # endregion
-
-    # region Device arguments --#
-    parser_device = sub_parsers.add_parser("device", parents=[parser_shared], help="Interact with a device")
-    parser_device.add_argument("name", help="The name of the device to interact with")
-    # endregion
+    return "\n" + ret.rstrip()
 
 
-async def main() -> None:
-    """Execute main."""
-    sections: List = []
+def _display_data(message: str = "") -> None:
+    """Display the given data on screen."""
+    print(message)
 
-    # region #-- handle arguments --#
-    args_parser = ArgumentParser(prog="pyvelop")
-    _setup_args(parser=args_parser)
-    args = args_parser.parse_args()
-    all_args: bool = False
-    arg_values: dict = args.__dict__.copy()
-    arg_values: ValuesView = arg_values.values()
-    if not any(val for val in arg_values if isinstance(val, bool)):
-        all_args = True
-    # endregion
 
-    # region #-- handle no arguments being passed in --#
-    if args.target is None:
-        args_parser.print_help()
-        sys.exit()
-    # endregion
+def _guest_wifi_details(state: bool, networks: List[Dict]) -> str:
+    """Format the Guest Wi-Fi details for display."""
+    ret: str = ""
+    indent: int = DEF_INDENT
+    ret = _build_display_data(
+        indent=indent,
+        mappings=[
+            ("state", "Enabled"),
+            (
+                "networks",
+                "Networks",
+                "\n" + "\n".join([
+                    f"{indent * 2 * ' '}{idx}: {network.get('ssid')} ({network.get('band')})"
+                    for idx, network in enumerate(networks)
+                ])
+            ),
+        ],
+        obj={
+            "state": state,
+            "networks": networks,
+        },
+    )
 
-    # region #-- setup the logger --#
-    logging.basicConfig()
-    _logger = logging.getLogger("pyvelop.cli")
-    if args.verbose >= 1:
-        _logger.setLevel(logging.DEBUG)
-        _logger.debug("Arguments: %s", args.__dict__)
-        if args.verbose > 1:
-            logging.getLogger("pyvelop.mesh").setLevel(logging.DEBUG)
-            logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.INFO)
-            if args.verbose > 2:
-                logging.getLogger("pyvelop.jnap").setLevel(logging.DEBUG)
-                logging.getLogger("pyvelop.mesh.verbose").setLevel(logging.DEBUG)
-    # endregion
+    return "\n" + ret.rstrip()
 
-    async with Mesh(
-        node=args.primary_node,
-        username=args.username,
-        password=args.password,
-        request_timeout=args.timeout,
-    ) as _mesh:
-        try:
-            _logger.debug("Gathering details about the Velop system")
-            await _mesh.async_gather_details()
-        except MeshInvalidCredentials:
-            _logger.error("Invalid Credentials")
-        except MeshBadResponse:
-            _logger.error("Bad response received.  Are you sure %s is a Velop node?", args.primary_node)
-        except MeshNodeNotPrimary:
-            _logger.error("%s is not the primary node", args.primary_node)
-        except MeshTimeoutError:
-            _logger.error("Timeout connecting to %s", args.primary_node)
-        else:
-            if args.target == "mesh":
-                # region #-- overview --#
-                _logger.debug("Preparing mesh overview details")
-                section = "Overview"
-                section += f"\n{'-' * len(section)}\n"
-                section += f"Firmware Update: {_mesh.firmware_update_setting}"
-                sections.append(section)
-                # endregion
 
-                # region #-- get the node names --#
-                if args.get_nodes or all_args:
-                    _logger.debug("Preparing node names")
-                    section = "Nodes"
-                    section += f"\n{'-' * len(section)}\n"
-                    section += "\n".join([node.name for node in _mesh.nodes])
-                    sections.append(section)
-                # endregion
+def _parental_control_schedule_details(schedule: Dict) -> str:
+    """Format the parental control schedule for display."""
+    indent: int = DEF_INDENT
+    prefix: str = f"\n{indent * 2 * ' '}"
+    ret: str = _build_display_data(
+        indent=indent,
+        mappings=[
+            (
+                "blocked_internet_access", "Blocked Access",
+                prefix + prefix.join([
+                    f"{day.title()}: {', '.join(times) if times else 'N/A'}"
+                    for day, times in schedule.get("blocked_internet_access", {}).items()
+                ])
+                if schedule.get("blocked_internet_access", {})
+                else "N/A"
+            ),
+            (
+                "blocked_sites", "Prohibited Sites",
+                prefix + prefix.join(schedule.get("blocked_sites", []))
+                if schedule.get("blocked_sites", [])
+                else "N/A"
+            )
+        ],
+        obj=schedule,
+    )
 
-                # region #-- get WAN details --#
-                if args.get_wan or all_args:
-                    _logger.debug("Preparing WAN details")
-                    section = "WAN Details"
-                    section += f"\n{'-' * len(section)}\n"
-                    section += f"Connected: {_mesh.wan_status}\n"\
-                               f"Public IP: {_mesh.wan_ip}\n"\
-                               f"DNS Servers: {','.join(_mesh.wan_dns)}\n"\
-                               f"MAC: {_mesh.wan_mac}"
-                    sections.append(section)
-                # endregion
+    return "\n" + ret.rstrip()
 
-                # region #-- get the Parental Control detail --#
-                if args.get_parental_control or all_args:
-                    _logger.debug("Preparing Parental Control details")
-                    section = "Parental Control"
-                    section += f"\n{'-' * len(section)}\n"
-                    section += f"Enabled: {_mesh.parental_control_enabled}"
-                    sections.append(section)
-                # endregion
 
-                # region #-- get the guest Wi-Fi details: format = SSID (band) --#
-                if args.get_guest_wifi_details or all_args:
-                    _logger.debug("Preparing guest Wi-Fi details")
-                    section = "Guest Wi-Fi"
-                    section += f"\n{'-' * len(section)}\n"
-                    section += f"Enabled: {_mesh.guest_wifi_enabled}\n"
-                    for _, details in enumerate(_mesh.guest_wifi_details):
-                        section += f"{details.get('ssid')} ({details.get('band')})\n"
-                    sections.append(section.rstrip("\n"))
-                # endregion
+def _storage_details(available_shares: List[Dict], server_details: Dict) -> str:
+    """Format the storage details for display."""
+    ret: str = ""
+    indent: int = DEF_INDENT
 
-                # region #-- get the storage server settings --#
-                if args.get_storage_settings or all_args:
-                    _logger.debug("Preparing storage server settings")
-                    section = "Storage Settings"
-                    section += f"\n{'-' * len(section)}"
-                    for ss_k, ss_v in _mesh.storage_settings.items():
-                        section += f"\n{ss_k}: {ss_v}"
-                    sections.append(section)
-                # endregion
+    def _build_share_data(share_details: Dict) -> str:
+        """Format the share details for display."""
+        return _build_display_data(
+            indent=(indent * 3),
+            mappings=[
+                ("ip", "IP"),
+                ("used_percent", "Used", f"{share_details.get('used_percent')}%")
+            ],
+            obj=share_details,
+        )
 
-                # region #-- get the storage server settings --#
-                if args.get_available_storage or all_args:
-                    _logger.debug("Preparing available storage")
-                    section = "Available Storage"
-                    section += f"\n{'-' * len(section)}"
-                    for partition in _mesh.storage_available:
-                        section += f"\n{partition.get('label')}: {partition}"
-                    sections.append(section)
-                # endregion
+    ret = _build_display_data(
+        indent=indent,
+        mappings=[
+            ("anonymous_access", "Anonymous Access"),
+            (
+                "available_shares",
+                "Available Shares",
+                f"\n{indent * 2 * ' '}" + f"\n{indent * 2 * ' '}".join([
+                    f"{share.get('label')}:\n{_build_share_data(share_details=share)}"
+                    for share in available_shares
+                ])
+            )
+        ],
+        obj=dict(server_details, available_shares=available_shares),
+    )
 
-                # region #-- get the latest Speedtest results --#
-                if args.get_latest_speedtest or all_args:
-                    _logger.debug("Preparing latest Speedtest results")
-                    latest_results = _mesh.latest_speedtest_result
-                    section = "Latest Speedtest Results"
-                    section += f"\n{'-' * len(section)}\n"
-                    if latest_results is None:
-                        section += "None available"
-                    else:
-                        download_bandwidth = round(latest_results.get('download_bandwidth') / 1024, 2)
-                        upload_bandwidth = round(latest_results.get('upload_bandwidth') / 1024, 2)
-                        section += f"Executed: {latest_results.get('timestamp')}\n"\
-                                   f"Result: {latest_results.get('exit_code')}\n"\
-                                   f"Latency: {latest_results.get('latency')} ms\n"\
-                                   f"Download Bandwidth: {download_bandwidth} Mbps\n" \
-                                   f"Upload Bandwidth: {upload_bandwidth} Mbps"
-                    sections.append(section)
-                # endregion
+    return "\n" + ret.rstrip()
 
-                # region #-- get the online devices: format = name (ip) --#
-                if args.get_online_devices or all_args:
-                    _logger.debug("Preparing online devices")
-                    adapter: dict
-                    device: Device
-                    section = "Online Devices"
-                    section += f"\n{'-' * len(section)}\n"
-                    section += "\n".join(
-                        [
-                            f"{device.name} "
-                            f"({','.join([adapter.get('ip') for adapter in device.connected_adapters])})"
-                            for device in _mesh.devices
-                            if device.status
-                        ]
-                    )
-                    sections.append(section)
-                # endregion
-
-                # region #-- get the offline device names --#
-                if args.get_offline_devices or all_args:
-                    _logger.debug("Preparing offline devices")
-                    device: Device
-                    section = "Offline Devices"
-                    section += f"\n{'-' * len(section)}\n"
-                    section += "\n".join(
-                        [
-                            device.name
-                            for device in _mesh.devices
-                            if not device.status
-                        ]
-                    )
-                    sections.append(section)
-                # endregion
-            elif args.target == "node":
-                _node: List[Node] = [node for node in _mesh.nodes if node.name.lower() == args.name.lower()]
-                if not _node:
-                    node_names = [node.name for node in _mesh.nodes]
-                    args_parser.error(f"Invalid node name ({args.name}). Must be one of {node_names}")
-                else:
-                    _node: Node = _node[0]
-                    # region #-- reboot the node --#
-                    if args.reboot:
-                        _logger.debug("Requesting node reboot")
-                        await _mesh.async_reboot_node(node_name=_node.name)
-                    # endregion
-
-                    # region #-- get the overview details --#
-                    if args.get_overview or all_args:
-                        _logger.debug("Preparing node overview details")
-                        section = "Overview"
-                        section += f"\n{'-' * len(section)}\n"
-                        section += f"Device ID: {_node.unique_id}\n"\
-                                   f"Name: {_node.name}\n"\
-                                   f"Results Time: {_node.results_time}\n"\
-                                   f"Online: {_node.status}\n"\
-                                   f"IP: {','.join([adapter.get('ip') for adapter in _node.connected_adapters])}\n"\
-                                   f"Type: {_node.type.title()}\n"\
-                                   f"Manufacturer: {_node.manufacturer}\n"\
-                                   f"Model: {_node.model}\n" \
-                                   f"Hardware Version: {_node.hardware_version}\n" \
-                                   f"Serial #: {_node.serial}\n"\
-                                   f"Firmware: {_node.firmware.get('version')}\n"\
-                                   f"Latest Firmware: {_node.firmware.get('latest_version')}\n" \
-                                   f"Last Update Check: {_node.last_update_check}"
-                        sections.append(section)
-                    # endregion
-
-                    # region #-- get the network details --#
-                    if args.get_network or all_args:
-                        _logger.debug("Preparing node network details")
-                        section = "Network Details"
-                        section += f"\n{'-' * len(section)}"
-                        for adapter in _node.network:
-                            section += f"\n{adapter.get('type')} "\
-                                       f"(IP: {adapter.get('ip')}, MAC: {adapter.get('mac')})"
-                        sections.append(section)
-                    # endregion
-
-                    # region #-- backhaul details --#
-                    if args.get_backhaul or all_args:
-                        _logger.debug("Preparing backhaul details")
-                        section = "Backhaul"
-                        section += f"\n{'-' * len(section)}\n"
-                        section += f"Parent: {_node.parent_name} ({_node.parent_ip})"
-                        for bh_k, bh_v in _node.backhaul.items():
-                            section += f"\n{bh_k}: {bh_v}"
-                        sections.append(section)
-                    # endregion
-
-                    # region #-- get the connected devices: format = name (IP) (Type) (Guest Network) --#
-                    if args.get_connected_devices or all_args:
-                        _logger.debug("Preparing node connected devices")
-                        section = "Connected Devices"
-                        section += f"\n{'-' * len(section)}\n"
-                        connected_device: dict
-                        for connected_device in _node.connected_devices:
-                            section += f"{connected_device.get('name')} " \
-                                       f"({connected_device.get('ip')}) " \
-                                       f"({connected_device.get('type')}) " \
-                                       f"({connected_device.get('guest_network')})\n"
-                        sections.append(section.rstrip("\n"))
-                    # endregion
-            elif args.target == "device":
-                _device: List = [device for device in _mesh.devices if device.name.lower() == args.name.lower()]
-                if not _device:
-                    args_parser.error(f"Invalid device name ({args.name}).")
-                else:
-                    for _d in _device:
-                        # region #-- get the overview details --#
-                        if all_args:
-                            _logger.debug("Preparing device overview")
-                            connected_adapters: List = [
-                                f"{adapter.get('ip')} "
-                                f"{'(' + adapter.get('ipv6') + ')' if adapter.get('ipv6') else ''}"
-                                f"{'(Guest Network) ' if adapter.get('guest_network') else ''}"
-                                for adapter in _d.connected_adapters
-                            ]
-                            signal_details: str = "N/A"
-                            if len(_d.connected_adapters):
-                                adapter = _d.connected_adapters[0]
-                                if (
-                                    (signal_strength := adapter.get("signal_strength")) and
-                                    (signal_rssi := adapter.get("rssi"))
-                                ):
-                                    signal_details = f"{signal_strength} ({signal_rssi}dBm)"
-
-                            section = "Overview"
-                            section += f"\n{'-' * len(section)}\n"
-                            section += f"Device ID: {_d.unique_id}\n"\
-                                       f"Name: {_d.name}\n" \
-                                       f"Results Time: {_d.results_time}\n" \
-                                       f"Manufacturer: {_d.manufacturer}\n" \
-                                       f"Model: {_d.model}\n" \
-                                       f"Description: {_d.description}\n" \
-                                       f"Operating System: {_d.operating_system}\n" \
-                                       f"Serial #: {_d.serial}\n" \
-                                       f"Online: {_d.status}\n"\
-                                       f"IP: {','.join(connected_adapters)}\n"\
-                                       f"Signal Strength: {signal_details}\n"\
-                                       f"Parent: {_d.parent_name}\n"\
-                                       f"Parental Control:\n"\
-                                       f"  Blocked Times:"
-                            for day, rule in _d.parental_control_schedule.get('blocked_internet_access', {}).items():
-                                section += f"\n    {day.title()}: {', '.join(rule)}"
-
-                            if not _d.parental_control_schedule.get('blocked_internet_access', {}):
-                                section += " N/A"
-                            blocked_sites_text = ", ".join(_d.parental_control_schedule.get('blocked_sites', []))\
-                                                 if _d.parental_control_schedule.get('blocked_sites', [])\
-                                                 else "N/A"
-                            section += f"\n  Blocked Sites: {blocked_sites_text}"
-                            sections.append(section)
-                        # endregion
-    if sections:
-        print("\n\n".join(sections))
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    cli()
