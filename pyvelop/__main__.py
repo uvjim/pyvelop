@@ -240,6 +240,7 @@ async def details(
                                 ("model", "Model"),
                                 ("hardware_version", "Hardware version"),
                                 ("serial", "Serial #"),
+                                ("ui_type", "Icon type"),
                                 ("firmware", "Firmware", found_node.firmware.get("version")),
                                 ("firmware", "Latest firmware", found_node.firmware.get("latest_version")),
                                 ("last_update_check", "Last update check"),
