@@ -908,15 +908,21 @@ class Mesh(LoggerFormatter):
 
         :return: A list of Node objects
         """
-        return sorted(self._mesh_attributes[ATTR_NODES], key=lambda node: node.name)
+        ret: List = []
+        if ATTR_NODES in self._mesh_attributes:
+            ret = sorted(self._mesh_attributes[ATTR_NODES], key=lambda node: node.name)
+        return ret
 
     @property
-    def parental_control_enabled(self) -> bool:
+    def parental_control_enabled(self) -> Optional[bool]:
         """Get the state of the Parental Control feature.
 
         :return: True if enabled, False if not
         """
-        return self._mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
+        ret: Optional[bool] = None
+        if ATTR_PARENTAL_CONTROL_INFO in self._mesh_attributes:
+            ret = self._mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
+        return ret
 
     @property
     def speedtest_status(self) -> str:
