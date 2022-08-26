@@ -11,10 +11,15 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
-from .exceptions import (MeshBadResponse, MeshConnectionError,
-                         MeshInvalidCredentials, MeshInvalidInput,
-                         MeshInvalidOutput, MeshNodeNotPrimary,
-                         MeshTimeoutError)
+from .exceptions import (
+    MeshBadResponse,
+    MeshConnectionError,
+    MeshInvalidCredentials,
+    MeshInvalidInput,
+    MeshInvalidOutput,
+    MeshNodeNotPrimary,
+    MeshTimeoutError,
+)
 from .logger import LoggerFormatter
 
 # endregion
@@ -40,20 +45,30 @@ class Actions:
     DELETE_DEVICE: str = f"{ROOT}/devicelist/DeleteDevice"
     GET_BACKHAUL: str = f"{ROOT}/nodes/diagnostics/GetBackhaulInfo"
     GET_DEVICES: str = f"{ROOT}/devicelist/GetDevices3"
-    GET_FIRMWARE_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
+    GET_FIRMWARE_UPDATE_SETTINGS: str = (
+        f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
+    )
     GET_GUEST_NETWORK_INFO: str = f"{ROOT}/guestnetwork/GetGuestRadioSettings2"
-    GET_NETWORK_CONNECTIONS: str = f"{ROOT}/nodes/networkconnections/GetNodesWirelessNetworkConnections"
-    GET_PARENTAL_CONTROL_INFO: str = f"{ROOT}/parentalcontrol/GetParentalControlSettings"
+    GET_NETWORK_CONNECTIONS: str = (
+        f"{ROOT}/nodes/networkconnections/GetNodesWirelessNetworkConnections"
+    )
+    GET_PARENTAL_CONTROL_INFO: str = (
+        f"{ROOT}/parentalcontrol/GetParentalControlSettings"
+    )
     GET_SPEEDTEST_RESULTS: str = f"{ROOT}/healthcheck/GetHealthCheckResults"
     GET_SPEEDTEST_STATUS: str = f"{ROOT}/healthcheck/GetHealthCheckStatus"
     GET_STORAGE_PARTITIONS: str = f"{ROOT}/nodes/storage/GetNodesPartitions"
     GET_STORAGE_SMB_SERVER: str = f"{ROOT}/nodes/storage/GetSMBServerSettings"
-    GET_UPDATE_FIRMWARE_STATE: str = f"{ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
+    GET_UPDATE_FIRMWARE_STATE: str = (
+        f"{ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
+    )
     GET_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
     GET_WAN_INFO: str = f"{ROOT}/router/GetWANStatus3"
     REBOOT: str = f"{ROOT}/core/Reboot"
     SET_GUEST_NETWORK: str = f"{ROOT}/guestnetwork/SetGuestRadioSettings2"
-    SET_PARENTAL_CONTROL_INFO: str = f"{ROOT}/parentalcontrol/SetParentalControlSettings"
+    SET_PARENTAL_CONTROL_INFO: str = (
+        f"{ROOT}/parentalcontrol/SetParentalControlSettings"
+    )
     START_SPEEDTEST: str = f"{ROOT}/healthcheck/RunHealthCheck"
     TRANSACTION: str = f"{ROOT}/core/Transaction"
     UPDATE_FIRMWARE: str = f"{ROOT}/nodes/firmwareupdate/UpdateFirmwareNow"
@@ -95,9 +110,13 @@ class Request(LoggerFormatter):
         super().__init__(prefix=f"{self.__class__.__name__}.")
 
         self._action: str = action
-        self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
+        self._creds: str = base64.b64encode(
+            bytes(f"{username}:{password}", "utf-8")
+        ).decode("ascii")
         self._payload: Optional[List[Dict] | Dict] = payload
-        self._session: Optional[aiohttp.ClientSession] = session or aiohttp.ClientSession(raise_for_status=True)
+        self._session: Optional[
+            aiohttp.ClientSession
+        ] = session or aiohttp.ClientSession(raise_for_status=True)
         self._target: str = target
 
         self._jnap_url: str = jnap_url(target=self._target)
@@ -113,7 +132,7 @@ class Request(LoggerFormatter):
         headers: Dict[str, str] = {
             "X-JNAP-Authorization": f"Basic {self._creds}",
             "Content-Type": "application/json; charset=UTF-8",
-            "X-JNAP-Action": self._action
+            "X-JNAP-Action": self._action,
         }
 
         _LOGGER.debug(
@@ -121,7 +140,7 @@ class Request(LoggerFormatter):
             self._jnap_url,
             headers,
             json.dumps(self._payload),
-            timeout
+            timeout,
         )
 
         resp: Optional[aiohttp.ClientResponse] = None
@@ -130,12 +149,16 @@ class Request(LoggerFormatter):
                 url=self._jnap_url,
                 headers=headers,
                 json=self._payload or {},
-                timeout=timeout
+                timeout=timeout,
             )
             resp_json = await resp.json()
         except asyncio.TimeoutError as err:
             raise MeshTimeoutError from err
-        except (aiohttp.ClientConnectionError, aiohttp.ClientConnectorError, aiohttp.ContentTypeError,):
+        except (
+            aiohttp.ClientConnectionError,
+            aiohttp.ClientConnectorError,
+            aiohttp.ContentTypeError,
+        ):
             raise MeshConnectionError from None
         except json.JSONDecodeError as err:
             _LOGGER.debug(self.message_format("resp: %s"), resp)
@@ -169,11 +192,7 @@ class Response(LoggerFormatter):
     def _process_data(self) -> None:
         """Process the given data to check for errors."""
         if self._data.get(self.RESULT_KEY) != "OK":
-            responses = (
-                self.data
-                if self.action == Actions.TRANSACTION
-                else [self.data]
-            )
+            responses = self.data if self.action == Actions.TRANSACTION else [self.data]
 
             err = None
             for resp in responses:
@@ -200,7 +219,9 @@ class Response(LoggerFormatter):
                     break
 
             if err is None:
-                _LOGGER.error(self.message_format("unknown error received: %s"), self._data)
+                _LOGGER.error(
+                    self.message_format("unknown error received: %s"), self._data
+                )
                 err = MeshBadResponse
 
             raise err
@@ -224,4 +245,5 @@ class Response(LoggerFormatter):
         )
 
         return ret
+
     # endregion
