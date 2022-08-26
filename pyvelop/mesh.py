@@ -14,8 +14,12 @@ from . import const
 from . import jnap as api
 from .decorators import needs_gather_details
 from .device import Device
-from .exceptions import (MeshDeviceNotFoundResponse, MeshInvalidArguments,
-                         MeshInvalidInput, MeshTooManyMatches)
+from .exceptions import (
+    MeshDeviceNotFoundResponse,
+    MeshInvalidArguments,
+    MeshInvalidInput,
+    MeshTooManyMatches,
+)
 from .logger import LoggerFormatter
 from .node import NODE_TYPE_PRIMARY, Node
 
@@ -54,7 +58,9 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
 }
 
 
-def _process_speedtest_results(speedtest_results=None, only_latest: bool = False, only_completed: bool = False) -> List:
+def _process_speedtest_results(
+    speedtest_results=None, only_latest: bool = False, only_completed: bool = False
+) -> List:
     """Take the results from the API for a Speedtest instance and convert to something usable/more compact.
 
     :param speedtest_results: The results as they were returned from the API
@@ -70,8 +76,12 @@ def _process_speedtest_results(speedtest_results=None, only_latest: bool = False
             "timestamp": result.get("timestamp", None),
             "exit_code": result.get("speedTestResult", {}).get("exitCode", None),
             "latency": result.get("speedTestResult", {}).get("latency", None),
-            "upload_bandwidth": result.get("speedTestResult", {}).get("uploadBandwidth", None),
-            "download_bandwidth": result.get("speedTestResult", {}).get("downloadBandwidth", None),
+            "upload_bandwidth": result.get("speedTestResult", {}).get(
+                "uploadBandwidth", None
+            ),
+            "download_bandwidth": result.get("speedTestResult", {}).get(
+                "downloadBandwidth", None
+            ),
             "result_id": result.get("speedTestResult", {}).get("resultID", None),
         }
         for result in speedtest_results
@@ -103,7 +113,7 @@ def _get_speedtest_state(speedtest_results=None) -> str:
             ret = "Checking download speed"
         elif speedtest_results.get("latency"):
             ret = "Checking latency"
-        elif speedtest_results.get("serverID", "") == '0':
+        elif speedtest_results.get("serverID", "") == "0":
             ret = "Detecting server"
         else:
             ret = ""
@@ -147,23 +157,27 @@ class Mesh(LoggerFormatter):
         self._timeout: int = request_timeout or 10
 
         # flag used to denote that a full gather has been executed
-        self.__gather_details_executed: bool = False  # pylint: disable=unused-private-member
+        self.__gather_details_executed: bool = (  # pylint: disable=unused-private-member
+            False
+        )
 
         self.__username: str = username
         self.__password: str = password
         self.__passed_session: bool = False
 
-        _LOGGER.debug(self.message_format("Session was passed in: %s"), "Yes" if self._session is not None else "No")
+        _LOGGER.debug(
+            self.message_format("Session was passed in: %s"),
+            "Yes" if self._session is not None else "No",
+        )
         if self._session:
             self.__passed_session = True
         else:
             self.__create_session()
 
-        _LOGGER.debug(self.message_format("%s version: %s"), __package__, const._PACKAGE_VERSION)
         _LOGGER.debug(
-            self.message_format("Initialised mesh for %s"),
-            self._node
+            self.message_format("%s version: %s"), __package__, const._PACKAGE_VERSION
         )
+        _LOGGER.debug(self.message_format("Initialised mesh for %s"), self._node)
         _LOGGER.debug(self.message_format("exited"))
 
     async def __aenter__(self):
@@ -182,7 +196,9 @@ class Mesh(LoggerFormatter):
         return f"{self.__class__.__name__}: {self._node}"
 
     # region #-- private methods --#
-    async def _async_make_request(self, action: str, payload=None, node_address: Optional[str] = None) -> dict:
+    async def _async_make_request(
+        self, action: str, payload=None, node_address: Optional[str] = None
+    ) -> dict:
         """Execute the API request against the connected node.
 
         :param action: The JNAP action to execute
@@ -198,7 +214,9 @@ class Mesh(LoggerFormatter):
         if payload is None:
             payload = []
 
-        if not self.__passed_session and self._session.closed:  # session closed so recreate it
+        if (
+            not self.__passed_session and self._session.closed
+        ):  # session closed so recreate it
             _LOGGER_VERBOSE.debug(self.message_format("session was closed, reopening"))
             self.__create_session()
         req = api.Request(
@@ -268,10 +286,15 @@ class Mesh(LoggerFormatter):
 
         # -- get the latest Speedtest result --#
         if kwargs.get("include_speedtest_results"):
-            payload.append({
-                "action": api.Actions.GET_SPEEDTEST_RESULTS,
-                "request": {**api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS), "lastNumberOfResults": 10}
-            })
+            payload.append(
+                {
+                    "action": api.Actions.GET_SPEEDTEST_RESULTS,
+                    "request": {
+                        **api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS),
+                        "lastNumberOfResults": 10,
+                    },
+                }
+            )
 
         # -- get the update check details --#
         if kwargs.get("include_firmware_update"):
@@ -282,22 +305,27 @@ class Mesh(LoggerFormatter):
             payload.append({"action": api.Actions.GET_WAN_INFO})
 
         # set default request for each action in the transaction
-        payload = list(map(lambda p: (
-            (
-                dict(**p, **{"request": {}})
-                if p.get("request") is None
-                else p
+        payload = list(
+            map(
+                lambda p: (
+                    (dict(**p, **{"request": {}}) if p.get("request") is None else p)
+                ),
+                payload,
             )
-        ), payload))
+        )
         # endregion
 
-        resp = await self._async_make_request(action=api.Actions.TRANSACTION, payload=payload)
+        resp = await self._async_make_request(
+            action=api.Actions.TRANSACTION, payload=payload
+        )
         if resp:
             responses = resp
             # region #-- prepare all the raw details --#
             for idx, req in enumerate(payload):
                 # don't wrap in try/except should be good here
-                api_response = api.Response(action=req.get("action"), data=responses[idx])
+                api_response = api.Response(
+                    action=req.get("action"), data=responses[idx]
+                )
                 if req.get("action") in JNAP_ACTION_TO_ATTRIBUTE:
                     ret[JNAP_ACTION_TO_ATTRIBUTE[req.get("action")]] = api_response.data
             # endregion
@@ -321,16 +349,27 @@ class Mesh(LoggerFormatter):
                         # region #-- calculate if there is a firmware update available --#
                         node_firmware: List | dict = {}
                         if ATTR_UPDATE_FIRMWARE_STATE in ret:
-                            firmware_status = ret[ATTR_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
+                            firmware_status = ret[ATTR_UPDATE_FIRMWARE_STATE].get(
+                                "firmwareUpdateStatus", []
+                            )
                             node_firmware = [
                                 firmware_details
                                 for firmware_details in firmware_status
-                                if firmware_details.get("deviceUUID") == device.get("deviceID")
+                                if firmware_details.get("deviceUUID")
+                                == device.get("deviceID")
                             ]
                             node_firmware = node_firmware[0] if node_firmware else {}
                         # endregion
 
-                        devices.append(Node(**device, **{"backhaul": device_backhaul, "updates": node_firmware}))
+                        devices.append(
+                            Node(
+                                **device,
+                                **{
+                                    "backhaul": device_backhaul,
+                                    "updates": node_firmware,
+                                },
+                            )
+                        )
                     else:
                         devices.append(Device(**device))
                 # endregion
@@ -344,12 +383,16 @@ class Mesh(LoggerFormatter):
                         for device in devices:
                             for adapter in device.network:
                                 if adapter.get("parent_id") == node.unique_id:
-                                    connected_devices.append({
-                                        "name": device.name,
-                                        "ip": adapter.get("ip"),
-                                        "type": adapter.get("type"),
-                                        "guest_network": adapter.get("guest_network")
-                                    })
+                                    connected_devices.append(
+                                        {
+                                            "name": device.name,
+                                            "ip": adapter.get("ip"),
+                                            "type": adapter.get("type"),
+                                            "guest_network": adapter.get(
+                                                "guest_network"
+                                            ),
+                                        }
+                                    )
                                 if node.parent_ip and not parent_name:
                                     if node.parent_ip == adapter.get("ip"):
                                         parent_name = device.name
@@ -358,7 +401,9 @@ class Mesh(LoggerFormatter):
                         # endregion
                     elif node.__class__.__name__.lower() == "device":
                         # region #-- calculate parent name for devices --#
-                        attrib_connections = getattr(node, "_attribs", {}).get("connections", [])
+                        attrib_connections = getattr(node, "_attribs", {}).get(
+                            "connections", []
+                        )
                         parent: Optional[str] = None
                         for conn in attrib_connections:
                             if conn.get("parentDeviceID", ""):
@@ -366,18 +411,23 @@ class Mesh(LoggerFormatter):
                                     parent = [
                                         device.name
                                         for device in devices
-                                        if device.unique_id == conn.get("parentDeviceID")
+                                        if device.unique_id
+                                        == conn.get("parentDeviceID")
                                     ][0]
                                 except IndexError:
                                     pass
                         setattr(node, "_Device__parent_name", parent)
                         # endregion
 
-                        network_adapater_macs = [adapter.get("mac") for adapter in node.network]
+                        network_adapater_macs = [
+                            adapter.get("mac") for adapter in node.network
+                        ]
                         # region #-- get the parental control details --#
                         pc_schedule: List = []
                         for mac in network_adapater_macs:
-                            for rule in ret[ATTR_PARENTAL_CONTROL_INFO].get("rules", []):
+                            for rule in ret[ATTR_PARENTAL_CONTROL_INFO].get(
+                                "rules", []
+                            ):
                                 if mac in rule.get("macAddresses", []):
                                     pc_schedule.append(rule)
                                     break
@@ -387,11 +437,17 @@ class Mesh(LoggerFormatter):
                         # region #-- get additional connection details --#
                         if ATTR_NETWORK_CONNECTIONS in ret:
                             for mac in network_adapater_macs:
-                                for conn_details in ret[ATTR_NETWORK_CONNECTIONS].get("nodeWirelessConnections", []):
-                                    node_connections: List[Mapping] = conn_details.get("connections", {})
+                                for conn_details in ret[ATTR_NETWORK_CONNECTIONS].get(
+                                    "nodeWirelessConnections", []
+                                ):
+                                    node_connections: List[Mapping] = conn_details.get(
+                                        "connections", {}
+                                    )
                                     for connection in node_connections:
                                         if mac == connection.get("macAddress"):
-                                            getattr(node, "_attribs", {})["connection_details"] = connection
+                                            getattr(node, "_attribs", {})[
+                                                "connection_details"
+                                            ] = connection
                                             break
                         # endregion
                 # endregion
@@ -413,14 +469,20 @@ class Mesh(LoggerFormatter):
                 },
             ]
             try:
-                resp = await self._async_make_request(action=api.Actions.TRANSACTION, payload=payload)
+                resp = await self._async_make_request(
+                    action=api.Actions.TRANSACTION, payload=payload
+                )
             except MeshInvalidInput:
                 _LOGGER.debug(self.message_format("storage function not supported"))
             else:
                 if resp:
                     ret[ATTR_STORAGE_INFO] = {
-                        "smb_server_settings": resp[0].get(api.Response.DATA_KEY_SINGLE, {}),
-                        "available_partitions": resp[1].get(api.Response.DATA_KEY_SINGLE, {})
+                        "smb_server_settings": resp[0].get(
+                            api.Response.DATA_KEY_SINGLE, {}
+                        ),
+                        "available_partitions": resp[1].get(
+                            api.Response.DATA_KEY_SINGLE, {}
+                        ),
                     }
         # endregion
 
@@ -435,6 +497,7 @@ class Mesh(LoggerFormatter):
         _LOGGER_VERBOSE.debug(self.message_format("entered"))
         self._session = aiohttp.ClientSession(raise_for_status=True)
         _LOGGER_VERBOSE.debug(self.message_format("exited"))
+
     # endregion
 
     # region #-- public methods --#
@@ -446,7 +509,9 @@ class Mesh(LoggerFormatter):
         :return: None
         """
         _LOGGER.debug(self.message_format("entered"))
-        await self._async_make_request(action=api.Actions.UPDATE_FIRMWARE, payload={"onlyCheck": True})
+        await self._async_make_request(
+            action=api.Actions.UPDATE_FIRMWARE, payload={"onlyCheck": True}
+        )
         _LOGGER.debug(self.message_format("exited"))
 
     async def async_close(self) -> None:
@@ -492,10 +557,10 @@ class Mesh(LoggerFormatter):
             device_id = ""
 
         if device_id:
-            payload = {
-                "deviceID": device_id
-            }
-            await self._async_make_request(action=api.Actions.DELETE_DEVICE, payload=payload)
+            payload = {"deviceID": device_id}
+            await self._async_make_request(
+                action=api.Actions.DELETE_DEVICE, payload=payload
+            )
         else:
             raise MeshInvalidArguments
 
@@ -531,7 +596,10 @@ class Mesh(LoggerFormatter):
             for device in details[ATTR_PROCESSED_DEVICES]
             if device.__class__.__name__.lower() == "node"
         ]
-        _LOGGER_VERBOSE.debug(self.message_format("Populated %i nodes"), len(self._mesh_attributes[ATTR_NODES]))
+        _LOGGER_VERBOSE.debug(
+            self.message_format("Populated %i nodes"),
+            len(self._mesh_attributes[ATTR_NODES]),
+        )
 
         _LOGGER_VERBOSE.debug(self.message_format("Populating devices"))
         self._mesh_attributes[ATTR_PROCESSED_DEVICES] = [
@@ -541,7 +609,7 @@ class Mesh(LoggerFormatter):
         ]
         _LOGGER_VERBOSE.debug(
             self.message_format("Populated %i devices"),
-            len(self._mesh_attributes[ATTR_PROCESSED_DEVICES])
+            len(self._mesh_attributes[ATTR_PROCESSED_DEVICES]),
         )
         # endregion
 
@@ -555,7 +623,9 @@ class Mesh(LoggerFormatter):
         self.__gather_details_executed = True  # pylint: disable=unused-private-member
         _LOGGER.debug(self.message_format("exited"))
 
-    async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Device | Node:
+    async def async_get_device_from_id(
+        self, device_id: str, force_refresh: bool = False
+    ) -> Device | Node:
         """Get a Device or Node object based on the ID.
 
         By default, the stored information is used, but you can refresh it from the API.
@@ -565,7 +635,11 @@ class Mesh(LoggerFormatter):
         :param force_refresh: True to re-query the API for the latest details
         :return: Device or Node object whichever is applicable
         """
-        _LOGGER.debug(self.message_format("entered, device_id: %s, force_refresh: %s"), device_id, force_refresh)
+        _LOGGER.debug(
+            self.message_format("entered, device_id: %s, force_refresh: %s"),
+            device_id,
+            force_refresh,
+        )
 
         all_devices: List[Device | Node]
         if not force_refresh:
@@ -584,7 +658,9 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("exited"))
         return ret
 
-    async def async_get_device_from_mac_address(self, mac_address: str, force_refresh: bool = False) -> Device | Node:
+    async def async_get_device_from_mac_address(
+        self, mac_address: str, force_refresh: bool = False
+    ) -> Device | Node:
         """To get a Device or Node object based on the MAC address.
 
         Searches through all known adapters on the device to find a match.
@@ -595,7 +671,11 @@ class Mesh(LoggerFormatter):
         :param force_refresh: True to re-query the details from the API
         :return:  Device or Node object whichever is applicable
         """
-        _LOGGER.debug(self.message_format("entered, mac_address: %s, force_refresh: %s"), mac_address, force_refresh)
+        _LOGGER.debug(
+            self.message_format("entered, mac_address: %s, force_refresh: %s"),
+            mac_address,
+            force_refresh,
+        )
 
         ret: Optional[Device | Node] = None
 
@@ -646,10 +726,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     async def async_get_speedtest_results(
-        self,
-        count: int = 1,
-        only_latest: bool = False,
-        only_completed: bool = False
+        self, count: int = 1, only_latest: bool = False, only_completed: bool = False
     ) -> List:
         """Retrieve Speedtest results.
 
@@ -660,15 +737,20 @@ class Mesh(LoggerFormatter):
         """
         _LOGGER.debug(self.message_format("entered"))
 
-        payload = {**api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS, {}), "lastNumberOfResults": count}
-        resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload)
+        payload = {
+            **api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS, {}),
+            "lastNumberOfResults": count,
+        }
+        resp = await self._async_make_request(
+            action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload
+        )
         healthcheck_results = resp.get("healthCheckResults")
 
         _LOGGER.debug(self.message_format("exited"))
         return _process_speedtest_results(
             speedtest_results=healthcheck_results,
             only_latest=only_latest,
-            only_completed=only_completed
+            only_completed=only_completed,
         )
 
     async def async_get_speedtest_state(self) -> str:
@@ -681,7 +763,9 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("entered"))
 
         resp = await self._async_gather_details(include_speedtest_status=True)
-        ret = _get_speedtest_state(speedtest_results=resp[ATTR_SPEEDTEST_STATUS].get("speedTestResult", {}))
+        ret = _get_speedtest_state(
+            speedtest_results=resp[ATTR_SPEEDTEST_STATUS].get("speedTestResult", {})
+        )
 
         _LOGGER.debug(self.message_format("exited"))
         return ret
@@ -695,7 +779,9 @@ class Mesh(LoggerFormatter):
 
         resp = await self._async_gather_details(include_firmware_update=True)
 
-        node_results = resp.get(ATTR_UPDATE_FIRMWARE_STATE, {}).get("firmwareUpdateStatus", [])
+        node_results = resp.get(ATTR_UPDATE_FIRMWARE_STATE, {}).get(
+            "firmwareUpdateStatus", []
+        )
         all_states = ["pendingOperation" in node for node in node_results]
 
         ret: bool = any(all_states)
@@ -713,12 +799,12 @@ class Mesh(LoggerFormatter):
         :param force: True to acknowledge the primary node, ignored for everything else
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered, node_name: %s, force: %s"), node_name, force)
+        _LOGGER.debug(
+            self.message_format("entered, node_name: %s, force: %s"), node_name, force
+        )
 
         node_details: List[Node] = [
-            node
-            for node in self.nodes
-            if node.name.lower() == node_name.lower()
+            node for node in self.nodes if node.name.lower() == node_name.lower()
         ]
         if not node_details:
             raise MeshDeviceNotFoundResponse
@@ -735,8 +821,7 @@ class Mesh(LoggerFormatter):
             raise MeshInvalidInput(f"{node_name}: no valid address found")
 
         await self._async_make_request(
-            action=api.Actions.REBOOT,
-            node_address=node_ip[0]
+            action=api.Actions.REBOOT, node_address=node_ip[0]
         )
 
         _LOGGER.debug(self.message_format("exited"))
@@ -761,7 +846,9 @@ class Mesh(LoggerFormatter):
             "isGuestNetworkEnabled": state,
             "radios": radios,
         }
-        await self._async_make_request(action=api.Actions.SET_GUEST_NETWORK, payload=payload)
+        await self._async_make_request(
+            action=api.Actions.SET_GUEST_NETWORK, payload=payload
+        )
 
         _LOGGER.debug(self.message_format("exited"))
 
@@ -783,7 +870,9 @@ class Mesh(LoggerFormatter):
             "isParentalControlEnabled": state,
             "rules": rules,
         }
-        await self._async_make_request(action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload)
+        await self._async_make_request(
+            action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload
+        )
 
         _LOGGER.debug(self.message_format("exited"))
 
@@ -797,10 +886,10 @@ class Mesh(LoggerFormatter):
         """
         _LOGGER.debug(self.message_format("entered"))
 
-        payload = {
-            "runHealthCheckModule": "SpeedTest"
-        }
-        await self._async_make_request(action=api.Actions.START_SPEEDTEST, payload=payload)
+        payload = {"runHealthCheckModule": "SpeedTest"}
+        await self._async_make_request(
+            action=api.Actions.START_SPEEDTEST, payload=payload
+        )
 
         _LOGGER.debug(self.message_format("exited"))
 
@@ -820,6 +909,7 @@ class Mesh(LoggerFormatter):
 
         _LOGGER.debug(self.message_format("exited"))
         return ret
+
     # endregion
 
     # region #-- properties --#
@@ -832,7 +922,9 @@ class Mesh(LoggerFormatter):
 
         :return: True if checking, False if not
         """
-        node_results = self._mesh_attributes[ATTR_UPDATE_FIRMWARE_STATE].get("firmwareUpdateStatus", [])
+        node_results = self._mesh_attributes[ATTR_UPDATE_FIRMWARE_STATE].get(
+            "firmwareUpdateStatus", []
+        )
         all_states = ["pendingOperation" in node for node in node_results]
         ret = any(all_states)
 
@@ -857,7 +949,10 @@ class Mesh(LoggerFormatter):
 
         :return: A list containing Device objects
         """
-        return sorted(self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, []), key=lambda device: device.name)
+        return sorted(
+            self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, []),
+            key=lambda device: device.name,
+        )
 
     @property
     @needs_gather_details
@@ -866,7 +961,12 @@ class Mesh(LoggerFormatter):
 
         :return: a lowercase string representing the update method
         """
-        return self._mesh_attributes.get(ATTR_FIRMWARE_UPDATE_SETTINGS, {}).get("updatePolicy", "").lower() or None
+        return (
+            self._mesh_attributes.get(ATTR_FIRMWARE_UPDATE_SETTINGS, {})
+            .get("updatePolicy", "")
+            .lower()
+            or None
+        )
 
     @property
     @needs_gather_details
@@ -875,7 +975,9 @@ class Mesh(LoggerFormatter):
 
         :return: True if enabled, False if not
         """
-        return self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("isGuestNetworkEnabled", False)
+        return self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get(
+            "isGuestNetworkEnabled", False
+        )
 
     @property
     @needs_gather_details
@@ -889,7 +991,9 @@ class Mesh(LoggerFormatter):
                 "ssid": radio.get("guestSSID"),
                 "band": radio.get("radioID").split("_")[-1],
             }
-            for idx, radio in enumerate(self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("radios", []))
+            for idx, radio in enumerate(
+                self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("radios", [])
+            )
         ]
         return ret
 
@@ -903,9 +1007,11 @@ class Mesh(LoggerFormatter):
         :return: the Speedtest results
         """
         ret = _process_speedtest_results(
-            speedtest_results=self._mesh_attributes[ATTR_SPEEDTEST_RESULTS].get("healthCheckResults", []),
+            speedtest_results=self._mesh_attributes[ATTR_SPEEDTEST_RESULTS].get(
+                "healthCheckResults", []
+            ),
             only_completed=True,
-            only_latest=True
+            only_latest=True,
         )
         if ret:
             ret = ret[0]
@@ -935,7 +1041,9 @@ class Mesh(LoggerFormatter):
         """
         ret: Optional[bool] = None
         if ATTR_PARENTAL_CONTROL_INFO in self._mesh_attributes:
-            ret = self._mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get("isParentalControlEnabled", False)
+            ret = self._mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get(
+                "isParentalControlEnabled", False
+            )
         return ret
 
     @property
@@ -946,7 +1054,9 @@ class Mesh(LoggerFormatter):
         :return: Textual representation of the Speedtest state
         """
         ret = _get_speedtest_state(
-            speedtest_results=self._mesh_attributes.get(ATTR_SPEEDTEST_STATUS, {}).get("speedTestResult", {})
+            speedtest_results=self._mesh_attributes.get(ATTR_SPEEDTEST_STATUS, {}).get(
+                "speedTestResult", {}
+            )
         )
 
         return ret
@@ -961,26 +1071,42 @@ class Mesh(LoggerFormatter):
         ret: List = []
         node: List[Node]
         device: dict
-        storage_available = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get("available_partitions", {})
+        storage_available = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get(
+            "available_partitions", {}
+        )
         for storage_node in storage_available.get("storageNodes", []):
             for device in storage_node.get("storageDevices", []):
                 for partition in device.get("partitions", []):
-                    node = [_n for _n in self.nodes if _n.unique_id == storage_node.get("deviceID")]
+                    node = [
+                        _n
+                        for _n in self.nodes
+                        if _n.unique_id == storage_node.get("deviceID")
+                    ]
                     if node:
-                        ip_addr = [adapter.get("ip") for adapter in node[0].connected_adapters if adapter.get("ip")]
+                        ip_addr = [
+                            adapter.get("ip")
+                            for adapter in node[0].connected_adapters
+                            if adapter.get("ip")
+                        ]
                         used_percent: Optional[int] = None
                         try:
-                            used_percent = round((partition.get("usedKB") / partition.get("availableKB")) * 100, 2)
+                            used_percent = round(
+                                (partition.get("usedKB") / partition.get("availableKB"))
+                                * 100,
+                                2,
+                            )
                         except ZeroDivisionError:
                             pass
-                        ret.append({
-                            "available_kb": partition.get("availableKB"),
-                            "ip": ip_addr[0],
-                            "label": partition.get("label"),
-                            "last_checked": storage_node.get("timestamp"),
-                            "used_kb": partition.get("usedKB"),
-                            "used_percent": used_percent,
-                        })
+                        ret.append(
+                            {
+                                "available_kb": partition.get("availableKB"),
+                                "ip": ip_addr[0],
+                                "label": partition.get("label"),
+                                "last_checked": storage_node.get("timestamp"),
+                                "used_kb": partition.get("usedKB"),
+                                "used_percent": used_percent,
+                            }
+                        )
 
         return ret
 
@@ -991,11 +1117,11 @@ class Mesh(LoggerFormatter):
 
         :return: Dictionary of the storage settings
         """
-        ret = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get("smb_server_settings", {})
+        ret = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get(
+            "smb_server_settings", {}
+        )
         if ret:
-            ret = {
-                "anonymous_access": ret.get("isAnonymousAccessEnabled")
-            }
+            ret = {"anonymous_access": ret.get("isAnonymousAccessEnabled")}
 
         return ret
 
@@ -1008,7 +1134,9 @@ class Mesh(LoggerFormatter):
         """
         ret = [
             val
-            for key, val in self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanConnection", {}).items()
+            for key, val in self._mesh_attributes.get(ATTR_WAN_INFO, {})
+            .get("wanConnection", {})
+            .items()
             if key.startswith("dnsServer")
         ]
 
@@ -1021,7 +1149,11 @@ class Mesh(LoggerFormatter):
 
         :return: A string containing the IP address for the WAN
         """
-        return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanConnection", {}).get("ipAddress")
+        return (
+            self._mesh_attributes.get(ATTR_WAN_INFO, {})
+            .get("wanConnection", {})
+            .get("ipAddress")
+        )
 
     @property
     @needs_gather_details
@@ -1039,5 +1171,9 @@ class Mesh(LoggerFormatter):
 
         :return: True if connected, False if not
         """
-        return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanStatus", "").lower() == "connected"
+        return (
+            self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanStatus", "").lower()
+            == "connected"
+        )
+
     # endregion

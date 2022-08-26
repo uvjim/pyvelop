@@ -39,7 +39,9 @@ class Node(MeshDevice):
         except (TypeError, ValueError):
             pass
         if backhaul:
-            signal_strength_raw: int = backhaul.get("wirelessConnectionInfo", {}).get("stationRSSI")
+            signal_strength_raw: int = backhaul.get("wirelessConnectionInfo", {}).get(
+                "stationRSSI"
+            )
             ret = {
                 "connection": backhaul.get("connectionType"),
                 "last_checked": backhaul.get("timestamp"),

@@ -28,17 +28,27 @@ def _textualise_schedule(schedules: dict) -> dict:
         for pos, minute in enumerate(schedule_list):
             if not start and minute == _pc_schedule_blocked:
                 start: datetime = (
-                            datetime.datetime.combine(datetime.datetime.today(), datetime.datetime.min.time())
-                            + datetime.timedelta(minutes=pos * 30)).time()
+                    datetime.datetime.combine(
+                        datetime.datetime.today(), datetime.datetime.min.time()
+                    )
+                    + datetime.timedelta(minutes=pos * 30)
+                ).time()
                 if end:
                     end = None
-            if start and (minute == _pc_schedule_unblocked or pos == len(schedule_list) - 1):
+            if start and (
+                minute == _pc_schedule_unblocked or pos == len(schedule_list) - 1
+            ):
                 if pos == len(schedule_list) - 1:
                     pos += 1
                 end: datetime = (
-                            datetime.datetime.combine(datetime.datetime.today(), datetime.datetime.min.time())
-                            + datetime.timedelta(minutes=pos * 30)).time()
-                schedule_text.append(f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}")
+                    datetime.datetime.combine(
+                        datetime.datetime.today(), datetime.datetime.min.time()
+                    )
+                    + datetime.timedelta(minutes=pos * 30)
+                ).time()
+                schedule_text.append(
+                    f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
+                )
                 if start:
                     start = None
 
@@ -72,10 +82,9 @@ class Device(MeshDevice):
 
         :return: Manufacturer as found by the Velop
         """
-        return (
-            self._get_user_property(name="userDeviceManufacturer")
-            or self._attribs.get("model", {}).get("manufacturer", None)
-        )
+        return self._get_user_property(
+            name="userDeviceManufacturer"
+        ) or self._attribs.get("model", {}).get("manufacturer", None)
 
     @property
     def model(self) -> Optional[str]:
@@ -83,10 +92,9 @@ class Device(MeshDevice):
 
         :return: Model as found by the Velop
         """
-        return (
-            self._get_user_property(name="userDeviceModelNumber")
-            or self._attribs.get("model", {}).get("modelNumber", None)
-        )
+        return self._get_user_property(
+            name="userDeviceModelNumber"
+        ) or self._attribs.get("model", {}).get("modelNumber", None)
 
     @property
     def operating_system(self) -> Optional[str]:
@@ -94,10 +102,9 @@ class Device(MeshDevice):
 
         :return: The OS as identified by the Velop
         """
-        return (
-            self._get_user_property(name="userDeviceOS")
-            or self._attribs.get("unit", {}).get("operatingSystem", None)
-        )
+        return self._get_user_property(name="userDeviceOS") or self._attribs.get(
+            "unit", {}
+        ).get("operatingSystem", None)
 
     @property
     def parental_control_schedule(self) -> dict:
@@ -109,7 +116,9 @@ class Device(MeshDevice):
         if self._attribs.get("parental_controls"):
             for rule in self._attribs.get("parental_controls"):
                 ret = {
-                    "blocked_internet_access": _textualise_schedule(rule.get("wanSchedule", {})),
+                    "blocked_internet_access": _textualise_schedule(
+                        rule.get("wanSchedule", {})
+                    ),
                     "blocked_sites": rule.get("blockedURLs", []),
                 }
 

@@ -18,4 +18,5 @@ def needs_gather_details(func):
             raise MeshNeedsGatherDetails from None
         ret = func(self, *args, **kwargs)
         return ret
+
     return wrapper

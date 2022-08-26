@@ -38,9 +38,7 @@ class MeshDevice:
 
         user_properties: List[dict] = self._attribs.get("properties", [])
         user_prop: List[dict] | str = [
-            prop
-            for prop in user_properties
-            if prop.get("name") == name
+            prop for prop in user_properties if prop.get("name") == name
         ]
         if user_prop:
             ret = user_prop[0].get("value")
@@ -64,10 +62,14 @@ class MeshDevice:
         ]
 
         for idx, adapter in enumerate(ret):
-            if (conn_details := self._attribs.get("connection_details", {})):
+            if conn_details := self._attribs.get("connection_details", {}):
                 if conn_details["macAddress"] == adapter["mac"]:
-                    ret[idx]["rssi"] = conn_details.get("wireless", {}).get("signalDecibels")
-                    ret[idx]["signal_strength"] = signal_strength_to_text(ret[idx]["rssi"])
+                    ret[idx]["rssi"] = conn_details.get("wireless", {}).get(
+                        "signalDecibels"
+                    )
+                    ret[idx]["signal_strength"] = signal_strength_to_text(
+                        ret[idx]["rssi"]
+                    )
 
         return ret
 
@@ -101,22 +103,31 @@ class MeshDevice:
         my_adapters = self._attribs.get("knownInterfaces", [])
         if my_adapters:
             for adapter in my_adapters:
-                props = {"mac": adapter.get("macAddress"), "type": adapter.get("interfaceType")}
+                props = {
+                    "mac": adapter.get("macAddress"),
+                    "type": adapter.get("interfaceType"),
+                }
                 if adapter.get("band"):
                     props["band"] = adapter.get("band")
                 ret.append(props)
         # -- get the IP addresses, parentId and additional connection details if relevant --#
         for idx, adapter in enumerate(ret):
             adapter_details = self._attribs.get("connections", [])
-            adapter_details = [details for details in adapter_details if details["macAddress"] == adapter["mac"]]
+            adapter_details = [
+                details
+                for details in adapter_details
+                if details["macAddress"] == adapter["mac"]
+            ]
             if adapter_details:
                 ret[idx]["guest_network"] = adapter_details[0].get("isGuest", False)
                 ret[idx]["ip"] = adapter_details[0].get("ipAddress")
                 ret[idx]["ipv6"] = adapter_details[0].get("ipv6Address")
                 if self.__class__.__name__.lower() == "device":
                     ret[idx]["parent_id"] = adapter_details[0].get("parentDeviceID")
-            if (conn_details := self._attribs.get("connection_details", {})):
-                ret[idx]["rssi"] = conn_details.get("wireless", {}).get("signalDecibels")
+            if conn_details := self._attribs.get("connection_details", {}):
+                ret[idx]["rssi"] = conn_details.get("wireless", {}).get(
+                    "signalDecibels"
+                )
                 ret[idx]["signal_strength"] = signal_strength_to_text(ret[idx]["rssi"])
         return ret
 
