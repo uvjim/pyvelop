@@ -12,6 +12,7 @@ import aiohttp
 
 from . import const
 from . import jnap as api
+from .decorators import needs_gather_details
 from .device import Device
 from .exceptions import (MeshDeviceNotFoundResponse, MeshInvalidArguments,
                          MeshInvalidInput, MeshTooManyMatches)
@@ -144,6 +145,9 @@ class Mesh(LoggerFormatter):
         self._mesh_attributes: Dict = {}
         self._session: aiohttp.ClientSession = session
         self._timeout: int = request_timeout or 10
+
+        # flag used to denote that a full gather has been executed
+        self.__gather_details_executed: bool = False  # pylint: disable=unused-private-member
 
         self.__username: str = username
         self.__password: str = password
@@ -548,6 +552,7 @@ class Mesh(LoggerFormatter):
             self._mesh_attributes[attr] = details[attr]
         # endregion
 
+        self.__gather_details_executed = True  # pylint: disable=unused-private-member
         _LOGGER.debug(self.message_format("exited"))
 
     async def async_get_device_from_id(self, device_id: str, force_refresh: bool = False) -> Device | Node:
@@ -819,6 +824,7 @@ class Mesh(LoggerFormatter):
 
     # region #-- properties --#
     @property
+    @needs_gather_details
     def check_for_update_status(self) -> bool:
         """Get the state of checking for an update as at the last time details were gathered.
 
@@ -833,6 +839,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def connected_node(self) -> str:
         """Get the node in the mesh that we are connected to.
 
@@ -841,6 +848,7 @@ class Mesh(LoggerFormatter):
         return self._node
 
     @property
+    @needs_gather_details
     def devices(self) -> List:
         """Get the devices in the mesh.
 
@@ -852,6 +860,7 @@ class Mesh(LoggerFormatter):
         return sorted(self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, []), key=lambda device: device.name)
 
     @property
+    @needs_gather_details
     def firmware_update_setting(self) -> Optional[str]:
         """Get the current setting for firmware updates.
 
@@ -860,6 +869,7 @@ class Mesh(LoggerFormatter):
         return self._mesh_attributes.get(ATTR_FIRMWARE_UPDATE_SETTINGS, {}).get("updatePolicy", "").lower() or None
 
     @property
+    @needs_gather_details
     def guest_wifi_enabled(self) -> bool:
         """Get the state of the guest Wi-Fi.
 
@@ -868,6 +878,7 @@ class Mesh(LoggerFormatter):
         return self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("isGuestNetworkEnabled", False)
 
     @property
+    @needs_gather_details
     def guest_wifi_details(self) -> List:
         """Get the guest network Wi-Fi details.
 
@@ -883,6 +894,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def latest_speedtest_result(self) -> Optional[Dict]:
         """Get the Speedtest results.
 
@@ -901,6 +913,7 @@ class Mesh(LoggerFormatter):
         return ret or None
 
     @property
+    @needs_gather_details
     def nodes(self) -> List:
         """Get the nodes in the mesh.
 
@@ -914,6 +927,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def parental_control_enabled(self) -> Optional[bool]:
         """Get the state of the Parental Control feature.
 
@@ -925,6 +939,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def speedtest_status(self) -> str:
         """Return the current status of the Speedtest.
 
@@ -937,6 +952,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def storage_available(self) -> List:
         """Get available shared partitions.
 
@@ -969,6 +985,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def storage_settings(self) -> dict:
         """Get the settings for shared partitions.
 
@@ -983,6 +1000,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def wan_dns(self) -> List:
         """Get the WAN DNS servers.
 
@@ -997,6 +1015,7 @@ class Mesh(LoggerFormatter):
         return ret
 
     @property
+    @needs_gather_details
     def wan_ip(self) -> Optional[str]:
         """Get the WAN IP address.
 
@@ -1005,6 +1024,7 @@ class Mesh(LoggerFormatter):
         return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanConnection", {}).get("ipAddress")
 
     @property
+    @needs_gather_details
     def wan_mac(self) -> Optional[str]:
         """Get the WAN MAC.
 
@@ -1013,6 +1033,7 @@ class Mesh(LoggerFormatter):
         return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("macAddress", "")
 
     @property
+    @needs_gather_details
     def wan_status(self) -> bool:
         """Get the status of the WAN.
 

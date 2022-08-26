@@ -1,7 +1,11 @@
 """Exceptions for the pyvelop module."""
 
 
-class MeshBadResponse(Exception):
+class MeshException(Exception):
+    """Base Exsception for the Mesh."""
+
+
+class MeshBadResponse(MeshException):
     """API returns a bad response."""
 
     def __init__(self) -> None:
@@ -9,7 +13,7 @@ class MeshBadResponse(Exception):
         super().__init__("Bad Response")
 
 
-class MeshConnectionError(Exception):
+class MeshConnectionError(MeshException):
     """Connection error for the API."""
 
     def __init__(self) -> None:
@@ -17,7 +21,7 @@ class MeshConnectionError(Exception):
         super().__init__("Connection Error")
 
 
-class MeshDeviceNotFoundResponse(Exception):
+class MeshDeviceNotFoundResponse(MeshException):
     """Device is not found in the mesh."""
 
     def __init__(self) -> None:
@@ -25,7 +29,7 @@ class MeshDeviceNotFoundResponse(Exception):
         super().__init__("Device not found")
 
 
-class MeshInvalidArguments(Exception):
+class MeshInvalidArguments(MeshException):
     """Invalid arguments have been passed to a function."""
 
     def __init__(self) -> None:
@@ -33,7 +37,7 @@ class MeshInvalidArguments(Exception):
         super().__init__("Invalid Arguments")
 
 
-class MeshInvalidCredentials(Exception):
+class MeshInvalidCredentials(MeshException):
     """Credentials are invalid."""
 
     def __init__(self) -> None:
@@ -41,15 +45,19 @@ class MeshInvalidCredentials(Exception):
         super().__init__("Invalid Credentials")
 
 
-class MeshInvalidInput(Exception):
+class MeshInvalidInput(MeshException):
     """Parameters passed to the API are in valid."""
 
 
-class MeshInvalidOutput(Exception):
+class MeshInvalidOutput(MeshException):
     """Invalid information would be returned from the API."""
 
 
-class MeshNodeNotPrimary(Exception):
+class MeshNeedsGatherDetails(MeshException):
+    """Must run the async_gather_details method first."""
+
+
+class MeshNodeNotPrimary(MeshException):
     """API call being used on a node that isn't the primary."""
 
     def __init__(self) -> None:
@@ -57,7 +65,7 @@ class MeshNodeNotPrimary(Exception):
         super().__init__("Node not Primary")
 
 
-class MeshTimeoutError(Exception):
+class MeshTimeoutError(MeshException):
     """Timeout error for the API."""
 
     def __init__(self) -> None:
@@ -65,7 +73,7 @@ class MeshTimeoutError(Exception):
         super().__init__("Timeout Error")
 
 
-class MeshTooManyMatches(Exception):
+class MeshTooManyMatches(MeshException):
     """Too many matching devices when only one should be found."""
 
     def __init__(self) -> None:
