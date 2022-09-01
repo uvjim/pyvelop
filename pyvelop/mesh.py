@@ -272,10 +272,6 @@ class Mesh(LoggerFormatter):
         if kwargs.get("include_guest_wifi"):
             payload.append({"action": api.Actions.GET_GUEST_NETWORK_INFO})
 
-        # -- get the network connection details --#
-        if kwargs.get("include_network_connections"):
-            payload.append({"action": api.Actions.GET_NETWORK_CONNECTIONS})
-
         # -- get the Parental Control details --#
         if kwargs.get("include_parental_control") or kwargs.get("include_devices"):
             payload.append({"action": api.Actions.GET_PARENTAL_CONTROL_INFO})
@@ -328,6 +324,27 @@ class Mesh(LoggerFormatter):
                 )
                 if req.get("action") in JNAP_ACTION_TO_ATTRIBUTE:
                     ret[JNAP_ACTION_TO_ATTRIBUTE[req.get("action")]] = api_response.data
+            # endregion
+
+            # region #-- Device/Node specific information that could cause an issue --#
+            if kwargs.get("include_network_connections"):
+                action: str = api.Actions.GET_NETWORK_CONNECTIONS
+                payload = [{"action": action, "request": {}}]
+                try:
+                    resp = await self._async_make_request(
+                        action=api.Actions.TRANSACTION, payload=payload
+                    )
+                except MeshInvalidInput:
+                    _LOGGER.debug(
+                        self.message_format(
+                            "unable to retrieve network connection information"
+                        )
+                    )
+                else:
+                    if action in JNAP_ACTION_TO_ATTRIBUTE:
+                        ret[JNAP_ACTION_TO_ATTRIBUTE[action]] = api.Response(
+                            action=action, data=resp[0]
+                        ).data
             # endregion
 
             # region #-- handle devices --#
