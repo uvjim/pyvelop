@@ -9,7 +9,8 @@
             "command": ".venv/Scripts/sphinx-build.exe",
             "args": [
                 "-a",
-                "-b", "html",
+                "-b",
+                "html",
                 "-E",
                 "docs/source",
                 "docs/build"
@@ -23,7 +24,8 @@
                 "setup.py",
                 "bdist_wheel",
                 "sdist",
-                "clean", "--all"
+                "clean",
+                "--all"
             ]
         },
         {
@@ -32,12 +34,17 @@
             "command": ".venv/Scripts/pyinstaller.exe",
             "args": [
                 "--clean",
-                "--distpath", "pyinstaller_files/dist",
-                "--workpath", "pyinstaller_files/build",
-                "--specpath", "pyinstaller_files",
+                "--distpath",
+                "pyinstaller_files/dist",
+                "--workpath",
+                "pyinstaller_files/build",
+                "--specpath",
+                "pyinstaller_files",
                 "--onefile",
-                "--name", "pyvelop",
-                "--icon", "logo.ico",
+                "--name",
+                "pyvelop",
+                "--icon",
+                "logo.ico",
                 "pyvelop/__main__.py"
             ]
         },
@@ -60,7 +67,7 @@
             "dependsOn": [
                 "Build: Library",
                 "Build: Windows Executable"
-            ],
+            ]
         },
         {
             "label": "Release: Full",
@@ -69,16 +76,18 @@
                 "Release: Library and EXE",
                 "Release: Documentation"
             ],
+            "problemMatcher": []
         },
         {
             "label": "Upload: PyPi",
             "type": "shell",
             "command": "${command:python.interpreterPath}",
             "args": [
-                "-m", "twine",
+                "-m",
+                "twine",
                 "upload",
                 "--skip-existing",
-                "dist/*2022.8.*"
+                "dist/*2022.9.*"
             ]
         }
     ]
