@@ -95,6 +95,7 @@ class Request(LoggerFormatter):
         password: str,
         target: str,
         payload: Optional[List[Dict] | Dict] = None,
+        raise_on_error: bool = True,
         session: Optional[aiohttp.ClientSession] = None,
         username: str = "admin",
     ) -> None:
@@ -104,6 +105,7 @@ class Request(LoggerFormatter):
         :param password: the password required to communicate with the target
         :param target: the node to send the request to
         :param payload: the additional configuration to pass along with the action
+        :param raise_on_error: raise an error if one is found
         :param session: an existing session to use
         :param username: the username required to communicate with the target
         """
@@ -114,6 +116,7 @@ class Request(LoggerFormatter):
             bytes(f"{username}:{password}", "utf-8")
         ).decode("ascii")
         self._payload: Optional[List[Dict] | Dict] = payload
+        self._raise_on_error: bool = raise_on_error
         self._session: Optional[
             aiohttp.ClientSession
         ] = session or aiohttp.ClientSession(raise_for_status=True)
@@ -166,7 +169,28 @@ class Request(LoggerFormatter):
             raise err from None
 
         _LOGGER.debug(self.message_format("exited"))
-        return Response(action=self._action, data=resp_json)
+        return Response(
+            action=self._action, data=resp_json, raise_on_error=self._raise_on_error
+        )
+
+    # region #-- properties --#
+    @property
+    def action(self) -> str:
+        """Return the action used in the request.
+
+        :return: string containing the action
+        """
+        return self._action
+
+    @property
+    def payload(self) -> Optional[List[Dict] | Dict]:
+        """Return the payload used for the request.
+
+        :return: Optional[List[Dict] | Dict] containing the payload
+        """
+        return self._payload
+
+    # endregion
 
 
 class Response(LoggerFormatter):
@@ -176,7 +200,9 @@ class Response(LoggerFormatter):
     DATA_KEY_TRANSACTION: str = "responses"
     RESULT_KEY: str = "result"
 
-    def __init__(self, action: str, data: Dict[str, Any]) -> None:
+    def __init__(
+        self, action: str, data: Dict[str, Any], raise_on_error: bool = True
+    ) -> None:
         """Initialise the response.
 
         :param action: The action that was issued in the request to cause the response
@@ -186,12 +212,13 @@ class Response(LoggerFormatter):
 
         self._action: str = action
         self._data: Dict[str, Any] = data
+        self._raise_on_error: bool = raise_on_error
 
         self._process_data()
 
     def _process_data(self) -> None:
         """Process the given data to check for errors."""
-        if self._data.get(self.RESULT_KEY) != "OK":
+        if self._data.get(self.RESULT_KEY) != "OK" and self._raise_on_error:
             responses = self.data if self.action == Actions.TRANSACTION else [self.data]
 
             err = None
@@ -213,7 +240,9 @@ class Response(LoggerFormatter):
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
                     err = MeshNodeNotPrimary
                 elif resp.get(self.RESULT_KEY).startswith("_"):
-                    err = MeshInvalidInput(resp.get(self.RESULT_KEY))
+                    err = MeshInvalidInput(
+                        f"{resp.get(self.RESULT_KEY)}: '{self.action}'"
+                    )
 
                 if err:
                     break
@@ -241,7 +270,7 @@ class Response(LoggerFormatter):
         ret = (
             self._data.get(self.DATA_KEY_TRANSACTION)
             if self.action == Actions.TRANSACTION
-            else self._data.get(self.DATA_KEY_SINGLE)
+            else self._data.get(self.DATA_KEY_SINGLE, self._data)
         )
 
         return ret
