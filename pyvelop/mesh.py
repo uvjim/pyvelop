@@ -3,10 +3,11 @@
 # region #-- imports --#
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Tuple
 
 import aiohttp
 
@@ -16,6 +17,7 @@ from .decorators import needs_gather_details
 from .device import Device
 from .exceptions import (
     MeshDeviceNotFoundResponse,
+    MeshException,
     MeshInvalidArguments,
     MeshInvalidInput,
     MeshTooManyMatches,
@@ -39,7 +41,8 @@ ATTR_PROCESSED_DEVICES: str = "devices"
 ATTR_SPEEDTEST_RESULTS: str = "speedtest_results"
 ATTR_SPEEDTEST_STATUS: str = "speedtest_status"
 ATTR_RAW_DEVICES: str = "raw_devices"
-ATTR_STORAGE_INFO: str = "storage"
+ATTR_STORAGE_PARTITIONS: str = "storage_partitions"
+ATTR_STORAGE_SMB_SERVER: str = "storage_smb_server"
 ATTR_UPDATE_FIRMWARE_STATE: str = "check_update_state"
 ATTR_WAN_INFO: str = "wan_info"
 # endregion
@@ -53,9 +56,23 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_PARENTAL_CONTROL_INFO,
     api.Actions.GET_SPEEDTEST_RESULTS: ATTR_SPEEDTEST_RESULTS,
     api.Actions.GET_SPEEDTEST_STATUS: ATTR_SPEEDTEST_STATUS,
+    api.Actions.GET_STORAGE_PARTITIONS: ATTR_STORAGE_PARTITIONS,
+    api.Actions.GET_STORAGE_SMB_SERVER: ATTR_STORAGE_SMB_SERVER,
     api.Actions.GET_WAN_INFO: ATTR_WAN_INFO,
     api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_UPDATE_FIRMWARE_STATE,
 }
+
+
+def _build_action_payload(transaction: List) -> List:
+    """Set default action for payload if none supplied."""
+    return list(
+        map(
+            lambda p: (
+                (dict(**p, **{"request": {}}) if p.get("request") is None else p)
+            ),
+            transaction,
+        )
+    )
 
 
 def _process_speedtest_results(
@@ -197,14 +214,19 @@ class Mesh(LoggerFormatter):
 
     # region #-- private methods --#
     async def _async_make_request(
-        self, action: str, payload=None, node_address: Optional[str] = None
-    ) -> dict:
+        self,
+        action: str,
+        node_address: Optional[str] = None,
+        payload: Optional[List[Dict] | Dict] = None,
+        raise_on_error: bool = True,
+    ) -> Tuple(api.Request, api.Response):
         """Execute the API request against the connected node.
 
         :param action: The JNAP action to execute
-        :param payload: The relevant payload for the action
         :param node_address: The node to send the request to (only valid for a subset of actions)
-        :return: The JSON response or raises an error if need be
+        :param payload: The relevant payload for the action
+        :param raise_on_error: Raise an error if one is found
+        :return: tuple containing the request and response objects or raises an error if need be
         """
         _LOGGER.debug(self.message_format("entered"))
 
@@ -223,6 +245,7 @@ class Mesh(LoggerFormatter):
             action=action,
             password=self.__password,
             payload=payload,
+            raise_on_error=raise_on_error,
             session=self._session,
             target=node_address or self._node,
             username=self.__username,
@@ -233,7 +256,7 @@ class Mesh(LoggerFormatter):
             raise err from None
         else:
             _LOGGER.debug(self.message_format("exited"))
-            return req_resp.data
+            return (req, req_resp)
 
     async def _async_gather_details(self, **kwargs) -> dict:
         """Work is done here to gather the necessary details for mesh.
@@ -254,35 +277,35 @@ class Mesh(LoggerFormatter):
         _LOGGER.debug(self.message_format("entered, args: %s"), json.dumps(kwargs))
 
         ret = {}
-        payload: List = []
+        payload_safe: List = []
 
-        # region #-- prepare the request payload --#
+        # region #-- prepare the safe request --#
         # -- get the devices --#
         if kwargs.get("include_devices"):
-            payload.append({"action": api.Actions.GET_DEVICES})
+            payload_safe.append({"action": api.Actions.GET_DEVICES})
 
         if kwargs.get("include_firmware_update_settings"):
-            payload.append({"action": api.Actions.GET_FIRMWARE_UPDATE_SETTINGS})
+            payload_safe.append({"action": api.Actions.GET_FIRMWARE_UPDATE_SETTINGS})
 
         # -- get the backhaul info  --#
         if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
-            payload.append({"action": api.Actions.GET_BACKHAUL})
+            payload_safe.append({"action": api.Actions.GET_BACKHAUL})
 
         # -- get the guest WiFi details --#
         if kwargs.get("include_guest_wifi"):
-            payload.append({"action": api.Actions.GET_GUEST_NETWORK_INFO})
+            payload_safe.append({"action": api.Actions.GET_GUEST_NETWORK_INFO})
 
         # -- get the Parental Control details --#
         if kwargs.get("include_parental_control") or kwargs.get("include_devices"):
-            payload.append({"action": api.Actions.GET_PARENTAL_CONTROL_INFO})
+            payload_safe.append({"action": api.Actions.GET_PARENTAL_CONTROL_INFO})
 
         # -- get the current Speedtest status --#
         if kwargs.get("include_speedtest_status"):
-            payload.append({"action": api.Actions.GET_SPEEDTEST_STATUS})
+            payload_safe.append({"action": api.Actions.GET_SPEEDTEST_STATUS})
 
         # -- get the latest Speedtest result --#
         if kwargs.get("include_speedtest_results"):
-            payload.append(
+            payload_safe.append(
                 {
                     "action": api.Actions.GET_SPEEDTEST_RESULTS,
                     "request": {
@@ -294,213 +317,198 @@ class Mesh(LoggerFormatter):
 
         # -- get the update check details --#
         if kwargs.get("include_firmware_update"):
-            payload.append({"action": api.Actions.GET_UPDATE_FIRMWARE_STATE})
+            payload_safe.append({"action": api.Actions.GET_UPDATE_FIRMWARE_STATE})
 
         # -- get the WAN details --#
         if kwargs.get("include_wan"):
-            payload.append({"action": api.Actions.GET_WAN_INFO})
+            payload_safe.append({"action": api.Actions.GET_WAN_INFO})
 
-        # set default request for each action in the transaction
-        payload = list(
-            map(
-                lambda p: (
-                    (dict(**p, **{"request": {}}) if p.get("request") is None else p)
-                ),
-                payload,
-            )
+        request_safe = self._async_make_request(
+            action=api.Actions.TRANSACTION,
+            payload=_build_action_payload(transaction=payload_safe),
+            raise_on_error=False,
         )
         # endregion
 
-        resp = await self._async_make_request(
-            action=api.Actions.TRANSACTION, payload=payload
-        )
-        if resp:
-            responses = resp
-            # region #-- prepare all the raw details --#
-            for idx, req in enumerate(payload):
-                # don't wrap in try/except should be good here
-                api_response = api.Response(
-                    action=req.get("action"), data=responses[idx]
+        # region #-- prepare the potentially unsafe requests --#
+        request_unsafe = []
+        if kwargs.get("include_network_connections"):
+            request_unsafe.append(
+                self._async_make_request(
+                    action=api.Actions.GET_NETWORK_CONNECTIONS,
+                    payload={},
+                    raise_on_error=False,
                 )
-                if req.get("action") in JNAP_ACTION_TO_ATTRIBUTE:
-                    ret[JNAP_ACTION_TO_ATTRIBUTE[req.get("action")]] = api_response.data
-            # endregion
+            )
 
-            # region #-- Device/Node specific information that could cause an issue --#
-            if kwargs.get("include_network_connections"):
-                action: str = api.Actions.GET_NETWORK_CONNECTIONS
-                payload = [{"action": action, "request": {}}]
-                try:
-                    resp = await self._async_make_request(
-                        action=api.Actions.TRANSACTION, payload=payload
+        if kwargs.get("include_storage"):
+            request_unsafe.append(
+                self._async_make_request(
+                    action=api.Actions.TRANSACTION,
+                    payload=_build_action_payload(
+                        transaction=[
+                            {
+                                "action": api.Actions.GET_STORAGE_SMB_SERVER,
+                            },
+                            {
+                                "action": api.Actions.GET_STORAGE_PARTITIONS,
+                            },
+                        ]
+                    ),
+                    raise_on_error=False,
+                )
+            )
+        # endregion
+
+        responses: List[Tuple[api.Request, api.Response]] = await asyncio.gather(
+            request_safe, *request_unsafe
+        )
+
+        # region #-- prepare all the raw details --#
+        def _set_raw_value(action: str, data: Optional[List[Dict] | Dict]) -> None:
+            """Set the raw values"""
+            try:
+                api_response: api.Response = api.Response(action=action, data=data)
+            except MeshException as err:
+                _LOGGER.debug(self.message_format("%s"), err)
+            else:
+                ret[JNAP_ACTION_TO_ATTRIBUTE[action]] = api_response.data
+
+        response: Tuple[api.Request, api.Response]
+        for response in responses:
+            req, resp = response
+            if req.action == api.Actions.TRANSACTION:
+                for idx, action_response in enumerate(resp.data):
+                    _set_raw_value(
+                        action=req.payload[idx].get("action"), data=action_response
                     )
-                except MeshInvalidInput:
-                    _LOGGER.debug(
-                        self.message_format(
-                            "unable to retrieve network connection information"
+            else:
+                if req.action in JNAP_ACTION_TO_ATTRIBUTE:
+                    _set_raw_value(action=req.action, data=getattr(resp, "_data", {}))
+        # endregion
+
+        # region #-- handle devices --#
+        if ATTR_RAW_DEVICES in ret:
+            devices = []
+            # region #-- build the properties for the device types --#
+            for device in ret[ATTR_RAW_DEVICES].get("devices", []):
+                device["results_time"]: int = int(time.time())
+                if "nodeType" in device:
+                    # region #-- determine the backhaul information --#
+                    device_backhaul = [
+                        bi
+                        for bi in ret.get(ATTR_BACKHAUL_INFO, {}).get(
+                            "backhaulDevices", []
+                        )
+                        if bi.get("deviceUUID") == device.get("deviceID")
+                    ]
+                    device_backhaul = device_backhaul[0] if device_backhaul else {}
+                    # endregion
+
+                    # region #-- calculate if there is a firmware update available --#
+                    node_firmware: List | dict = {}
+                    if ATTR_UPDATE_FIRMWARE_STATE in ret:
+                        firmware_status = ret[ATTR_UPDATE_FIRMWARE_STATE].get(
+                            "firmwareUpdateStatus", []
+                        )
+                        node_firmware = [
+                            firmware_details
+                            for firmware_details in firmware_status
+                            if firmware_details.get("deviceUUID")
+                            == device.get("deviceID")
+                        ]
+                        node_firmware = node_firmware[0] if node_firmware else {}
+                    # endregion
+
+                    devices.append(
+                        Node(
+                            **device,
+                            **{
+                                "backhaul": device_backhaul,
+                                "updates": node_firmware,
+                            },
                         )
                     )
                 else:
-                    if action in JNAP_ACTION_TO_ATTRIBUTE:
-                        ret[JNAP_ACTION_TO_ATTRIBUTE[action]] = api.Response(
-                            action=action, data=resp[0]
-                        ).data
+                    devices.append(Device(**device))
             # endregion
 
-            # region #-- handle devices --#
-            if ATTR_RAW_DEVICES in ret:
-                devices = []
-                # region #-- build the properties for the device types --#
-                for device in ret[ATTR_RAW_DEVICES].get("devices", []):
-                    device["results_time"]: int = int(time.time())
-                    if "nodeType" in device:
-                        # region #-- determine the backhaul information --#
-                        device_backhaul = [
-                            bi
-                            for bi in ret[ATTR_BACKHAUL_INFO].get("backhaulDevices", [])
-                            if bi.get("deviceUUID") == device.get("deviceID")
-                        ]
-                        device_backhaul = device_backhaul[0] if device_backhaul else {}
-                        # endregion
+            # region #-- post processing devices and nodes --#
+            for node in devices:
+                if node.__class__.__name__.lower() == "node":
+                    # region #-- calculate the connected devices for nodes --#
+                    connected_devices: List = []
+                    parent_name: Optional[str] = None
+                    for device in devices:
+                        for adapter in device.network:
+                            if adapter.get("parent_id") == node.unique_id:
+                                connected_devices.append(
+                                    {
+                                        "name": device.name,
+                                        "ip": adapter.get("ip"),
+                                        "type": adapter.get("type"),
+                                        "guest_network": adapter.get("guest_network"),
+                                    }
+                                )
+                            if node.parent_ip and not parent_name:
+                                if node.parent_ip == adapter.get("ip"):
+                                    parent_name = device.name
+                    setattr(node, "_Node__parent_name", parent_name)
+                    setattr(node, "_Node__connected_devices", connected_devices)
+                    # endregion
+                elif node.__class__.__name__.lower() == "device":
+                    # region #-- calculate parent name for devices --#
+                    attrib_connections = getattr(node, "_attribs", {}).get(
+                        "connections", []
+                    )
+                    parent: Optional[str] = None
+                    for conn in attrib_connections:
+                        if conn.get("parentDeviceID", ""):
+                            try:
+                                parent = [
+                                    device.name
+                                    for device in devices
+                                    if device.unique_id == conn.get("parentDeviceID")
+                                ][0]
+                            except IndexError:
+                                pass
+                    setattr(node, "_Device__parent_name", parent)
+                    # endregion
 
-                        # region #-- calculate if there is a firmware update available --#
-                        node_firmware: List | dict = {}
-                        if ATTR_UPDATE_FIRMWARE_STATE in ret:
-                            firmware_status = ret[ATTR_UPDATE_FIRMWARE_STATE].get(
-                                "firmwareUpdateStatus", []
-                            )
-                            node_firmware = [
-                                firmware_details
-                                for firmware_details in firmware_status
-                                if firmware_details.get("deviceUUID")
-                                == device.get("deviceID")
-                            ]
-                            node_firmware = node_firmware[0] if node_firmware else {}
-                        # endregion
+                    network_adapater_macs = [
+                        adapter.get("mac") for adapter in node.network
+                    ]
+                    # region #-- get the parental control details --#
+                    pc_schedule: List = []
+                    for mac in network_adapater_macs:
+                        for rule in ret.get(ATTR_PARENTAL_CONTROL_INFO, {}).get(
+                            "rules", []
+                        ):
+                            if mac in rule.get("macAddresses", []):
+                                pc_schedule.append(rule)
+                                break
+                    getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
+                    # endregion
 
-                        devices.append(
-                            Node(
-                                **device,
-                                **{
-                                    "backhaul": device_backhaul,
-                                    "updates": node_firmware,
-                                },
-                            )
-                        )
-                    else:
-                        devices.append(Device(**device))
-                # endregion
-
-                # region #-- post processing devices and nodes --#
-                for node in devices:
-                    if node.__class__.__name__.lower() == "node":
-                        # region #-- calculate the connected devices for nodes --#
-                        connected_devices: List = []
-                        parent_name: Optional[str] = None
-                        for device in devices:
-                            for adapter in device.network:
-                                if adapter.get("parent_id") == node.unique_id:
-                                    connected_devices.append(
-                                        {
-                                            "name": device.name,
-                                            "ip": adapter.get("ip"),
-                                            "type": adapter.get("type"),
-                                            "guest_network": adapter.get(
-                                                "guest_network"
-                                            ),
-                                        }
-                                    )
-                                if node.parent_ip and not parent_name:
-                                    if node.parent_ip == adapter.get("ip"):
-                                        parent_name = device.name
-                        setattr(node, "_Node__parent_name", parent_name)
-                        setattr(node, "_Node__connected_devices", connected_devices)
-                        # endregion
-                    elif node.__class__.__name__.lower() == "device":
-                        # region #-- calculate parent name for devices --#
-                        attrib_connections = getattr(node, "_attribs", {}).get(
-                            "connections", []
-                        )
-                        parent: Optional[str] = None
-                        for conn in attrib_connections:
-                            if conn.get("parentDeviceID", ""):
-                                try:
-                                    parent = [
-                                        device.name
-                                        for device in devices
-                                        if device.unique_id
-                                        == conn.get("parentDeviceID")
-                                    ][0]
-                                except IndexError:
-                                    pass
-                        setattr(node, "_Device__parent_name", parent)
-                        # endregion
-
-                        network_adapater_macs = [
-                            adapter.get("mac") for adapter in node.network
-                        ]
-                        # region #-- get the parental control details --#
-                        pc_schedule: List = []
+                    # region #-- get additional connection details --#
+                    if ATTR_NETWORK_CONNECTIONS in ret:
                         for mac in network_adapater_macs:
-                            for rule in ret[ATTR_PARENTAL_CONTROL_INFO].get(
-                                "rules", []
+                            for conn_details in ret[ATTR_NETWORK_CONNECTIONS].get(
+                                "nodeWirelessConnections", []
                             ):
-                                if mac in rule.get("macAddresses", []):
-                                    pc_schedule.append(rule)
-                                    break
-                        getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
-                        # endregion
-
-                        # region #-- get additional connection details --#
-                        if ATTR_NETWORK_CONNECTIONS in ret:
-                            for mac in network_adapater_macs:
-                                for conn_details in ret[ATTR_NETWORK_CONNECTIONS].get(
-                                    "nodeWirelessConnections", []
-                                ):
-                                    node_connections: List[Mapping] = conn_details.get(
-                                        "connections", {}
-                                    )
-                                    for connection in node_connections:
-                                        if mac == connection.get("macAddress"):
-                                            getattr(node, "_attribs", {})[
-                                                "connection_details"
-                                            ] = connection
-                                            break
-                        # endregion
-                # endregion
-
-                ret[ATTR_PROCESSED_DEVICES] = devices or []
+                                node_connections: List[Mapping] = conn_details.get(
+                                    "connections", {}
+                                )
+                                for connection in node_connections:
+                                    if mac == connection.get("macAddress"):
+                                        getattr(node, "_attribs", {})[
+                                            "connection_details"
+                                        ] = connection
+                                        break
+                    # endregion
             # endregion
 
-        # region #-- separate requests where they could easily cause an error if not supported --#
-        # -- get the storage details --#
-        if kwargs.get("include_storage"):
-            payload = [
-                {
-                    "action": api.Actions.GET_STORAGE_SMB_SERVER,
-                    "request": {},
-                },
-                {
-                    "action": api.Actions.GET_STORAGE_PARTITIONS,
-                    "request": {},
-                },
-            ]
-            try:
-                resp = await self._async_make_request(
-                    action=api.Actions.TRANSACTION, payload=payload
-                )
-            except MeshInvalidInput:
-                _LOGGER.debug(self.message_format("storage function not supported"))
-            else:
-                if resp:
-                    ret[ATTR_STORAGE_INFO] = {
-                        "smb_server_settings": resp[0].get(
-                            api.Response.DATA_KEY_SINGLE, {}
-                        ),
-                        "available_partitions": resp[1].get(
-                            api.Response.DATA_KEY_SINGLE, {}
-                        ),
-                    }
+            ret[ATTR_PROCESSED_DEVICES] = devices or []
         # endregion
 
         _LOGGER.debug(self.message_format("exited"))
@@ -610,7 +618,7 @@ class Mesh(LoggerFormatter):
         _LOGGER_VERBOSE.debug(self.message_format("Populating nodes"))
         self._mesh_attributes[ATTR_NODES] = [
             device
-            for device in details[ATTR_PROCESSED_DEVICES]
+            for device in details.get(ATTR_PROCESSED_DEVICES, [])
             if device.__class__.__name__.lower() == "node"
         ]
         _LOGGER_VERBOSE.debug(
@@ -626,12 +634,12 @@ class Mesh(LoggerFormatter):
         ]
         _LOGGER_VERBOSE.debug(
             self.message_format("Populated %i devices"),
-            len(self._mesh_attributes[ATTR_PROCESSED_DEVICES]),
+            len(self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, [])),
         )
         # endregion
 
         # region #-- manage the other attributes --#
-        details.pop(ATTR_PROCESSED_DEVICES)
+        details.pop(ATTR_PROCESSED_DEVICES, None)
         for attr in details:
             _LOGGER_VERBOSE.debug(self.message_format("Populating %s"), attr)
             self._mesh_attributes[attr] = details[attr]
@@ -939,7 +947,7 @@ class Mesh(LoggerFormatter):
 
         :return: True if checking, False if not
         """
-        node_results = self._mesh_attributes[ATTR_UPDATE_FIRMWARE_STATE].get(
+        node_results = self._mesh_attributes.get(ATTR_UPDATE_FIRMWARE_STATE, {}).get(
             "firmwareUpdateStatus", []
         )
         all_states = ["pendingOperation" in node for node in node_results]
@@ -992,7 +1000,7 @@ class Mesh(LoggerFormatter):
 
         :return: True if enabled, False if not
         """
-        return self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get(
+        return self._mesh_attributes.get(ATTR_GUEST_NETWORK_INFO, {}).get(
             "isGuestNetworkEnabled", False
         )
 
@@ -1009,7 +1017,7 @@ class Mesh(LoggerFormatter):
                 "band": radio.get("radioID").split("_")[-1],
             }
             for idx, radio in enumerate(
-                self._mesh_attributes[ATTR_GUEST_NETWORK_INFO].get("radios", [])
+                self._mesh_attributes.get(ATTR_GUEST_NETWORK_INFO, {}).get("radios", [])
             )
         ]
         return ret
@@ -1024,7 +1032,7 @@ class Mesh(LoggerFormatter):
         :return: the Speedtest results
         """
         ret = _process_speedtest_results(
-            speedtest_results=self._mesh_attributes[ATTR_SPEEDTEST_RESULTS].get(
+            speedtest_results=self._mesh_attributes.get(ATTR_SPEEDTEST_RESULTS, {}).get(
                 "healthCheckResults", []
             ),
             only_completed=True,
@@ -1088,9 +1096,7 @@ class Mesh(LoggerFormatter):
         ret: List = []
         node: List[Node]
         device: dict
-        storage_available = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get(
-            "available_partitions", {}
-        )
+        storage_available = self._mesh_attributes.get(ATTR_STORAGE_PARTITIONS, {})
         for storage_node in storage_available.get("storageNodes", []):
             for device in storage_node.get("storageDevices", []):
                 for partition in device.get("partitions", []):
@@ -1134,9 +1140,7 @@ class Mesh(LoggerFormatter):
 
         :return: Dictionary of the storage settings
         """
-        ret = self._mesh_attributes.get(ATTR_STORAGE_INFO, {}).get(
-            "smb_server_settings", {}
-        )
+        ret = self._mesh_attributes.get(ATTR_STORAGE_SMB_SERVER, {})
         if ret:
             ret = {"anonymous_access": ret.get("isAnonymousAccessEnabled")}
 
