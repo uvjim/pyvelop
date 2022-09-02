@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
+from .const import DEF_REDACT
 from .exceptions import (
     MeshBadResponse,
     MeshConnectionError,
@@ -141,7 +142,10 @@ class Request(LoggerFormatter):
         _LOGGER.debug(
             self.message_format("URL: %s, Headers: %s, Payload: %s, Timeout: %i"),
             self._jnap_url,
-            headers,
+            {
+                key: value if key not in ("X-JNAP-Authorization") else DEF_REDACT
+                for key, value in headers.items()
+            },
             json.dumps(self._payload),
             timeout,
         )
