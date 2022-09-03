@@ -22,7 +22,7 @@ from .exceptions import (
     MeshInvalidInput,
     MeshTooManyMatches,
 )
-from .logger import LoggerFormatter
+from .logger import Logger
 from .node import NODE_TYPE_PRIMARY, Node
 
 # endregion
@@ -140,7 +140,7 @@ def _get_speedtest_state(speedtest_results=None) -> str:
     return ret
 
 
-class Mesh(LoggerFormatter):
+class Mesh:
     """Representation of the Velop Mesh.
 
     **All properties are point in time from when the last async_gather_details was executed.**
@@ -164,9 +164,11 @@ class Mesh(LoggerFormatter):
         :param session: session to use in for interacting with the Mesh
         :param username: username to use; default admin
         """
-        super().__init__()
+        # super().__init__()
 
-        _LOGGER.debug(self.message_format("entered"))
+        self._log_formatter = Logger()
+
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         self._node: str = node
         self._mesh_attributes: Dict = {}
@@ -183,7 +185,7 @@ class Mesh(LoggerFormatter):
         self.__passed_session: bool = False
 
         _LOGGER.debug(
-            self.message_format("Session was passed in: %s"),
+            self._log_formatter.format("Session was passed in: %s"),
             "Yes" if self._session is not None else "No",
         )
         if self._session:
@@ -192,10 +194,12 @@ class Mesh(LoggerFormatter):
             self.__create_session()
 
         _LOGGER.debug(
-            self.message_format("%s version: %s"), __package__, const._PACKAGE_VERSION
+            self._log_formatter.format("%s version: %s"),
+            __package__,
+            const._PACKAGE_VERSION,
         )
-        _LOGGER.debug(self.message_format("Initialised mesh for %s"), self._node)
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("Initialised mesh for %s"), self._node)
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def __aenter__(self):
         """Asynchronous enter magic method."""
@@ -228,7 +232,7 @@ class Mesh(LoggerFormatter):
         :param raise_on_error: Raise an error if one is found
         :return: tuple containing the request and response objects or raises an error if need be
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         if node_address is not None and action != api.Actions.REBOOT:
             raise MeshInvalidArguments
@@ -239,8 +243,11 @@ class Mesh(LoggerFormatter):
         if (
             not self.__passed_session and self._session.closed
         ):  # session closed so recreate it
-            _LOGGER_VERBOSE.debug(self.message_format("session was closed, reopening"))
+            _LOGGER_VERBOSE.debug(
+                self._log_formatter.format("session was closed, reopening")
+            )
             self.__create_session()
+
         req = api.Request(
             action=action,
             password=self.__password,
@@ -255,7 +262,7 @@ class Mesh(LoggerFormatter):
         except Exception as err:
             raise err from None
         else:
-            _LOGGER.debug(self.message_format("exited"))
+            _LOGGER.debug(self._log_formatter.format("exited"))
             return (req, req_resp)
 
     async def _async_gather_details(self, **kwargs) -> dict:
@@ -274,7 +281,9 @@ class Mesh(LoggerFormatter):
         :param include_wan: True to include WAN details
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
         """
-        _LOGGER.debug(self.message_format("entered, args: %s"), json.dumps(kwargs))
+        _LOGGER.debug(
+            self._log_formatter.format("entered, args: %s"), json.dumps(kwargs)
+        )
 
         ret = {}
         payload_safe: List = []
@@ -370,7 +379,7 @@ class Mesh(LoggerFormatter):
             try:
                 api_response: api.Response = api.Response(action=action, data=data)
             except MeshException as err:
-                _LOGGER.debug(self.message_format("%s"), err)
+                _LOGGER.debug(self._log_formatter.format("%s"), err)
             else:
                 ret[JNAP_ACTION_TO_ATTRIBUTE[action]] = api_response.data
 
@@ -511,7 +520,7 @@ class Mesh(LoggerFormatter):
             ret[ATTR_PROCESSED_DEVICES] = devices or []
         # endregion
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     def __create_session(self) -> None:
@@ -519,9 +528,9 @@ class Mesh(LoggerFormatter):
 
         :return: None
         """
-        _LOGGER_VERBOSE.debug(self.message_format("entered"))
+        _LOGGER_VERBOSE.debug(self._log_formatter.format("entered"))
         self._session = aiohttp.ClientSession(raise_for_status=True)
-        _LOGGER_VERBOSE.debug(self.message_format("exited"))
+        _LOGGER_VERBOSE.debug(self._log_formatter.format("exited"))
 
     # endregion
 
@@ -533,11 +542,11 @@ class Mesh(LoggerFormatter):
 
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
         await self._async_make_request(
             action=api.Actions.UPDATE_FIRMWARE, payload={"onlyCheck": True}
         )
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_close(self) -> None:
         """Close the session to the mesh.
@@ -545,9 +554,9 @@ class Mesh(LoggerFormatter):
         :return: None
         """
         if not self.__passed_session:
-            _LOGGER.debug(self.message_format("entered"))
+            _LOGGER.debug(self._log_formatter.format("entered"))
             await self._session.close()
-            _LOGGER.debug(self.message_format("exited"))
+            _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_delete_device(self, **kwargs) -> None:
         """Delete a device from the device list on the mesh.
@@ -559,7 +568,7 @@ class Mesh(LoggerFormatter):
         :param kwargs: keyword arguments (device_id, device_name)
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered, args: %s"), kwargs)
+        _LOGGER.debug(self._log_formatter.format("entered, args: %s"), kwargs)
 
         device_id: str
         if "device_id" in kwargs:
@@ -589,7 +598,7 @@ class Mesh(LoggerFormatter):
         else:
             raise MeshInvalidArguments
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_gather_details(self) -> None:
         """Gather all the details and initialise what the mesh looks like.
@@ -598,7 +607,7 @@ class Mesh(LoggerFormatter):
 
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         details = await self._async_gather_details(
             include_backhaul=True,
@@ -615,25 +624,25 @@ class Mesh(LoggerFormatter):
         )
 
         # region #-- split the devices into their types --#
-        _LOGGER_VERBOSE.debug(self.message_format("Populating nodes"))
+        _LOGGER_VERBOSE.debug(self._log_formatter.format("Populating nodes"))
         self._mesh_attributes[ATTR_NODES] = [
             device
             for device in details.get(ATTR_PROCESSED_DEVICES, [])
             if device.__class__.__name__.lower() == "node"
         ]
         _LOGGER_VERBOSE.debug(
-            self.message_format("Populated %i nodes"),
+            self._log_formatter.format("Populated %i nodes"),
             len(self._mesh_attributes[ATTR_NODES]),
         )
 
-        _LOGGER_VERBOSE.debug(self.message_format("Populating devices"))
+        _LOGGER_VERBOSE.debug(self._log_formatter.format("Populating devices"))
         self._mesh_attributes[ATTR_PROCESSED_DEVICES] = [
             device
             for device in details.get(ATTR_PROCESSED_DEVICES, [])
             if device.__class__.__name__.lower() == "device"
         ]
         _LOGGER_VERBOSE.debug(
-            self.message_format("Populated %i devices"),
+            self._log_formatter.format("Populated %i devices"),
             len(self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, [])),
         )
         # endregion
@@ -641,12 +650,12 @@ class Mesh(LoggerFormatter):
         # region #-- manage the other attributes --#
         details.pop(ATTR_PROCESSED_DEVICES, None)
         for attr in details:
-            _LOGGER_VERBOSE.debug(self.message_format("Populating %s"), attr)
+            _LOGGER_VERBOSE.debug(self._log_formatter.format("Populating %s"), attr)
             self._mesh_attributes[attr] = details[attr]
         # endregion
 
         self.__gather_details_executed = True  # pylint: disable=unused-private-member
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_get_device_from_id(
         self, device_id: str, force_refresh: bool = False
@@ -661,7 +670,7 @@ class Mesh(LoggerFormatter):
         :return: Device or Node object whichever is applicable
         """
         _LOGGER.debug(
-            self.message_format("entered, device_id: %s, force_refresh: %s"),
+            self._log_formatter.format("entered, device_id: %s, force_refresh: %s"),
             device_id,
             force_refresh,
         )
@@ -680,7 +689,7 @@ class Mesh(LoggerFormatter):
         except IndexError as err:
             raise MeshDeviceNotFoundResponse from err
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     async def async_get_device_from_mac_address(
@@ -697,7 +706,7 @@ class Mesh(LoggerFormatter):
         :return:  Device or Node object whichever is applicable
         """
         _LOGGER.debug(
-            self.message_format("entered, mac_address: %s, force_refresh: %s"),
+            self._log_formatter.format("entered, mac_address: %s, force_refresh: %s"),
             mac_address,
             force_refresh,
         )
@@ -723,7 +732,7 @@ class Mesh(LoggerFormatter):
         if not ret:
             raise MeshDeviceNotFoundResponse
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     async def async_get_devices(self) -> List[Device]:
@@ -734,7 +743,7 @@ class Mesh(LoggerFormatter):
 
         :return: List of device objects
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         all_devices = await self._async_gather_details(
             include_devices=True,
@@ -747,7 +756,7 @@ class Mesh(LoggerFormatter):
         ]
         ret = sorted(ret, key=lambda device: device.name)
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     async def async_get_speedtest_results(
@@ -760,7 +769,7 @@ class Mesh(LoggerFormatter):
         :param only_completed: True to only return results that are not currently running
         :return: List of dictionaries containing the result details
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         payload = {
             **api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS, {}),
@@ -771,7 +780,7 @@ class Mesh(LoggerFormatter):
         )
         healthcheck_results = resp.get("healthCheckResults")
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return _process_speedtest_results(
             speedtest_results=healthcheck_results,
             only_latest=only_latest,
@@ -785,14 +794,14 @@ class Mesh(LoggerFormatter):
 
         :return: A string containing the stage
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         resp = await self._async_gather_details(include_speedtest_status=True)
         ret = _get_speedtest_state(
             speedtest_results=resp[ATTR_SPEEDTEST_STATUS].get("speedTestResult", {})
         )
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     async def async_get_update_state(self) -> bool:
@@ -800,7 +809,7 @@ class Mesh(LoggerFormatter):
 
         :return: True if still running, False if not
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         resp = await self._async_gather_details(include_firmware_update=True)
 
@@ -811,7 +820,7 @@ class Mesh(LoggerFormatter):
 
         ret: bool = any(all_states)
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
@@ -825,7 +834,9 @@ class Mesh(LoggerFormatter):
         :return: None
         """
         _LOGGER.debug(
-            self.message_format("entered, node_name: %s, force: %s"), node_name, force
+            self._log_formatter.format("entered, node_name: %s, force: %s"),
+            node_name,
+            force,
         )
 
         node_details: List[Node] = [
@@ -849,7 +860,7 @@ class Mesh(LoggerFormatter):
             action=api.Actions.REBOOT, node_address=node_ip[0]
         )
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
@@ -861,7 +872,7 @@ class Mesh(LoggerFormatter):
         :param state: True to enable, False to disable
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered, state: %s"), state)
+        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
 
         # get the current radio settings from the API; they may have changed
         resp = await self._async_gather_details(include_guest_wifi=True)
@@ -875,7 +886,7 @@ class Mesh(LoggerFormatter):
             action=api.Actions.SET_GUEST_NETWORK, payload=payload
         )
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature.
@@ -886,7 +897,7 @@ class Mesh(LoggerFormatter):
         :param state: True to enabled, False to disable
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered, state: %s"), state)
+        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
         # get the current rules from the API because they may be different
         resp = await self._async_gather_details(include_parental_control=True)
         rules = resp.get("rules", [])
@@ -899,7 +910,7 @@ class Mesh(LoggerFormatter):
             action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload
         )
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_start_speedtest(self) -> None:
         """Instruct the mesh to carry out a Speedtest.
@@ -909,30 +920,32 @@ class Mesh(LoggerFormatter):
 
         :return: None
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         payload = {"runHealthCheckModule": "SpeedTest"}
         await self._async_make_request(
             action=api.Actions.START_SPEEDTEST, payload=payload
         )
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid.
 
         :return: True if valid, False if not
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         ret: bool = False
         try:
             await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
             ret = True
-        except Exception:  # pylint: disable=broad-except
+        except MeshException:
             pass
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.error(err)
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     # endregion

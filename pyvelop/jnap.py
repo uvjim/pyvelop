@@ -21,7 +21,7 @@ from .exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from .logger import LoggerFormatter
+from .logger import Logger
 
 # endregion
 
@@ -87,7 +87,7 @@ class Defaults:
     }
 
 
-class Request(LoggerFormatter):
+class Request:
     """Represents a request for the API."""
 
     def __init__(
@@ -110,12 +110,11 @@ class Request(LoggerFormatter):
         :param session: an existing session to use
         :param username: the username required to communicate with the target
         """
-        super().__init__(prefix=f"{self.__class__.__name__}.")
-
         self._action: str = action
         self._creds: str = base64.b64encode(
             bytes(f"{username}:{password}", "utf-8")
         ).decode("ascii")
+        self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._payload: Optional[List[Dict] | Dict] = payload
         self._raise_on_error: bool = raise_on_error
         self._session: Optional[
@@ -131,7 +130,7 @@ class Request(LoggerFormatter):
         :param timeout: the timeout in seconds for the request, defaults to 10s
         :return: a Response object representing the returned results
         """
-        _LOGGER.debug(self.message_format("entered"))
+        _LOGGER.debug(self._log_formatter.format("entered"))
 
         headers: Dict[str, str] = {
             "X-JNAP-Authorization": f"Basic {self._creds}",
@@ -140,7 +139,9 @@ class Request(LoggerFormatter):
         }
 
         _LOGGER.debug(
-            self.message_format("URL: %s, Headers: %s, Payload: %s, Timeout: %i"),
+            self._log_formatter.format(
+                "URL: %s, Headers: %s, Payload: %s, Timeout: %i"
+            ),
             self._jnap_url,
             {
                 key: value if key not in ("X-JNAP-Authorization") else DEF_REDACT
@@ -168,11 +169,11 @@ class Request(LoggerFormatter):
         ):
             raise MeshConnectionError from None
         except json.JSONDecodeError as err:
-            _LOGGER.debug(self.message_format("resp: %s"), resp)
-            _LOGGER.error(self.message_format("%s"), err)
+            _LOGGER.debug(self._log_formatter.format("resp: %s"), resp)
+            _LOGGER.error(self._log_formatter.format("%s"), err)
             raise err from None
 
-        _LOGGER.debug(self.message_format("exited"))
+        _LOGGER.debug(self._log_formatter.format("exited"))
         return Response(
             action=self._action, data=resp_json, raise_on_error=self._raise_on_error
         )
@@ -197,7 +198,7 @@ class Request(LoggerFormatter):
     # endregion
 
 
-class Response(LoggerFormatter):
+class Response:
     """Represents a response from the API."""
 
     DATA_KEY_SINGLE: str = "output"
@@ -212,10 +213,9 @@ class Response(LoggerFormatter):
         :param action: The action that was issued in the request to cause the response
         :param data: The JSON response received in response to the API call
         """
-        super().__init__(prefix=f"{self.__class__.__name__}.")
-
         self._action: str = action
         self._data: Dict[str, Any] = data
+        self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._raise_on_error: bool = raise_on_error
 
         self._process_data()
@@ -253,7 +253,8 @@ class Response(LoggerFormatter):
 
             if err is None:
                 _LOGGER.error(
-                    self.message_format("unknown error received: %s"), self._data
+                    self._log_formatter.format("unknown error received: %s"),
+                    self._data,
                 )
                 err = MeshBadResponse
 
