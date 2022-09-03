@@ -26,6 +26,7 @@ from .logger import Logger
 # endregion
 
 _LOGGER = logging.getLogger(__name__)
+_LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
 def jnap_url(target) -> str:
@@ -173,6 +174,11 @@ class Request:
             _LOGGER.error(self._log_formatter.format("%s"), err)
             raise err from None
 
+        _LOGGER_VERBOSE.debug(
+            self._log_formatter.format("action: %s --> response: %s"),
+            self._action,
+            resp_json,
+        )
         _LOGGER.debug(self._log_formatter.format("exited"))
         return Response(
             action=self._action, data=resp_json, raise_on_error=self._raise_on_error

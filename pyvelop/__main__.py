@@ -51,6 +51,9 @@ class StandardCommand(click.Command):
                         logging.getLogger(f"{_PACKAGE_NAME}.jnap").setLevel(
                             logging.WARNING
                         )
+                        logging.getLogger(f"{_PACKAGE_NAME}.jnap.verbose").setLevel(
+                            logging.WARNING
+                        )
                         logging.getLogger(f"{_PACKAGE_NAME}.mesh.verbose").setLevel(
                             logging.WARNING
                         )
@@ -62,6 +65,10 @@ class StandardCommand(click.Command):
                                 logging.getLogger(f"{_PACKAGE_NAME}.jnap").setLevel(
                                     logging.DEBUG
                                 )
+                                if value > 4:
+                                    logging.getLogger(
+                                        f"{_PACKAGE_NAME}.jnap.verbose"
+                                    ).setLevel(logging.DEBUG)
 
         standard_options: List[click.Option] = [
             click.Option(
