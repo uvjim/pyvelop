@@ -17,7 +17,6 @@ from pyvelop.exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from pyvelop.logger import LoggerFormatter as Logger
 from pyvelop.mesh import Mesh
 from pyvelop.node import Node
 
@@ -114,7 +113,6 @@ DEF_INDENT: int = 2
 
 click.anyio_backend = "aysncio"
 _LOGGER = logging.getLogger(f"{_PACKAGE_NAME}.cli")
-log_formatter: Logger = Logger()
 
 
 @click.group()
@@ -393,16 +391,16 @@ async def mesh_connect(ctx: click.Context = None) -> Optional[Mesh]:
                 if not await mesh_object.async_test_credentials():
                     raise MeshInvalidCredentials
         except MeshConnectionError:
-            _LOGGER.error("Unable to connect to %s", mesh_object.connected_node)
+            _LOGGER.error("Unable to connect to %s", ctx.params.get("primary_node"))
         except MeshInvalidCredentials:
             _LOGGER.error(
                 "Unable to authenticate with %s using provided credentials",
-                mesh_object.connected_node,
+                ctx.params.get("primary_node"),
             )
         except MeshNodeNotPrimary:
-            _LOGGER.error("%s is not the primary node", mesh_object.connected_node)
+            _LOGGER.error("%s is not the primary node", ctx.params.get("primary_node"))
         except MeshTimeoutError:
-            _LOGGER.error("Timed out connecting to %s", mesh_object.connected_node)
+            _LOGGER.error("Timed out connecting to %s", ctx.params.get("primary_node"))
         else:
             return mesh_object
 
