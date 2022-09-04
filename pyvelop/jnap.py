@@ -175,13 +175,14 @@ class Request:
             raise err from None
 
         _LOGGER_VERBOSE.debug(
-            self._log_formatter.format("action: %s --> response: %s"),
-            self._action,
+            self._log_formatter.format("action: %s --> payload: %s --> response: %s"),
+            self.action,
+            self.payload,
             resp_json,
         )
         _LOGGER.debug(self._log_formatter.format("exited"))
         return Response(
-            action=self._action, data=resp_json, raise_on_error=self._raise_on_error
+            action=self.action, data=resp_json, raise_on_error=self._raise_on_error
         )
 
     # region #-- properties --#
