@@ -20,6 +20,7 @@ from .exceptions import (
     MeshException,
     MeshInvalidArguments,
     MeshInvalidInput,
+    MeshInvalidOutput,
     MeshTooManyMatches,
 )
 from .logger import Logger
@@ -683,6 +684,9 @@ class Mesh:
                 include_devices=True,
             )
             all_devices = resp.get(ATTR_PROCESSED_DEVICES)
+
+        if not all_devices:
+            raise MeshInvalidOutput from None
 
         try:
             ret = [device for device in all_devices if device.unique_id == device_id][0]
