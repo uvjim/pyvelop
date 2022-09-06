@@ -2,6 +2,7 @@
 
 # region #-- imports --#
 import logging
+import uuid
 from typing import Dict, List, Optional, Tuple
 
 import aiohttp
@@ -139,9 +140,21 @@ async def device(
     """Get details about a device on the Mesh."""
     if mesh_details := await mesh_connect(ctx):
         async with mesh_details:
-            device_details: List[Device] = await mesh_details.async_get_devices()
+            try:
+                _ = uuid.UUID(device_name)
+                device_details: List[Device] = [
+                    await mesh_details.async_get_device_from_id(
+                        device_id=device_name, force_refresh=True
+                    )
+                ]
+            except ValueError:  # not a GUID
+                device_details: List[Device] = await mesh_details.async_get_devices()
+
             for found_device in device_details:
-                if found_device.name == device_name:
+                if (
+                    found_device.name == device_name
+                    or found_device.unique_id == device_name
+                ):
                     _display_data(
                         _build_display_data(
                             mappings=[
