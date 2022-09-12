@@ -235,7 +235,9 @@ class Response:
             err = None
             for resp in responses:
                 err = None
-                if resp.get(self.RESULT_KEY) == "_ErrorInvalidInput":
+                if resp is None:
+                    err = MeshInvalidOutput(resp)
+                elif resp.get(self.RESULT_KEY) == "_ErrorInvalidInput":
                     err = MeshInvalidInput(resp.get("error"))
                 elif resp.get(self.RESULT_KEY) == "_ErrorInvalidOutput":
                     err = MeshInvalidOutput(resp.get("error"))
