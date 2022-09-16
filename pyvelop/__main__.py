@@ -282,13 +282,13 @@ async def mesh(
             )
 
 
-@cli.group()
+@cli.group(name="node")
 @click.help_option()
-async def node() -> None:
+async def node_group() -> None:
     """Work with nodes on the Mesh."""
 
 
-@node.command(cls=StandardCommand, name="details")
+@node_group.command(cls=StandardCommand, name="details")
 @click.argument("node_name")
 @click.pass_context
 async def node_details(
@@ -394,10 +394,10 @@ async def node_details(
                         break
 
 
-@node.command(cls=StandardCommand)
+@node_group.command(cls=StandardCommand, name="restart")
 @click.argument("node_name")
 @click.pass_context
-async def restart(
+async def node_restart(
     ctx: click.Context,
     node_name: str,
     **_,
