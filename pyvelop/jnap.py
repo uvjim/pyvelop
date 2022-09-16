@@ -14,6 +14,7 @@ import aiohttp
 from .const import DEF_REDACT
 from .exceptions import (
     MeshBadResponse,
+    MeshCannotDeleteDevice,
     MeshConnectionError,
     MeshInvalidCredentials,
     MeshInvalidInput,
@@ -250,6 +251,8 @@ class Response:
                         else f"Unknown action URI '{self.action}'"
                     )
                     err = MeshInvalidInput(action)
+                elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
+                    err = MeshCannotDeleteDevice
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
                     err = MeshNodeNotPrimary
                 elif resp.get(self.RESULT_KEY).startswith("_"):
