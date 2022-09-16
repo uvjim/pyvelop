@@ -153,8 +153,8 @@ async def device_delete(
             async with mesh_details:
                 for found_device in devices:
                     try:
-                        await mesh_details.async_delete_device(
-                            device_id=found_device.unique_id
+                        await mesh_details.async_delete_device_by_id(
+                            device=found_device.unique_id
                         )
                     except MeshException as err:
                         _LOGGER.error("%s (%s)", err, found_device.name)
