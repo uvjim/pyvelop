@@ -144,80 +144,42 @@ async def device_details(
     device_name: str,
     **_,
 ) -> None:
-    """Get details about a device on the Mesh."""
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
-            devices: List[Device | Node]
-            try:  # match a GUID?
-                _ = uuid.UUID(device_name)
-                devices = [
-                    await mesh_details.async_get_device_from_id(
-                        device_id=device_name, force_refresh=True
-                    )
-                ]
-            except MeshDeviceNotFoundResponse:
-                _LOGGER.error("Device not found (%s)", device_name)
-                return
-            except ValueError:  # not a GUID
-                regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
-                if (  # MAC address?
-                    re.match(
-                        pattern=regex_pattern, string=device_name, flags=re.IGNORECASE
-                    )
-                    is not None
-                ):
-                    try:
-                        devices = [
-                            await mesh_details.async_get_device_from_mac_address(
-                                device_name, force_refresh=True
-                            )
-                        ]
-                    except MeshDeviceNotFoundResponse:
-                        _LOGGER.error("Device not found (%s)", device_name)
-                        return
-                else:
-                    devices = [
-                        found_device
-                        for found_device in await mesh_details.async_get_devices()
-                        if found_device.name == device_name
-                    ]
-                    if not devices:
-                        _LOGGER.error("Device not found (%s)", device_name)
-                        return
+    """Display details about a device on the Mesh."""
+    devices: List[Device] | Device = await _get_device_details(
+        ctx=ctx, device_name=device_name
+    )
 
-            for found_device in devices:
-                _display_data(
-                    _build_display_data(
-                        mappings=[
-                            ("results_time", "Queried at"),
-                            ("unique_id", "Device ID"),
-                            ("ui_type", "Icon Type"),
-                            ("manufacturer", "Manufacturer"),
-                            ("model", "Model"),
-                            ("description", "Description"),
-                            ("operating_system", "Operating System"),
-                            ("serial", "Serial #"),
-                            ("status", "Online"),
-                            ("parent_name", "Parent"),
-                            (
-                                "connected_adapters",
-                                "Connections",
-                                _connected_details(
-                                    adapters=found_device.connected_adapters
-                                ),
-                            ),
-                            (
-                                "parental_control_schedule",
-                                "Parental Control",
-                                _parental_control_schedule_details(
-                                    schedule=found_device.parental_control_schedule
-                                ),
-                            ),
-                        ],
-                        obj=found_device,
-                        title=found_device.name,
-                    )
-                )
+    for found_device in devices:
+        _display_data(
+            _build_display_data(
+                mappings=[
+                    ("results_time", "Queried at"),
+                    ("unique_id", "Device ID"),
+                    ("ui_type", "Icon Type"),
+                    ("manufacturer", "Manufacturer"),
+                    ("model", "Model"),
+                    ("description", "Description"),
+                    ("operating_system", "Operating System"),
+                    ("serial", "Serial #"),
+                    ("status", "Online"),
+                    ("parent_name", "Parent"),
+                    (
+                        "connected_adapters",
+                        "Connections",
+                        _connected_details(adapters=found_device.connected_adapters),
+                    ),
+                    (
+                        "parental_control_schedule",
+                        "Parental Control",
+                        _parental_control_schedule_details(
+                            schedule=found_device.parental_control_schedule
+                        ),
+                    ),
+                ],
+                obj=found_device,
+                title=found_device.name,
+            )
+        )
 
 
 @cli.command(cls=StandardCommand)
@@ -455,6 +417,52 @@ async def mesh_connect(ctx: click.Context = None) -> Optional[Mesh]:
             return mesh_object
 
     return None
+
+
+async def _get_device_details(
+    ctx: click.Context, device_name: str
+) -> List[Device] | Device:
+    """Retreive device details from the mesh."""
+    ret: List[Device | Node]
+    if mesh_details := await mesh_connect(ctx):
+        async with mesh_details:
+            try:  # match a GUID?
+                _ = uuid.UUID(device_name)
+                ret = [
+                    await mesh_details.async_get_device_from_id(
+                        device_id=device_name, force_refresh=True
+                    )
+                ]
+            except MeshDeviceNotFoundResponse:
+                _LOGGER.error("Device not found (%s)", device_name)
+                return
+            except ValueError:  # not a GUID
+                regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
+                if (  # MAC address?
+                    re.match(
+                        pattern=regex_pattern, string=device_name, flags=re.IGNORECASE
+                    )
+                    is not None
+                ):
+                    try:
+                        ret = [
+                            await mesh_details.async_get_device_from_mac_address(
+                                device_name, force_refresh=True
+                            )
+                        ]
+                    except MeshDeviceNotFoundResponse:
+                        _LOGGER.error("Device not found (%s)", device_name)
+                        return
+                else:
+                    ret = [
+                        found_device
+                        for found_device in await mesh_details.async_get_devices()
+                        if found_device.name == device_name
+                    ]
+                    if not ret:
+                        _LOGGER.error("Device not found (%s)", device_name)
+                        return
+    return ret
 
 
 def _build_display_data(
