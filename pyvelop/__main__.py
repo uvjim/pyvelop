@@ -145,7 +145,7 @@ async def device_delete(
     device: str,
     **_,
 ) -> None:
-    """Display details about a device on the Mesh."""
+    """Delete a device on the Mesh."""
     devices: List[Device] | None = await _get_device_details(ctx=ctx, device=device)
 
     if devices is not None:
