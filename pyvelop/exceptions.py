@@ -13,14 +13,6 @@ class MeshBadResponse(MeshException):
         super().__init__("Bad Response")
 
 
-class MeshCannotDeleteDevice(MeshException):
-    """Cannot delete the device."""
-
-    def __init__(self) -> None:
-        """Initialise and default message."""
-        super().__init__("Unable to delete the device")
-
-
 class MeshConnectionError(MeshException):
     """Connection error for the API."""
 
