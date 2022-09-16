@@ -130,10 +130,16 @@ def cli() -> None:
     """CLI for interacting with the pyvelop module."""
 
 
-@cli.command(cls=StandardCommand)
+@cli.group()
+@click.help_option()
+async def device() -> None:
+    """Work with devices on the mesh."""
+
+
+@device.command(cls=StandardCommand, name="details")
 @click.pass_context
 @click.argument("device_name")
-async def device(
+async def device_details(
     ctx: click.Context,
     device_name: str,
     **_,
@@ -141,10 +147,10 @@ async def device(
     """Get details about a device on the Mesh."""
     if mesh_details := await mesh_connect(ctx):
         async with mesh_details:
-            device_details: List[Device | Node]
+            devices: List[Device | Node]
             try:  # match a GUID?
                 _ = uuid.UUID(device_name)
-                device_details = [
+                devices = [
                     await mesh_details.async_get_device_from_id(
                         device_id=device_name, force_refresh=True
                     )
@@ -161,7 +167,7 @@ async def device(
                     is not None
                 ):
                     try:
-                        device_details = [
+                        devices = [
                             await mesh_details.async_get_device_from_mac_address(
                                 device_name, force_refresh=True
                             )
@@ -170,16 +176,16 @@ async def device(
                         _LOGGER.error("Device not found (%s)", device_name)
                         return
                 else:
-                    device_details = [
+                    devices = [
                         found_device
                         for found_device in await mesh_details.async_get_devices()
                         if found_device.name == device_name
                     ]
-                    if not device_details:
+                    if not devices:
                         _LOGGER.error("Device not found (%s)", device_name)
                         return
 
-            for found_device in device_details:
+            for found_device in devices:
                 _display_data(
                     _build_display_data(
                         mappings=[
@@ -295,10 +301,10 @@ async def node() -> None:
     """Work with nodes on the Mesh."""
 
 
-@node.command(cls=StandardCommand)
+@node.command(cls=StandardCommand, name="details")
 @click.argument("node_name")
 @click.pass_context
-async def details(
+async def node_details(
     ctx: click.Context,
     node_name: str,
     **_,
@@ -309,12 +315,12 @@ async def details(
     if mesh_details := await mesh_connect(ctx):
         async with mesh_details:
             await mesh_details.async_gather_details()
-            node_details: List[Node] = mesh_details.nodes
-            if not node_details:
+            nodes: List[Node] = mesh_details.nodes
+            if not nodes:
                 print("No nodes found")
             else:
                 found_node: Node
-                for found_node in node_details:
+                for found_node in nodes:
                     if found_node.name == node_name:
                         _display_data(
                             _build_display_data(
