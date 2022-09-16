@@ -559,45 +559,42 @@ class Mesh:
             await self._session.close()
             _LOGGER.debug(self._log_formatter.format("exited"))
 
-    async def async_delete_device(self, **kwargs) -> None:
-        """Delete a device from the device list on the mesh.
+    async def async_delete_device_by_id(self, device: str) -> None:
+        """Delete a device from the device list on the mesh by its ID.
 
-        Supports deleting by device ID or device name.
-        Will error if neither the device ID nor name are given.
-        Will error if multiple devices match the given name.
-
-        :param kwargs: keyword arguments (device_id, device_name)
+        :param device: the unique id of the device to delete
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered, args: %s"), kwargs)
+        _LOGGER.debug(self._log_formatter.format("entered, device: %s"), device)
 
-        device_id: str
-        if "device_id" in kwargs:
-            device_id = kwargs.get("device_id")
-        elif "device_name" in kwargs:
-            dev: Device
-            device = [
-                dev
-                for dev in self._mesh_attributes[ATTR_PROCESSED_DEVICES]
-                if dev.name == kwargs.get("device_name")
-            ]
-            if len(device) == 0:
-                raise MeshDeviceNotFoundResponse
+        await self._async_make_request(
+            action=api.Actions.DELETE_DEVICE, payload={"deviceID": device}
+        )
 
-            if len(device) > 1:
-                raise MeshTooManyMatches
+    async def async_delete_device_by_name(self, device: str) -> None:
+        """Delete a device from the device list on the mesh by name.
 
-            device_id = device[0].unique_id
-        else:
-            device_id = ""
+        Will error if multiple devices match the given name or no matching
+        device is found.
 
-        if device_id:
-            payload = {"deviceID": device_id}
-            await self._async_make_request(
-                action=api.Actions.DELETE_DEVICE, payload=payload
-            )
-        else:
-            raise MeshInvalidArguments
+        :param device: the name of the device to delete
+        :return: None
+        """
+        _LOGGER.debug(self._log_formatter.format("entered, name: %s"), device)
+
+        dev: Device
+        device = [
+            dev
+            for dev in self._mesh_attributes[ATTR_PROCESSED_DEVICES]
+            if dev.name == device
+        ]
+        if len(device) == 0:
+            raise MeshDeviceNotFoundResponse
+
+        if len(device) > 1:
+            raise MeshTooManyMatches
+
+        await self.async_delete_device_by_id(device=device[0].unique_id)
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
