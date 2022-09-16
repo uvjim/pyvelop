@@ -2,6 +2,7 @@
 
 # region #-- imports --#
 import logging
+import re
 import uuid
 from typing import Dict, List, Optional, Tuple
 
@@ -140,54 +141,77 @@ async def device(
     """Get details about a device on the Mesh."""
     if mesh_details := await mesh_connect(ctx):
         async with mesh_details:
-            try:
+            device_details: List[Device | Node]
+            try:  # match a GUID?
                 _ = uuid.UUID(device_name)
-                device_details: List[Device] = [
+                device_details = [
                     await mesh_details.async_get_device_from_id(
                         device_id=device_name, force_refresh=True
                     )
                 ]
+            except MeshDeviceNotFoundResponse:
+                _LOGGER.error("Device not found (%s)", device_name)
+                return
             except ValueError:  # not a GUID
-                device_details: List[Device] = await mesh_details.async_get_devices()
+                regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
+                if (  # MAC address?
+                    re.match(
+                        pattern=regex_pattern, string=device_name, flags=re.IGNORECASE
+                    )
+                    is not None
+                ):
+                    try:
+                        device_details = [
+                            await mesh_details.async_get_device_from_mac_address(
+                                device_name, force_refresh=True
+                            )
+                        ]
+                    except MeshDeviceNotFoundResponse:
+                        _LOGGER.error("Device not found (%s)", device_name)
+                        return
+                else:
+                    device_details = [
+                        found_device
+                        for found_device in await mesh_details.async_get_devices()
+                        if found_device.name == device_name
+                    ]
+                    if not device_details:
+                        _LOGGER.error("Device not found (%s)", device_name)
+                        return
 
             for found_device in device_details:
-                if (
-                    found_device.name == device_name
-                    or found_device.unique_id == device_name
-                ):
-                    _display_data(
-                        _build_display_data(
-                            mappings=[
-                                ("results_time", "Queried at"),
-                                ("unique_id", "Device ID"),
-                                ("ui_type", "Icon Type"),
-                                ("manufacturer", "Manufacturer"),
-                                ("model", "Model"),
-                                ("description", "Description"),
-                                ("operating_system", "Operating System"),
-                                ("serial", "Serial #"),
-                                ("status", "Online"),
-                                ("parent_name", "Parent"),
-                                (
-                                    "connected_adapters",
-                                    "Connections",
-                                    _connected_details(
-                                        adapters=found_device.connected_adapters
-                                    ),
+                _display_data(
+                    _build_display_data(
+                        mappings=[
+                            ("results_time", "Queried at"),
+                            ("unique_id", "Device ID"),
+                            ("ui_type", "Icon Type"),
+                            ("manufacturer", "Manufacturer"),
+                            ("model", "Model"),
+                            ("description", "Description"),
+                            ("operating_system", "Operating System"),
+                            ("serial", "Serial #"),
+                            ("status", "Online"),
+                            ("parent_name", "Parent"),
+                            (
+                                "connected_adapters",
+                                "Connections",
+                                _connected_details(
+                                    adapters=found_device.connected_adapters
                                 ),
-                                (
-                                    "parental_control_schedule",
-                                    "Parental Control",
-                                    _parental_control_schedule_details(
-                                        schedule=found_device.parental_control_schedule
-                                    ),
+                            ),
+                            (
+                                "parental_control_schedule",
+                                "Parental Control",
+                                _parental_control_schedule_details(
+                                    schedule=found_device.parental_control_schedule
                                 ),
-                            ],
-                            obj=found_device,
-                            title=found_device.name,
-                        )
+                            ),
+                        ],
+                        obj=found_device,
+                        title=found_device.name,
                     )
-                    break
+                )
 
 
 @cli.command(cls=StandardCommand)
