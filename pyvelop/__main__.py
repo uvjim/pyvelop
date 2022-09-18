@@ -149,11 +149,11 @@ async def device_delete(
     devices: List[Device] | None = await _get_device_details(ctx=ctx, device=device)
 
     if devices is not None:
-        if mesh_details := await mesh_connect(ctx):
-            async with mesh_details:
+        if mesh_obj := await mesh_connect(ctx):
+            async with mesh_obj:
                 for found_device in devices:
                     try:
-                        await mesh_details.async_delete_device_by_id(
+                        await mesh_obj.async_delete_device_by_id(
                             device=found_device.unique_id
                         )
                     except MeshException as err:
@@ -207,36 +207,42 @@ async def device_details(
             )
 
 
-@cli.command(cls=StandardCommand)
+@cli.group(name="mesh")
+@click.help_option()
+async def mesh_group() -> None:
+    """Work with the mesh."""
+
+
+@mesh_group.command(cls=StandardCommand, name="details")
 @click.pass_context
-async def mesh(
+async def mesh_details(
     ctx: click.Context,
     **_,
 ) -> None:
     """Get details about the Mesh."""
     indent: int = DEF_INDENT
     prefix: str = f"\n{indent * ' '}"
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
-            await mesh_details.async_gather_details()
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
             _display_data(
                 _build_display_data(
                     mappings=[
                         ("wan_status", "Internet Connected"),
                         ("wan_ip", "Public IP"),
-                        ("wan_dns", "DNS Servers", ", ".join(mesh_details.wan_dns)),
+                        ("wan_dns", "DNS Servers", ", ".join(mesh_obj.wan_dns)),
                         ("wan_mac", "MAC"),
                         (
                             "nodes",
                             "Nodes",
                             prefix
-                            + prefix.join([node.name for node in mesh_details.nodes]),
+                            + prefix.join([node.name for node in mesh_obj.nodes]),
                         ),
                         (
                             "latest_speedtest_result",
                             "Latest Speedtest Result",
                             _speedtest_results(
-                                speedtest_results=mesh_details.latest_speedtest_result
+                                speedtest_results=mesh_obj.latest_speedtest_result
                             ),
                         ),
                         ("parental_control_enabled", "Parental Control Enabled"),
@@ -249,35 +255,35 @@ async def mesh(
                             "mac_filtering",
                             "MAC Filtering",
                             _mac_filtering_details(
-                                addresses=mesh_details.mac_filtering_addresses,
-                                mode=mesh_details.mac_filtering_mode,
-                                state=mesh_details.mac_filtering_enabled,
+                                addresses=mesh_obj.mac_filtering_addresses,
+                                mode=mesh_obj.mac_filtering_mode,
+                                state=mesh_obj.mac_filtering_enabled,
                             ),
                         ),
                         (
                             "guest_wifi_details",
                             "Guest Wi-Fi Details",
                             _guest_wifi_details(
-                                state=mesh_details.guest_wifi_enabled,
-                                networks=mesh_details.guest_wifi_details,
+                                state=mesh_obj.guest_wifi_enabled,
+                                networks=mesh_obj.guest_wifi_details,
                             ),
                         ),
                         (
                             "storage_details",
                             "Storage Details",
                             _storage_details(
-                                available_shares=mesh_details.storage_available,
-                                server_details=mesh_details.storage_settings,
+                                available_shares=mesh_obj.storage_available,
+                                server_details=mesh_obj.storage_settings,
                             ),
                         ),
                         (
                             "devices",
-                            f"Online Devices ({len([device for device in mesh_details.devices if device.status])})",
+                            f"Online Devices ({len([device for device in mesh_obj.devices if device.status])})",
                             prefix
                             + prefix.join(
                                 [
                                     f"{device.name} ({device.connected_adapters[0].get('ip')})"
-                                    for device in mesh_details.devices
+                                    for device in mesh_obj.devices
                                     if device.status
                                 ]
                             ),
@@ -285,18 +291,18 @@ async def mesh(
                         (
                             "devices",
                             "Offline Devices "
-                            f"({len([device for device in mesh_details.devices if not device.status])})",
+                            f"({len([device for device in mesh_obj.devices if not device.status])})",
                             prefix
                             + prefix.join(
                                 [
                                     device.name
-                                    for device in mesh_details.devices
+                                    for device in mesh_obj.devices
                                     if not device.status
                                 ]
                             ),
                         ),
                     ],
-                    obj=mesh_details,
+                    obj=mesh_obj,
                     title="Mesh Overview",
                 )
             )
@@ -319,10 +325,10 @@ async def node_details(
     """Get details about a node on the Mesh."""
     indent: int = DEF_INDENT
     prefix: str = f"\n{indent * ' '}"
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
-            await mesh_details.async_gather_details()
-            nodes: List[Node] = mesh_details.nodes
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
+            nodes: List[Node] = mesh_obj.nodes
             if not nodes:
                 print("No nodes found")
             else:
@@ -423,12 +429,12 @@ async def node_restart(
     **_,
 ) -> None:
     """Restart a node on the Mesh."""
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
             try:
-                await mesh_details.async_gather_details()
+                await mesh_obj.async_gather_details()
                 _LOGGER.debug("Restarting %s", node_name)
-                await mesh_details.async_reboot_node(node_name=node_name)
+                await mesh_obj.async_reboot_node(node_name=node_name)
             except (MeshDeviceNotFoundResponse, MeshInvalidInput) as err:
                 _LOGGER.error(err)
 
@@ -467,12 +473,12 @@ async def mesh_connect(ctx: click.Context = None) -> Mesh | None:
 async def _get_device_details(ctx: click.Context, device: str) -> List[Device] | None:
     """Retreive device details from the mesh."""
     ret: List[Device | Node] | None
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
             try:  # match a GUID?
                 _ = uuid.UUID(device)
                 ret = [
-                    await mesh_details.async_get_device_from_id(
+                    await mesh_obj.async_get_device_from_id(
                         device_id=device, force_refresh=True
                     )
                 ]
@@ -487,7 +493,7 @@ async def _get_device_details(ctx: click.Context, device: str) -> List[Device] |
                 ):
                     try:
                         ret = [
-                            await mesh_details.async_get_device_from_mac_address(
+                            await mesh_obj.async_get_device_from_mac_address(
                                 device, force_refresh=True
                             )
                         ]
@@ -497,7 +503,7 @@ async def _get_device_details(ctx: click.Context, device: str) -> List[Device] |
                 else:
                     ret = [
                         found_device
-                        for found_device in await mesh_details.async_get_devices()
+                        for found_device in await mesh_obj.async_get_devices()
                         if found_device.name == device
                     ]
                     if not ret:
