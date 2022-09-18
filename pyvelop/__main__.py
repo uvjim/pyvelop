@@ -235,6 +235,8 @@ async def mesh(
                         ("latest_speedtest_result", "Latest Speedtest Result"),
                         ("parental_control_enabled", "Parental Control Enabled"),
                         ("wps_state", "WPS Enabled"),
+                        ("client_steering_enabled", "Client Steering Enabled"),
+                        ("node_steering_enabled", "Node Steering Enabled"),
                         (
                             "guest_wifi_details",
                             "Guest Wi-Fi Details",

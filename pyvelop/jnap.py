@@ -62,6 +62,9 @@ class Actions:
     GET_SPEEDTEST_STATUS: str = f"{ROOT}/healthcheck/GetHealthCheckStatus"
     GET_STORAGE_PARTITIONS: str = f"{ROOT}/nodes/storage/GetNodesPartitions"
     GET_STORAGE_SMB_SERVER: str = f"{ROOT}/nodes/storage/GetSMBServerSettings"
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS: str = (
+        f"{ROOT}/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
+    )
     GET_UPDATE_FIRMWARE_STATE: str = (
         f"{ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
     )
