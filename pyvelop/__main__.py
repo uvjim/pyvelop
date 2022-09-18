@@ -240,6 +240,15 @@ async def mesh(
                         ("client_steering_enabled", "Client Steering Enabled"),
                         ("node_steering_enabled", "Node Steering Enabled"),
                         (
+                            "mac_filtering",
+                            "MAC Filtering",
+                            _mac_filtering_details(
+                                addresses=mesh_details.mac_filtering_addresses,
+                                mode=mesh_details.mac_filtering_mode,
+                                state=mesh_details.mac_filtering_enabled,
+                            ),
+                        ),
+                        (
                             "guest_wifi_details",
                             "Guest Wi-Fi Details",
                             _guest_wifi_details(
@@ -579,6 +588,37 @@ def _guest_wifi_details(state: bool, networks: List[Dict]) -> str:
         obj={
             "state": state,
             "networks": networks,
+        },
+    )
+
+    return "\n" + ret.rstrip()
+
+
+def _mac_filtering_details(addresses: List[str], mode: str | None, state: bool) -> str:
+    """Format the MAC filtering details for display."""
+    indent: int = DEF_INDENT
+
+    ret = _build_display_data(
+        indent=indent,
+        mappings=[
+            ("state", "Enabled"),
+            ("mode", "Mode", str(mode).title()),
+            (
+                "addresses",
+                "Addresses",
+                "\n"
+                + "\n".join(
+                    [
+                        f"{indent * 2 * ' '}{idx}: {addr}"
+                        for idx, addr in enumerate(addresses)
+                    ]
+                ),
+            ),
+        ],
+        obj={
+            "addresses": addresses,
+            "mode": mode,
+            "state": state,
         },
     )
 
