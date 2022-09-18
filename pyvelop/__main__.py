@@ -232,7 +232,13 @@ async def mesh(
                             prefix
                             + prefix.join([node.name for node in mesh_details.nodes]),
                         ),
-                        ("latest_speedtest_result", "Latest Speedtest Result"),
+                        (
+                            "latest_speedtest_result",
+                            "Latest Speedtest Result",
+                            _speedtest_results(
+                                speedtest_results=mesh_details.latest_speedtest_result
+                            ),
+                        ),
                         ("parental_control_enabled", "Parental Control Enabled"),
                         ("wps_state", "WPS Enabled"),
                         ("homekit_enabled", "HomeKit Integration Enabled"),
@@ -656,6 +662,32 @@ def _parental_control_schedule_details(schedule: Dict) -> str:
             ),
         ],
         obj=schedule,
+    )
+
+    return "\n" + ret.rstrip()
+
+
+def _speedtest_results(speedtest_results: Dict) -> str:
+    """Format the Speedtest results for display."""
+    indent: int = DEF_INDENT
+    ret: str = _build_display_data(
+        indent=indent,
+        mappings=[
+            ("timestamp", "Executed at"),
+            (
+                "download_bandwidth",
+                "Download",
+                f"{round(speedtest_results.get('download_bandwidth', 0) / 1000, 2)} Mbps",
+            ),
+            (
+                "upload_bandwidth",
+                "Upload",
+                f"{round(speedtest_results.get('upload_bandwidth', 0) / 1000, 2)} Mbps",
+            ),
+            ("latency", "Latency", f"{speedtest_results.get('latency')}ms"),
+            ("exit_code", "Status"),
+        ],
+        obj=speedtest_results,
     )
 
     return "\n" + ret.rstrip()
