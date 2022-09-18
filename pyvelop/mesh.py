@@ -36,6 +36,7 @@ ATTR_BACKHAUL_INFO: str = "backhaul"
 ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
 ATTR_GUEST_NETWORK_INFO: str = "guest_network"
 ATTR_HOMEKIT_SETTINGS: str = "homekit_settings"
+ATTR_MAC_FILTERING_SETTINGS: str = "mac_filtering_settings"
 ATTR_NETWORK_CONNECTIONS: str = "network_connections"
 ATTR_NODES: str = "nodes"
 ATTR_PARENTAL_CONTROL_INFO: str = "parental_control"
@@ -57,6 +58,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
     api.Actions.GET_HOMEKIT_SETTINGS: ATTR_HOMEKIT_SETTINGS,
+    api.Actions.GET_MAC_FILTERING_SETTINGS: ATTR_MAC_FILTERING_SETTINGS,
     api.Actions.GET_NETWORK_CONNECTIONS: ATTR_NETWORK_CONNECTIONS,
     api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_PARENTAL_CONTROL_INFO,
     api.Actions.GET_SPEEDTEST_RESULTS: ATTR_SPEEDTEST_RESULTS,
@@ -281,6 +283,7 @@ class Mesh:
         :param include_firmware_update_settings: True to include the current settings for firmware updates
         :param include_guest_wifi: True to include details about the guest Wi-Fi
         :param include_homekit_settings: True to include the settings for the HomeKit integration
+        :param include_mac_filtering_settings: True to include the settings for MAC filtering
         :param include_network_connections: True to include details about network connections
         :param include_parental_control: True to include details about Parental Control
         :param include_speedtest_results: True to include the latest completed Speedtest result
@@ -317,6 +320,10 @@ class Mesh:
         # -- get the guest WiFi details --#
         if kwargs.get("include_guest_wifi"):
             payload_safe.append({"action": api.Actions.GET_GUEST_NETWORK_INFO})
+
+        # -- get the MAC filtering settings --#
+        if kwargs.get("include_mac_filtering_settings"):
+            payload_safe.append({"action": api.Actions.GET_MAC_FILTERING_SETTINGS})
 
         # -- get the Parental Control details --#
         if kwargs.get("include_parental_control") or kwargs.get("include_devices"):
@@ -642,6 +649,7 @@ class Mesh:
             include_firmware_update_settings=True,
             include_guest_wifi=True,
             include_homekit_settings=True,
+            include_mac_filtering_settings=True,
             include_network_connections=True,
             include_parental_control=True,
             include_speedtest_results=True,
@@ -1111,6 +1119,38 @@ class Mesh:
             ret = ret[0]
 
         return ret or None
+
+    @property
+    @needs_gather_details
+    def mac_filtering_addresses(self) -> List[str]:
+        """Return address that are configured for MAC filtering."""
+        return self._mesh_attributes.get(ATTR_MAC_FILTERING_SETTINGS, {}).get(
+            "macAddresses", []
+        )
+
+    @property
+    @needs_gather_details
+    def mac_filtering_enabled(self) -> bool:
+        """Return if MAC filtering is enabled."""
+        return (
+            self._mesh_attributes.get(ATTR_MAC_FILTERING_SETTINGS, {})
+            .get("macFilterMode", "")
+            .lower()
+            != "disabled"
+        )
+
+    @property
+    @needs_gather_details
+    def mac_filtering_mode(self) -> str | None:
+        """Return the MAC filtering mode."""
+        if self.mac_filtering_enabled:
+            return (
+                self._mesh_attributes.get(ATTR_MAC_FILTERING_SETTINGS, {})
+                .get("macFilterMode", "")
+                .lower()
+            )
+
+        return None
 
     @property
     @needs_gather_details
