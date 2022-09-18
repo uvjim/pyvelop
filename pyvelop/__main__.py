@@ -149,11 +149,11 @@ async def device_delete(
     devices: List[Device] | None = await _get_device_details(ctx=ctx, device=device)
 
     if devices is not None:
-        if mesh_details := await mesh_connect(ctx):
-            async with mesh_details:
+        if mesh_obj := await mesh_connect(ctx):
+            async with mesh_obj:
                 for found_device in devices:
                     try:
-                        await mesh_details.async_delete_device_by_id(
+                        await mesh_obj.async_delete_device_by_id(
                             device=found_device.unique_id
                         )
                     except MeshException as err:
@@ -325,10 +325,10 @@ async def node_details(
     """Get details about a node on the Mesh."""
     indent: int = DEF_INDENT
     prefix: str = f"\n{indent * ' '}"
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
-            await mesh_details.async_gather_details()
-            nodes: List[Node] = mesh_details.nodes
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
+            nodes: List[Node] = mesh_obj.nodes
             if not nodes:
                 print("No nodes found")
             else:
@@ -429,12 +429,12 @@ async def node_restart(
     **_,
 ) -> None:
     """Restart a node on the Mesh."""
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
             try:
-                await mesh_details.async_gather_details()
+                await mesh_obj.async_gather_details()
                 _LOGGER.debug("Restarting %s", node_name)
-                await mesh_details.async_reboot_node(node_name=node_name)
+                await mesh_obj.async_reboot_node(node_name=node_name)
             except (MeshDeviceNotFoundResponse, MeshInvalidInput) as err:
                 _LOGGER.error(err)
 
@@ -473,12 +473,12 @@ async def mesh_connect(ctx: click.Context = None) -> Mesh | None:
 async def _get_device_details(ctx: click.Context, device: str) -> List[Device] | None:
     """Retreive device details from the mesh."""
     ret: List[Device | Node] | None
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
             try:  # match a GUID?
                 _ = uuid.UUID(device)
                 ret = [
-                    await mesh_details.async_get_device_from_id(
+                    await mesh_obj.async_get_device_from_id(
                         device_id=device, force_refresh=True
                     )
                 ]
@@ -493,7 +493,7 @@ async def _get_device_details(ctx: click.Context, device: str) -> List[Device] |
                 ):
                     try:
                         ret = [
-                            await mesh_details.async_get_device_from_mac_address(
+                            await mesh_obj.async_get_device_from_mac_address(
                                 device, force_refresh=True
                             )
                         ]
@@ -503,7 +503,7 @@ async def _get_device_details(ctx: click.Context, device: str) -> List[Device] |
                 else:
                     ret = [
                         found_device
-                        for found_device in await mesh_details.async_get_devices()
+                        for found_device in await mesh_obj.async_get_devices()
                         if found_device.name == device
                     ]
                     if not ret:
