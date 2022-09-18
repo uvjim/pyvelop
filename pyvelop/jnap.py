@@ -52,6 +52,7 @@ class Actions:
         f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
     )
     GET_GUEST_NETWORK_INFO: str = f"{ROOT}/guestnetwork/GetGuestRadioSettings2"
+    GET_HOMEKIT_SETTINGS: str = f"{ROOT}/homekit/GetHomeKitSettings"
     GET_NETWORK_CONNECTIONS: str = (
         f"{ROOT}/nodes/networkconnections/GetNodesWirelessNetworkConnections"
     )
