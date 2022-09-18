@@ -207,36 +207,42 @@ async def device_details(
             )
 
 
-@cli.command(cls=StandardCommand)
+@cli.group(name="mesh")
+@click.help_option()
+async def mesh_group() -> None:
+    """Work with the mesh."""
+
+
+@mesh_group.command(cls=StandardCommand, name="details")
 @click.pass_context
-async def mesh(
+async def mesh_details(
     ctx: click.Context,
     **_,
 ) -> None:
     """Get details about the Mesh."""
     indent: int = DEF_INDENT
     prefix: str = f"\n{indent * ' '}"
-    if mesh_details := await mesh_connect(ctx):
-        async with mesh_details:
-            await mesh_details.async_gather_details()
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
             _display_data(
                 _build_display_data(
                     mappings=[
                         ("wan_status", "Internet Connected"),
                         ("wan_ip", "Public IP"),
-                        ("wan_dns", "DNS Servers", ", ".join(mesh_details.wan_dns)),
+                        ("wan_dns", "DNS Servers", ", ".join(mesh_obj.wan_dns)),
                         ("wan_mac", "MAC"),
                         (
                             "nodes",
                             "Nodes",
                             prefix
-                            + prefix.join([node.name for node in mesh_details.nodes]),
+                            + prefix.join([node.name for node in mesh_obj.nodes]),
                         ),
                         (
                             "latest_speedtest_result",
                             "Latest Speedtest Result",
                             _speedtest_results(
-                                speedtest_results=mesh_details.latest_speedtest_result
+                                speedtest_results=mesh_obj.latest_speedtest_result
                             ),
                         ),
                         ("parental_control_enabled", "Parental Control Enabled"),
@@ -249,35 +255,35 @@ async def mesh(
                             "mac_filtering",
                             "MAC Filtering",
                             _mac_filtering_details(
-                                addresses=mesh_details.mac_filtering_addresses,
-                                mode=mesh_details.mac_filtering_mode,
-                                state=mesh_details.mac_filtering_enabled,
+                                addresses=mesh_obj.mac_filtering_addresses,
+                                mode=mesh_obj.mac_filtering_mode,
+                                state=mesh_obj.mac_filtering_enabled,
                             ),
                         ),
                         (
                             "guest_wifi_details",
                             "Guest Wi-Fi Details",
                             _guest_wifi_details(
-                                state=mesh_details.guest_wifi_enabled,
-                                networks=mesh_details.guest_wifi_details,
+                                state=mesh_obj.guest_wifi_enabled,
+                                networks=mesh_obj.guest_wifi_details,
                             ),
                         ),
                         (
                             "storage_details",
                             "Storage Details",
                             _storage_details(
-                                available_shares=mesh_details.storage_available,
-                                server_details=mesh_details.storage_settings,
+                                available_shares=mesh_obj.storage_available,
+                                server_details=mesh_obj.storage_settings,
                             ),
                         ),
                         (
                             "devices",
-                            f"Online Devices ({len([device for device in mesh_details.devices if device.status])})",
+                            f"Online Devices ({len([device for device in mesh_obj.devices if device.status])})",
                             prefix
                             + prefix.join(
                                 [
                                     f"{device.name} ({device.connected_adapters[0].get('ip')})"
-                                    for device in mesh_details.devices
+                                    for device in mesh_obj.devices
                                     if device.status
                                 ]
                             ),
@@ -285,18 +291,18 @@ async def mesh(
                         (
                             "devices",
                             "Offline Devices "
-                            f"({len([device for device in mesh_details.devices if not device.status])})",
+                            f"({len([device for device in mesh_obj.devices if not device.status])})",
                             prefix
                             + prefix.join(
                                 [
                                     device.name
-                                    for device in mesh_details.devices
+                                    for device in mesh_obj.devices
                                     if not device.status
                                 ]
                             ),
                         ),
                     ],
-                    obj=mesh_details,
+                    obj=mesh_obj,
                     title="Mesh Overview",
                 )
             )
