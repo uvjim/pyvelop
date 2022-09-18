@@ -46,6 +46,7 @@ ATTR_STORAGE_PARTITIONS: str = "storage_partitions"
 ATTR_STORAGE_SMB_SERVER: str = "storage_smb_server"
 ATTR_UPDATE_FIRMWARE_STATE: str = "check_update_state"
 ATTR_WAN_INFO: str = "wan_info"
+ATTR_WPS_SERVER_SETTINGS: str = "wps_server_settings"
 # endregion
 
 JNAP_ACTION_TO_ATTRIBUTE: dict = {
@@ -60,6 +61,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_STORAGE_PARTITIONS: ATTR_STORAGE_PARTITIONS,
     api.Actions.GET_STORAGE_SMB_SERVER: ATTR_STORAGE_SMB_SERVER,
     api.Actions.GET_WAN_INFO: ATTR_WAN_INFO,
+    api.Actions.GET_WPS_SERVER_SETTINGS: ATTR_WPS_SERVER_SETTINGS,
     api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_UPDATE_FIRMWARE_STATE,
 }
 
@@ -280,6 +282,7 @@ class Mesh:
         :param include_speedtest_status: True to include the currently running speedtest status
         :param include_storage: True to include the external storage details if available
         :param include_wan: True to include WAN details
+        :param include_wps_server_settings: True to include the WPS server settings
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
         """
         _LOGGER.debug(
@@ -332,6 +335,10 @@ class Mesh:
         # -- get the WAN details --#
         if kwargs.get("include_wan"):
             payload_safe.append({"action": api.Actions.GET_WAN_INFO})
+
+        # -- get the WPS server settings --#
+        if kwargs.get("include_wps_server_settings"):
+            payload_safe.append({"action": api.Actions.GET_WPS_SERVER_SETTINGS})
 
         request_safe = self._async_make_request(
             action=api.Actions.TRANSACTION,
@@ -619,6 +626,7 @@ class Mesh:
             include_speedtest_status=True,
             include_storage=True,
             include_wan=True,
+            include_wps_server_settings=True,
         )
 
         # region #-- split the devices into their types --#
@@ -1209,6 +1217,14 @@ class Mesh:
         return (
             self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanStatus", "").lower()
             == "connected"
+        )
+
+    @property
+    @needs_gather_details
+    def wps_state(self) -> bool:
+        """Return if WPS is enabled or not."""
+        return self._mesh_attributes.get(ATTR_WPS_SERVER_SETTINGS, {}).get(
+            "enabled", False
         )
 
     # endregion

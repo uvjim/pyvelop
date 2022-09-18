@@ -67,6 +67,7 @@ class Actions:
     )
     GET_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
     GET_WAN_INFO: str = f"{ROOT}/router/GetWANStatus3"
+    GET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/GetWPSServerSettings"
     REBOOT: str = f"{ROOT}/core/Reboot"
     SET_GUEST_NETWORK: str = f"{ROOT}/guestnetwork/SetGuestRadioSettings2"
     SET_PARENTAL_CONTROL_INFO: str = (
