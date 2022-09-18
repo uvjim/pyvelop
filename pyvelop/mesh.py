@@ -44,6 +44,7 @@ ATTR_SPEEDTEST_STATUS: str = "speedtest_status"
 ATTR_RAW_DEVICES: str = "raw_devices"
 ATTR_STORAGE_PARTITIONS: str = "storage_partitions"
 ATTR_STORAGE_SMB_SERVER: str = "storage_smb_server"
+ATTR_TOPOLOGY_OPTIMISATION_SETTINGS: str = "topology_optimisation_settings"
 ATTR_UPDATE_FIRMWARE_STATE: str = "check_update_state"
 ATTR_WAN_INFO: str = "wan_info"
 ATTR_WPS_SERVER_SETTINGS: str = "wps_server_settings"
@@ -60,6 +61,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_SPEEDTEST_STATUS: ATTR_SPEEDTEST_STATUS,
     api.Actions.GET_STORAGE_PARTITIONS: ATTR_STORAGE_PARTITIONS,
     api.Actions.GET_STORAGE_SMB_SERVER: ATTR_STORAGE_SMB_SERVER,
+    api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS: ATTR_TOPOLOGY_OPTIMISATION_SETTINGS,
     api.Actions.GET_WAN_INFO: ATTR_WAN_INFO,
     api.Actions.GET_WPS_SERVER_SETTINGS: ATTR_WPS_SERVER_SETTINGS,
     api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_UPDATE_FIRMWARE_STATE,
@@ -281,6 +283,7 @@ class Mesh:
         :param include_speedtest_results: True to include the latest completed Speedtest result
         :param include_speedtest_status: True to include the currently running speedtest status
         :param include_storage: True to include the external storage details if available
+        :param include_topology_optimisation_settings: True to include details about topology optimisation
         :param include_wan: True to include WAN details
         :param include_wps_server_settings: True to include the WPS server settings
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
@@ -303,6 +306,10 @@ class Mesh:
         # -- get the backhaul info  --#
         if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
             payload_safe.append({"action": api.Actions.GET_BACKHAUL})
+
+        # -- get the update check details --#
+        if kwargs.get("include_firmware_update"):
+            payload_safe.append({"action": api.Actions.GET_UPDATE_FIRMWARE_STATE})
 
         # -- get the guest WiFi details --#
         if kwargs.get("include_guest_wifi"):
@@ -328,9 +335,11 @@ class Mesh:
                 }
             )
 
-        # -- get the update check details --#
-        if kwargs.get("include_firmware_update"):
-            payload_safe.append({"action": api.Actions.GET_UPDATE_FIRMWARE_STATE})
+        # -- get the topology optimisation settings --#
+        if kwargs.get("include_topology_optimisation_settings"):
+            payload_safe.append(
+                {"action": api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS}
+            )
 
         # -- get the WAN details --#
         if kwargs.get("include_wan"):
@@ -625,6 +634,7 @@ class Mesh:
             include_speedtest_results=True,
             include_speedtest_status=True,
             include_storage=True,
+            include_topology_optimisation_settings=True,
             include_wan=True,
             include_wps_server_settings=True,
         )
@@ -979,6 +989,14 @@ class Mesh:
 
     @property
     @needs_gather_details
+    def client_steering_enabled(self) -> bool:
+        """Return if client steering is enabled."""
+        return self._mesh_attributes.get(ATTR_TOPOLOGY_OPTIMISATION_SETTINGS, {}).get(
+            "isClientSteeringEnabled", False
+        )
+
+    @property
+    @needs_gather_details
     def connected_node(self) -> str:
         """Get the node in the mesh that we are connected to.
 
@@ -1064,6 +1082,14 @@ class Mesh:
             ret = ret[0]
 
         return ret or None
+
+    @property
+    @needs_gather_details
+    def node_steering_enabled(self) -> bool:
+        """Return if node steering is enabled."""
+        return self._mesh_attributes.get(ATTR_TOPOLOGY_OPTIMISATION_SETTINGS, {}).get(
+            "isNodeSteeringEnabled", False
+        )
 
     @property
     @needs_gather_details
