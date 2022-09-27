@@ -3,6 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
+from enum import Enum
 from typing import List, Optional
 
 from . import signal_strength_to_text
@@ -10,8 +11,12 @@ from .base import MeshDevice
 
 # endregion
 
-NODE_TYPE_PRIMARY = "primary"
-NODE_TYPE_SECONDARY = "secondary"
+
+class NodeType(str, Enum):
+    """Enumeration for node types."""
+
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
 
 
 class Node(MeshDevice):
@@ -140,17 +145,17 @@ class Node(MeshDevice):
         return self._attribs.get("unit", {}).get("serialNumber")
 
     @property
-    def type(self) -> str:
+    def type(self) -> NodeType:
         """Get the node type.
 
         The node types are represented as primary or secondary.
 
-        :return: A string containing the node type.
+        :return: A NodeType enumeration containing the node type.
         """
         ret = ""
         native_type = self._attribs.get("nodeType", "").lower()
         if native_type == "master":
-            ret = NODE_TYPE_PRIMARY
+            ret = NodeType.PRIMARY
         elif native_type == "slave":
-            ret = NODE_TYPE_SECONDARY
+            ret = NodeType.SECONDARY
         return ret

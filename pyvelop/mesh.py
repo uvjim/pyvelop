@@ -24,7 +24,7 @@ from .exceptions import (
     MeshTooManyMatches,
 )
 from .logger import Logger
-from .node import NODE_TYPE_PRIMARY, Node
+from .node import Node, NodeType
 
 # endregion
 
@@ -885,7 +885,7 @@ class Mesh:
         if not node_details:
             raise MeshDeviceNotFoundResponse
 
-        if node_details[0].type == NODE_TYPE_PRIMARY and not force:
+        if node_details[0].type == NodeType.PRIMARY and not force:
             raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
 
         node_ip = [
