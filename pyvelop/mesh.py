@@ -157,7 +157,7 @@ class Mesh:
     If you need live information then call the corresponding method.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         node: str,
         password: str,
@@ -173,8 +173,6 @@ class Mesh:
         :param session: session to use in for interacting with the Mesh
         :param username: username to use; default admin
         """
-        # super().__init__()
-
         self._log_formatter = Logger()
 
         _LOGGER.debug(self._log_formatter.format("entered"))
@@ -299,9 +297,9 @@ class Mesh:
         )
 
         ret = {}
-        payload_safe: List = []
 
         # region #-- prepare the safe request --#
+        payload_safe: List = []
         # -- get the devices --#
         if kwargs.get("include_devices"):
             payload_safe.append({"action": api.Actions.GET_DEVICES})
@@ -433,127 +431,123 @@ class Mesh:
         # endregion
 
         # region #-- handle devices --#
-        if ATTR_RAW_DEVICES in ret:
-            devices = []
-            # region #-- build the properties for the device types --#
-            for device in ret[ATTR_RAW_DEVICES].get("devices", []):
-                device["results_time"]: int = int(time.time())
-                if "nodeType" in device:
-                    # region #-- determine the backhaul information --#
-                    device_backhaul = [
-                        bi
-                        for bi in ret.get(ATTR_BACKHAUL_INFO, {}).get(
-                            "backhaulDevices", []
-                        )
-                        if bi.get("deviceUUID") == device.get("deviceID")
-                    ]
-                    device_backhaul = device_backhaul[0] if device_backhaul else {}
-                    # endregion
+        devices: List[Device | Node] = []
+        # region #-- build the properties for the device types --#
+        for device in ret.get(ATTR_RAW_DEVICES, {}).get("devices", []):
+            device["results_time"]: int = int(time.time())
+            if "nodeType" not in device:
+                devices.append(Device(**device))
+            else:
+                # region #-- determine the backhaul information --#
+                device_backhaul = [
+                    bi
+                    for bi in ret.get(ATTR_BACKHAUL_INFO, {}).get("backhaulDevices", [])
+                    if bi.get("deviceUUID") == device.get("deviceID")
+                ]
+                # endregion
 
-                    # region #-- calculate if there is a firmware update available --#
-                    node_firmware: List | dict = {}
-                    if ATTR_UPDATE_FIRMWARE_STATE in ret:
-                        firmware_status = ret[ATTR_UPDATE_FIRMWARE_STATE].get(
+                # region #-- calculate if there is a firmware update available --#
+                node_firmware: List | dict = {}
+                if ATTR_UPDATE_FIRMWARE_STATE in ret:
+                    node_firmware = [
+                        firmware_details
+                        for firmware_details in ret[ATTR_UPDATE_FIRMWARE_STATE].get(
                             "firmwareUpdateStatus", []
                         )
-                        node_firmware = [
-                            firmware_details
-                            for firmware_details in firmware_status
-                            if firmware_details.get("deviceUUID")
-                            == device.get("deviceID")
-                        ]
-                        node_firmware = node_firmware[0] if node_firmware else {}
-                    # endregion
-
-                    devices.append(
-                        Node(
-                            **device,
-                            **{
-                                "backhaul": device_backhaul,
-                                "updates": node_firmware,
-                            },
-                        )
-                    )
-                else:
-                    devices.append(Device(**device))
-            # endregion
-
-            # region #-- post processing devices and nodes --#
-            for node in devices:
-                if node.__class__.__name__.lower() == "node":
-                    # region #-- calculate the connected devices for nodes --#
-                    connected_devices: List = []
-                    parent_name: Optional[str] = None
-                    for device in devices:
-                        for adapter in device.network:
-                            if adapter.get("parent_id") == node.unique_id:
-                                connected_devices.append(
-                                    {
-                                        "name": device.name,
-                                        "ip": adapter.get("ip"),
-                                        "type": adapter.get("type"),
-                                        "guest_network": adapter.get("guest_network"),
-                                    }
-                                )
-                            if node.parent_ip and not parent_name:
-                                if node.parent_ip == adapter.get("ip"):
-                                    parent_name = device.name
-                    setattr(node, "_Node__parent_name", parent_name)
-                    setattr(node, "_Node__connected_devices", connected_devices)
-                    # endregion
-                elif node.__class__.__name__.lower() == "device":
-                    # region #-- calculate parent name for devices --#
-                    attrib_connections = getattr(node, "_attribs", {}).get(
-                        "connections", []
-                    )
-                    parent: Optional[str] = None
-                    for conn in attrib_connections:
-                        if conn.get("parentDeviceID", ""):
-                            try:
-                                parent = [
-                                    device.name
-                                    for device in devices
-                                    if device.unique_id == conn.get("parentDeviceID")
-                                ][0]
-                            except IndexError:
-                                pass
-                    setattr(node, "_Device__parent_name", parent)
-                    # endregion
-
-                    network_adapater_macs = [
-                        adapter.get("mac") for adapter in node.network
+                        if firmware_details.get("deviceUUID") == device.get("deviceID")
                     ]
-                    # region #-- get the parental control details --#
-                    pc_schedule: List = []
-                    for mac in network_adapater_macs:
-                        for rule in ret.get(ATTR_PARENTAL_CONTROL_INFO, {}).get(
-                            "rules", []
+                # endregion
+
+                devices.append(
+                    Node(
+                        **device,
+                        **{
+                            "backhaul": device_backhaul[0] if device_backhaul else {},
+                            "updates": node_firmware[0] if node_firmware else {},
+                        },
+                    )
+                )
+        # endregion
+
+        # region #-- post processing devices and nodes --#
+        for node in devices:
+            if isinstance(node, Node):
+                # region #-- calculate the connected devices for nodes --#
+                connected_devices: List = []
+                parent_name: Optional[str] = None
+                for device in devices:
+                    for adapter in device.network:
+                        if adapter.get("parent_id") == node.unique_id:
+                            connected_devices.append(
+                                {
+                                    "name": device.name,
+                                    "ip": adapter.get("ip"),
+                                    "type": adapter.get("type"),
+                                    "guest_network": adapter.get("guest_network"),
+                                }
+                            )
+                        if (
+                            node.parent_ip
+                            and not parent_name
+                            and node.parent_ip == adapter.get("ip")
                         ):
-                            if mac in rule.get("macAddresses", []):
-                                pc_schedule.append(rule)
-                                break
-                    getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
-                    # endregion
+                            parent_name = device.name
+                setattr(node, "_Node__parent_name", parent_name)
+                setattr(node, "_Node__connected_devices", connected_devices)
+                # endregion
+            elif isinstance(node, Device):
+                # region #-- calculate parent name for devices --#
+                attrib_connections = getattr(node, "_attribs", {}).get(
+                    "connections", []
+                )
+                parent: Optional[str] = None
+                for conn in attrib_connections:
+                    if conn.get("parentDeviceID", ""):
+                        try:
+                            parent = [
+                                device.name
+                                for device in devices
+                                if device.unique_id == conn.get("parentDeviceID")
+                            ][0]
+                        except IndexError:
+                            pass
+                setattr(node, "_Device__parent_name", parent)
+                # endregion
 
-                    # region #-- get additional connection details --#
-                    if ATTR_NETWORK_CONNECTIONS in ret:
-                        for mac in network_adapater_macs:
-                            for conn_details in ret[ATTR_NETWORK_CONNECTIONS].get(
-                                "nodeWirelessConnections", []
-                            ):
-                                node_connections: List[Mapping] = conn_details.get(
-                                    "connections", {}
-                                )
-                                for connection in node_connections:
-                                    if mac == connection.get("macAddress"):
-                                        getattr(node, "_attribs", {})[
-                                            "connection_details"
-                                        ] = connection
-                                        break
-                    # endregion
-            # endregion
+                network_adapater_macs = [adapter.get("mac") for adapter in node.network]
+                # region #-- get the parental control details --#
+                pc_schedule: List = []
+                for mac in network_adapater_macs:
+                    for rule in ret.get(ATTR_PARENTAL_CONTROL_INFO, {}).get(
+                        "rules", []
+                    ):
+                        if mac in rule.get("macAddresses", []):
+                            pc_schedule.append(rule)
+                            break
+                getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
+                # endregion
 
-            ret[ATTR_PROCESSED_DEVICES] = devices or []
+                # region #-- get additional connection details --#
+                if (
+                    network_connections := ret.get(ATTR_NETWORK_CONNECTIONS)
+                ) is not None:
+                    for mac in network_adapater_macs:
+                        for conn_details in network_connections.get(
+                            "nodeWirelessConnections", []
+                        ):
+                            node_connections: List[Mapping] = conn_details.get(
+                                "connections", {}
+                            )
+                            for connection in node_connections:
+                                if mac == connection.get("macAddress"):
+                                    getattr(node, "_attribs", {})[
+                                        "connection_details"
+                                    ] = connection
+                                    break
+                # endregion
+        # endregion
+
+        ret[ATTR_PROCESSED_DEVICES] = devices or []
         # endregion
 
         _LOGGER.debug(self._log_formatter.format("exited"))
