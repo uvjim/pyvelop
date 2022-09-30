@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import logging
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -39,7 +40,7 @@ def jnap_url(target) -> str:
     return f"http://{target}/JNAP/"
 
 
-class Actions:
+class Actions(str, Enum):
     """Represents the available actions."""
 
     ROOT: str = "http://linksys.com/jnap"

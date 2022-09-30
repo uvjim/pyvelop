@@ -256,7 +256,7 @@ class Mesh:
             self.__create_session()
 
         req = api.Request(
-            action=action,
+            action=action if not isinstance(action, api.Actions) else action.value,
             password=self.__password,
             payload=payload,
             raise_on_error=raise_on_error,
@@ -359,7 +359,12 @@ class Mesh:
 
         request_safe = self._async_make_request(
             action=api.Actions.TRANSACTION,
-            payload=_build_action_payload(transaction=payload_safe),
+            payload=_build_action_payload(
+                transaction=map(
+                    lambda request: {"action": request.get("action").value},
+                    payload_safe,
+                )
+            ),
             raise_on_error=False,
         )
         # endregion
