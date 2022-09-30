@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import logging
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -39,7 +40,7 @@ def jnap_url(target) -> str:
     return f"http://{target}/JNAP/"
 
 
-class Actions:
+class Actions(str, Enum):
     """Represents the available actions."""
 
     ROOT: str = "http://linksys.com/jnap"
@@ -128,9 +129,8 @@ class Request:
         self._session: Optional[
             aiohttp.ClientSession
         ] = session or aiohttp.ClientSession(raise_for_status=True)
-        self._target: str = target
 
-        self._jnap_url: str = jnap_url(target=self._target)
+        self._jnap_url: str = jnap_url(target=target)
 
     async def execute(self, timeout: int = 10) -> Response:
         """Send the request.
