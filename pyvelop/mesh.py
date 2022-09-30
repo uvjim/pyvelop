@@ -426,7 +426,7 @@ class Mesh:
         for response in responses:
             req, resp = response
             if req.action == api.Actions.TRANSACTION:
-                for idx, action_response in enumerate(resp.data):
+                for idx, action_response in enumerate(resp.data or {}):
                     _set_raw_value(
                         action=req.payload[idx].get("action"), data=action_response
                     )
