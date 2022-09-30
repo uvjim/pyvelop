@@ -325,7 +325,7 @@ class Mesh:
                 {
                     "action": api.Actions.GET_SPEEDTEST_RESULTS,
                     "request": {
-                        **api.Defaults.PAYLOADS[api.Actions.GET_SPEEDTEST_RESULTS],
+                        **api.Defaults.payloads[api.Actions.GET_SPEEDTEST_RESULTS],
                         "lastNumberOfResults": 10,
                     },
                 }
@@ -352,7 +352,7 @@ class Mesh:
                     lambda r: {
                         "action": r.get("action").value,
                         "request": r.get(
-                            "request", api.Defaults.PAYLOADS[r.get("action")]
+                            "request", api.Defaults.payloads[r.get("action")]
                         ),
                     },
                     payload_safe,
@@ -389,13 +389,13 @@ class Mesh:
                     payload=[
                         {
                             "action": api.Actions.GET_STORAGE_SMB_SERVER,
-                            "request": api.Defaults.PAYLOADS[
+                            "request": api.Defaults.payloads[
                                 api.Actions.GET_STORAGE_SMB_SERVER
                             ],
                         },
                         {
                             "action": api.Actions.GET_STORAGE_PARTITIONS,
-                            "request": api.Defaults.PAYLOADS[
+                            "request": api.Defaults.payloads[
                                 api.Actions.GET_STORAGE_PARTITIONS
                             ],
                         },
@@ -808,7 +808,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         payload = {
-            **api.Defaults.PAYLOADS[api.Actions.GET_SPEEDTEST_RESULTS],
+            **api.Defaults.payloads[api.Actions.GET_SPEEDTEST_RESULTS],
             "lastNumberOfResults": count,
         }
         resp = await self._async_make_request(
