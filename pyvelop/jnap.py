@@ -7,6 +7,8 @@ import asyncio
 import base64
 import json
 import logging
+from collections import defaultdict
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -84,15 +86,15 @@ class Actions(str, Enum):
     UPDATE_FIRMWARE: str = f"{ROOT}/nodes/firmwareupdate/UpdateFirmwareNow"
 
 
+@dataclass
 class Defaults:
     """Represents the default payloads required for requests."""
 
-    PAYLOADS: Dict[str, Dict] = {
-        Actions.GET_SPEEDTEST_RESULTS: {
-            "healthCheckModule": "SpeedTest",
-            "includeModuleResults": True,
-            "lastNumberOfResults": 1,
-        },
+    payloads = defaultdict(dict)
+    payloads[Actions.GET_SPEEDTEST_RESULTS] = {
+        "healthCheckModule": "SpeedTest",
+        "includeModuleResults": True,
+        "lastNumberOfResults": 1,
     }
 
 

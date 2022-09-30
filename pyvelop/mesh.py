@@ -72,18 +72,6 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
 }
 
 
-def _build_action_payload(transaction: List) -> List:
-    """Set default action for payload if none supplied."""
-    return list(
-        map(
-            lambda p: (
-                (dict(**p, **{"request": {}}) if p.get("request") is None else p)
-            ),
-            transaction,
-        )
-    )
-
-
 def _process_speedtest_results(
     speedtest_results=None, only_latest: bool = False, only_completed: bool = False
 ) -> List:
@@ -337,7 +325,7 @@ class Mesh:
                 {
                     "action": api.Actions.GET_SPEEDTEST_RESULTS,
                     "request": {
-                        **api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS),
+                        **api.Defaults.payloads[api.Actions.GET_SPEEDTEST_RESULTS],
                         "lastNumberOfResults": 10,
                     },
                 }
@@ -359,9 +347,14 @@ class Mesh:
 
         request_safe = self._async_make_request(
             action=api.Actions.TRANSACTION,
-            payload=_build_action_payload(
-                transaction=map(
-                    lambda request: {"action": request.get("action").value},
+            payload=list(
+                map(
+                    lambda r: {
+                        "action": r.get("action").value,
+                        "request": r.get(
+                            "request", api.Defaults.payloads[r.get("action")]
+                        ),
+                    },
                     payload_safe,
                 )
             ),
@@ -393,16 +386,20 @@ class Mesh:
             request_unsafe.append(
                 self._async_make_request(
                     action=api.Actions.TRANSACTION,
-                    payload=_build_action_payload(
-                        transaction=[
-                            {
-                                "action": api.Actions.GET_STORAGE_SMB_SERVER,
-                            },
-                            {
-                                "action": api.Actions.GET_STORAGE_PARTITIONS,
-                            },
-                        ]
-                    ),
+                    payload=[
+                        {
+                            "action": api.Actions.GET_STORAGE_SMB_SERVER,
+                            "request": api.Defaults.payloads[
+                                api.Actions.GET_STORAGE_SMB_SERVER
+                            ],
+                        },
+                        {
+                            "action": api.Actions.GET_STORAGE_PARTITIONS,
+                            "request": api.Defaults.payloads[
+                                api.Actions.GET_STORAGE_PARTITIONS
+                            ],
+                        },
+                    ],
                     raise_on_error=False,
                 )
             )
@@ -811,7 +808,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         payload = {
-            **api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS, {}),
+            **api.Defaults.payloads[api.Actions.GET_SPEEDTEST_RESULTS],
             "lastNumberOfResults": count,
         }
         resp = await self._async_make_request(
