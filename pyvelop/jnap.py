@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import logging
+from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -87,12 +88,11 @@ class Actions(str, Enum):
 class Defaults:
     """Represents the default payloads required for requests."""
 
-    PAYLOADS: Dict[str, Dict] = {
-        Actions.GET_SPEEDTEST_RESULTS: {
-            "healthCheckModule": "SpeedTest",
-            "includeModuleResults": True,
-            "lastNumberOfResults": 1,
-        },
+    PAYLOADS = defaultdict(dict)
+    PAYLOADS[Actions.GET_SPEEDTEST_RESULTS] = {
+        "healthCheckModule": "SpeedTest",
+        "includeModuleResults": True,
+        "lastNumberOfResults": 1,
     }
 
 
