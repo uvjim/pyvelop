@@ -325,7 +325,7 @@ class Mesh:
                 {
                     "action": api.Actions.GET_SPEEDTEST_RESULTS,
                     "request": {
-                        **api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS),
+                        **api.Defaults.PAYLOADS[api.Actions.GET_SPEEDTEST_RESULTS],
                         "lastNumberOfResults": 10,
                     },
                 }
@@ -808,7 +808,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         payload = {
-            **api.Defaults.PAYLOADS.get(api.Actions.GET_SPEEDTEST_RESULTS, {}),
+            **api.Defaults.PAYLOADS[api.Actions.GET_SPEEDTEST_RESULTS],
             "lastNumberOfResults": count,
         }
         resp = await self._async_make_request(
