@@ -129,9 +129,8 @@ class Request:
         self._session: Optional[
             aiohttp.ClientSession
         ] = session or aiohttp.ClientSession(raise_for_status=True)
-        self._target: str = target
 
-        self._jnap_url: str = jnap_url(target=self._target)
+        self._jnap_url: str = jnap_url(target=target)
 
     async def execute(self, timeout: int = 10) -> Response:
         """Send the request.
