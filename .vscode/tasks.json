@@ -5,9 +5,10 @@
     "tasks": [
         {
             "label": "Build: Documentation",
-            "type": "process",
-            "command": ".venv/Scripts/sphinx-build.exe",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
             "args": [
+                ".venv/Scripts/sphinx-build.exe",
                 "-a",
                 "-b",
                 "html",
@@ -30,9 +31,10 @@
         },
         {
             "label": "Build: Windows Executable",
-            "type": "process",
-            "command": ".venv/Scripts/pyinstaller.exe",
+            "type": "shell",
+            "command": "${command:python.interpreterPath}",
             "args": [
+                ".venv/Scripts/pyinstaller.exe",
                 "--clean",
                 "--distpath",
                 "pyinstaller_files/dist",
@@ -87,7 +89,7 @@
                 "twine",
                 "upload",
                 "--skip-existing",
-                "dist/*2022.9.*"
+                "dist/*2022.10.*"
             ]
         }
     ]
