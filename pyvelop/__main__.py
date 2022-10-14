@@ -1,10 +1,11 @@
 """pyvelop CLI."""
 
 # region #-- imports --#
+import json
 import logging
 import re
 import uuid
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 import aiohttp
 import asyncclick as click
@@ -119,6 +120,10 @@ class StandardCommand(click.Command):
             self.params.insert(0, opt)
 
 
+MESH_ALLOWED_ACTIONS: Set = (
+    "channel_scan_info",
+    "channel_scan_start",
+)
 DEF_INDENT: int = 2
 
 click.anyio_backend = "aysncio"
@@ -247,6 +252,7 @@ async def mesh_details(
                         ),
                         ("parental_control_enabled", "Parental Control Enabled"),
                         ("wps_state", "WPS Enabled"),
+                        ("is_channel_scan_running", "Channel Scan Running"),
                         ("homekit_enabled", "HomeKit Integration Enabled"),
                         ("homekit_paired", "HomeKit Integration Paired"),
                         ("client_steering_enabled", "Client Steering Enabled"),
@@ -306,6 +312,25 @@ async def mesh_details(
                     title="Mesh Overview",
                 )
             )
+
+
+@mesh_group.command(cls=StandardCommand, name="action")
+@click.argument("action", type=click.Choice(MESH_ALLOWED_ACTIONS, case_sensitive=False))
+@click.pass_context
+async def mesh_action(
+    ctx: click.Context,
+    action: str,
+    **_,
+) -> None:
+    """Carry out a specified action on the mesh."""
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            if action.lower() == "channel_scan_info":
+                ret = await mesh_obj.async_get_channel_scan_info()
+            elif action.lower() == "channel_scan_start":
+                ret = await mesh_obj.async_start_channel_scan()
+
+    print(json.dumps(ret))
 
 
 @cli.group(name="node")
