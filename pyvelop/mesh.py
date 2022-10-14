@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import aiohttp
 
@@ -33,6 +33,7 @@ _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 # region #-- attributes for results --#
 ATTR_BACKHAUL_INFO: str = "backhaul"
+ATTR_CHANNEL_SCAN_INFO: str = "channel_scan_info"
 ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
 ATTR_GUEST_NETWORK_INFO: str = "guest_network"
 ATTR_HOMEKIT_SETTINGS: str = "homekit_settings"
@@ -54,6 +55,7 @@ ATTR_WPS_SERVER_SETTINGS: str = "wps_server_settings"
 
 JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_BACKHAUL: ATTR_BACKHAUL_INFO,
+    api.Actions.GET_CHANNEL_SCAN_STATUS: ATTR_CHANNEL_SCAN_INFO,
     api.Actions.GET_DEVICES: ATTR_RAW_DEVICES,
     api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
@@ -264,6 +266,7 @@ class Mesh:
         """Work is done here to gather the necessary details for mesh.
 
         :param include_backhaul: True to include backhaul details
+        :param include_channel_scan: True to include details about the channel scan process
         :param include_devices: True to include devices
         :param include_firmware_update: True to include the current firmware update details (does not issue a check)
         :param include_firmware_update_settings: True to include the current settings for firmware updates
@@ -295,9 +298,13 @@ class Mesh:
         if kwargs.get("include_firmware_update_settings"):
             payload_safe.append({"action": api.Actions.GET_FIRMWARE_UPDATE_SETTINGS})
 
-        # -- get the backhaul info  --#
+        # -- get the backhaul info --#
         if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
             payload_safe.append({"action": api.Actions.GET_BACKHAUL})
+
+        # -- get the channel scan info --#
+        if kwargs.get("include_channel_scan"):
+            payload_safe.append({"action": api.Actions.GET_CHANNEL_SCAN_STATUS})
 
         # -- get the update check details --#
         if kwargs.get("include_firmware_update"):
@@ -640,6 +647,7 @@ class Mesh:
 
         details = await self._async_gather_details(
             include_backhaul=True,
+            include_channel_scan=True,
             include_devices=True,
             include_firmware_update=True,
             include_firmware_update_settings=True,
@@ -689,6 +697,13 @@ class Mesh:
 
         self.__gather_details_executed = True  # pylint: disable=unused-private-member
         _LOGGER.debug(self._log_formatter.format("exited"))
+
+    async def async_get_channel_scan_info(self) -> Dict[str, Any]:
+        """Get the current state of the channel scan."""
+        resp = await self._async_gather_details(
+            include_channel_scan=True,
+        )
+        return resp.get(ATTR_CHANNEL_SCAN_INFO)
 
     async def async_get_device_from_id(
         self, device_id: str, force_refresh: bool = False
@@ -948,6 +963,12 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    async def async_start_channel_scan(self) -> None:
+        """Start a channel scan on the mesh."""
+        _LOGGER.debug(self._log_formatter.format("entered"))
+        await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN)
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
     async def async_start_speedtest(self) -> None:
         """Instruct the mesh to carry out a Speedtest.
 
@@ -1093,6 +1114,14 @@ class Mesh:
         """Return if the HomeKit integration is paired."""
         return self._mesh_attributes.get(ATTR_HOMEKIT_SETTINGS, {}).get(
             "isPaired", False
+        )
+
+    @property
+    @needs_gather_details
+    def is_channel_scan_running(self) -> bool:
+        """Get the current state of channel scanning."""
+        return bool(
+            self._mesh_attributes.get(ATTR_CHANNEL_SCAN_INFO, {}).get("isRunning", None)
         )
 
     @property

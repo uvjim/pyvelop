@@ -50,6 +50,7 @@ class Actions(str, Enum):
     CHECK_PASSWORD: str = f"{ROOT}/core/CheckAdminPassword"
     DELETE_DEVICE: str = f"{ROOT}/devicelist/DeleteDevice"
     GET_BACKHAUL: str = f"{ROOT}/nodes/diagnostics/GetBackhaulInfo"
+    GET_CHANNEL_SCAN_STATUS: str = f"{ROOT}/nodes/setup/GetSelectedChannels"
     GET_DEVICES: str = f"{ROOT}/devicelist/GetDevices3"
     GET_FIRMWARE_UPDATE_SETTINGS: str = (
         f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
@@ -81,6 +82,7 @@ class Actions(str, Enum):
     SET_PARENTAL_CONTROL_INFO: str = (
         f"{ROOT}/parentalcontrol/SetParentalControlSettings"
     )
+    START_CHANNEL_SCAN: str = f"{ROOT}/nodes/setup/StartAutoChannelSelection"
     START_SPEEDTEST: str = f"{ROOT}/healthcheck/RunHealthCheck"
     TRANSACTION: str = f"{ROOT}/core/Transaction"
     UPDATE_FIRMWARE: str = f"{ROOT}/nodes/firmwareupdate/UpdateFirmwareNow"
