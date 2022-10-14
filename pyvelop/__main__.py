@@ -123,9 +123,6 @@ class StandardCommand(click.Command):
 MESH_ALLOWED_ACTIONS: Set = (
     "channel_scan_info",
     "channel_scan_start",
-    "speedtest_results",
-    "speedtest_start",
-    "speedtest_state",
 )
 DEF_INDENT: int = 2
 
@@ -328,16 +325,10 @@ async def mesh_action(
     """Carry out a specified action on the mesh."""
     if mesh_obj := await mesh_connect(ctx):
         async with mesh_obj:
-            if action == "channel_scan_info":
+            if action.lower() == "channel_scan_info":
                 ret = await mesh_obj.async_get_channel_scan_info()
-            elif action == "channel_scan_start":
+            elif action.lower() == "channel_scan_start":
                 ret = await mesh_obj.async_start_channel_scan()
-            elif action == "speedtest_results":
-                ret = await mesh_obj.async_get_speedtest_results()
-            elif action == "speedtest_start":
-                ret = await mesh_obj.async_start_speedtest()
-            elif action == "speedtest_state":
-                ret = await mesh_obj.async_get_speedtest_state()
 
     print(json.dumps(ret))
 
