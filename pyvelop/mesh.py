@@ -826,14 +826,13 @@ class Mesh:
             **api.Defaults.payloads[api.Actions.GET_SPEEDTEST_RESULTS],
             "lastNumberOfResults": count,
         }
-        resp = await self._async_make_request(
+        _, resp = await self._async_make_request(
             action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload
         )
-        healthcheck_results = resp.get("healthCheckResults")
 
         _LOGGER.debug(self._log_formatter.format("exited"))
         return _process_speedtest_results(
-            speedtest_results=healthcheck_results,
+            speedtest_results=resp.data.get("healthCheckResults"),
             only_latest=only_latest,
             only_completed=only_completed,
         )
