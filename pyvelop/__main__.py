@@ -123,6 +123,14 @@ class StandardCommand(click.Command):
 MESH_ALLOWED_ACTIONS: Set = (
     "channel_scan_info",
     "channel_scan_start",
+    "guest_wifi_off",
+    "guest_wifi_on",
+    "parental_control_off",
+    "parental_control_on",
+    "speedtest_results",
+    "speedtest_start",
+    "speedtest_state",
+    "update_check_start",
 )
 DEF_INDENT: int = 2
 
@@ -325,10 +333,26 @@ async def mesh_action(
     """Carry out a specified action on the mesh."""
     if mesh_obj := await mesh_connect(ctx):
         async with mesh_obj:
-            if action.lower() == "channel_scan_info":
+            if action == "channel_scan_info":
                 ret = await mesh_obj.async_get_channel_scan_info()
-            elif action.lower() == "channel_scan_start":
+            elif action == "channel_scan_start":
                 ret = await mesh_obj.async_start_channel_scan()
+            elif action == "guest_wifi_off":
+                ret = await mesh_obj.async_set_guest_wifi_state(state=False)
+            elif action == "guest_wifi_on":
+                ret = await mesh_obj.async_set_guest_wifi_state(state=True)
+            elif action == "parental_control_off":
+                ret = await mesh_obj.async_set_parental_control_state(state=False)
+            elif action == "parental_control_on":
+                ret = await mesh_obj.async_set_parental_control_state(state=True)
+            elif action == "speedtest_results":
+                ret = await mesh_obj.async_get_speedtest_results()
+            elif action == "speedtest_start":
+                ret = await mesh_obj.async_start_speedtest()
+            elif action == "speedtest_state":
+                ret = await mesh_obj.async_get_speedtest_state()
+            elif action == "update_check_start":
+                ret = await mesh_obj.async_check_for_updates()
 
     print(json.dumps(ret))
 
