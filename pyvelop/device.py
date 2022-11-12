@@ -1,7 +1,7 @@
 """Representation of a mesh device."""
 
 import datetime
-from typing import List, Optional
+from typing import List
 
 from .base import MeshDevice
 
@@ -66,10 +66,10 @@ class Device(MeshDevice):
         :param kwargs: keyword arguments
         """
         super().__init__(**kwargs)
-        self.__parent_name: Optional[str] = None
+        self.__parent_name: str | None = None
 
     @property
-    def description(self) -> Optional[str]:
+    def description(self) -> str | None:
         """Get the description.
 
         :return: Device description as per Velop
@@ -77,7 +77,7 @@ class Device(MeshDevice):
         return self._attribs.get("model", {}).get("description", None)
 
     @property
-    def manufacturer(self) -> Optional[str]:
+    def manufacturer(self) -> str | None:
         """Get the manufacturer.
 
         :return: Manufacturer as found by the Velop
@@ -87,7 +87,7 @@ class Device(MeshDevice):
         ) or self._attribs.get("model", {}).get("manufacturer", None)
 
     @property
-    def model(self) -> Optional[str]:
+    def model(self) -> str | None:
         """Get the model.
 
         :return: Model as found by the Velop
@@ -97,7 +97,7 @@ class Device(MeshDevice):
         ) or self._attribs.get("model", {}).get("modelNumber", None)
 
     @property
-    def operating_system(self) -> Optional[str]:
+    def operating_system(self) -> str | None:
         """Get the OS.
 
         :return: The OS as identified by the Velop
@@ -125,11 +125,11 @@ class Device(MeshDevice):
         return ret
 
     @property
-    def parent_name(self) -> Optional[str]:
+    def parent_name(self) -> str | None:
         """Name of the node the device is connected to."""
         return self.__parent_name
 
     @property
-    def serial(self) -> Optional[str]:
+    def serial(self) -> str | None:
         """Get the serial number."""
         return self._attribs.get("unit", {}).get("serialNumber", None)

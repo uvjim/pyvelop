@@ -3,7 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from . import signal_strength_to_text
 
@@ -32,7 +32,7 @@ class MeshDevice:
             ret += self.name
         return ret
 
-    def _get_user_property(self, name: str) -> Optional[str]:
+    def _get_user_property(self, name: str) -> str | None:
         """Get the given property from the user properties."""
         ret = None
 
@@ -152,7 +152,7 @@ class MeshDevice:
         return ret
 
     @property
-    def ui_type(self) -> Optional[str]:
+    def ui_type(self) -> str | None:
         """Get the type assigned to the device as per the web UI."""
         return self._get_user_property(name="userDeviceType")
 
