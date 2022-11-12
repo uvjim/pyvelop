@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from collections.abc import Iterable
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 import aiohttp
 
@@ -152,8 +152,8 @@ class Mesh:
         self,
         node: str,
         password: str,
-        request_timeout: Optional[int] = 10,
-        session: Optional[aiohttp.ClientSession] = None,
+        request_timeout: int = 10,
+        session: aiohttp.ClientSession | None = None,
         username: str = "admin",
     ) -> None:
         """Initialise the Mesh.
@@ -218,8 +218,8 @@ class Mesh:
     async def _async_make_request(
         self,
         action: str,
-        node_address: Optional[str] = None,
-        payload: Optional[List[Dict] | Dict] = None,
+        node_address: str | None = None,
+        payload: List[Dict] | Dict | None = None,
         raise_on_error: bool = True,
     ) -> Tuple(api.Request, api.Response):
         """Execute the API request against the connected node.
@@ -418,7 +418,7 @@ class Mesh:
         )
 
         # region #-- prepare all the raw details --#
-        def _set_raw_value(action: str, data: Optional[List[Dict] | Dict]) -> None:
+        def _set_raw_value(action: str, data: List[Dict] | Dict | None) -> None:
             """Set the raw values"""
             try:
                 api_response: api.Response = api.Response(action=action, data=data)
@@ -484,7 +484,7 @@ class Mesh:
             if isinstance(node, Node):
                 # region #-- calculate the connected devices for nodes --#
                 connected_devices: List = []
-                parent_name: Optional[str] = None
+                parent_name: str | None = None
                 for device in devices:
                     for adapter in device.network:
                         if adapter.get("parent_id") == node.unique_id:
@@ -510,7 +510,7 @@ class Mesh:
                 attrib_connections = getattr(node, "_attribs", {}).get(
                     "connections", []
                 )
-                parent: Optional[str] = None
+                parent: str | None = None
                 for conn in attrib_connections:
                     if conn.get("parentDeviceID", ""):
                         try:
@@ -1074,7 +1074,7 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def firmware_update_setting(self) -> Optional[str]:
+    def firmware_update_setting(self) -> str | None:
         """Get the current setting for firmware updates.
 
         :return: a lowercase string representing the update method
@@ -1141,7 +1141,7 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def latest_speedtest_result(self) -> Optional[Dict]:
+    def latest_speedtest_result(self) -> Dict | None:
         """Get the Speedtest results.
 
         N.B. If you need more results see the async_get_speedtest_results method
@@ -1216,12 +1216,12 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def parental_control_enabled(self) -> Optional[bool]:
+    def parental_control_enabled(self) -> bool | None:
         """Get the state of the Parental Control feature.
 
         :return: True if enabled, False if not
         """
-        ret: Optional[bool] = None
+        ret: bool | None = None
         if ATTR_PARENTAL_CONTROL_INFO in self._mesh_attributes:
             ret = self._mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get(
                 "isParentalControlEnabled", False
@@ -1268,7 +1268,7 @@ class Mesh:
                             for adapter in node[0].connected_adapters
                             if adapter.get("ip")
                         ]
-                        used_percent: Optional[int] = None
+                        used_percent: int | None = None
                         try:
                             used_percent = round(
                                 (partition.get("usedKB") / partition.get("availableKB"))
@@ -1322,7 +1322,7 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def wan_ip(self) -> Optional[str]:
+    def wan_ip(self) -> str | None:
         """Get the WAN IP address.
 
         :return: A string containing the IP address for the WAN
@@ -1335,7 +1335,7 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def wan_mac(self) -> Optional[str]:
+    def wan_mac(self) -> str | None:
         """Get the WAN MAC.
 
         :return: A string containing the MAC address for the WAN adapter
