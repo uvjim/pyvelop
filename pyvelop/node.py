@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional
+from typing import List
 
 from . import signal_strength_to_text
 from .base import MeshDevice
@@ -30,15 +30,15 @@ class Node(MeshDevice):
         :param kwargs: keyword arguments
         """
         super().__init__(**kwargs)
-        self.__connected_devices: Optional[List] = None
-        self.__parent_name: Optional[str] = None
+        self.__connected_devices: List | None = None
+        self.__parent_name: str | None = None
 
     @property
     def backhaul(self) -> dict:
         """Get details about the backhaul."""
         ret = {}
         backhaul = self._attribs.get("backhaul", {})
-        speed_mbps: Optional[float] = None
+        speed_mbps: float | None = None
         try:
             speed_mbps = float(backhaul.get("speedMbps"))
         except (TypeError, ValueError):
@@ -99,7 +99,7 @@ class Node(MeshDevice):
         return self._attribs.get("model", {}).get("hardwareVersion")
 
     @property
-    def last_update_check(self) -> Optional[str]:
+    def last_update_check(self) -> str | None:
         """Get the last time an update was checked for.
 
         :return: String containing the last update time as per the API
@@ -124,7 +124,7 @@ class Node(MeshDevice):
         return self._attribs.get("model", {}).get("modelNumber")
 
     @property
-    def parent_ip(self) -> Optional[str]:
+    def parent_ip(self) -> str | None:
         """Get the IP address of the node that this node is attached to.
 
         :return: A string containing the IP address of the parent or None if no parent
