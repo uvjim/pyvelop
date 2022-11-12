@@ -10,7 +10,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import aiohttp
 
@@ -108,9 +108,9 @@ class Request:
         action: str,
         password: str,
         target: str,
-        payload: Optional[List[Dict] | Dict] = None,
+        payload: List[Dict] | Dict | None = None,
         raise_on_error: bool = True,
-        session: Optional[aiohttp.ClientSession] = None,
+        session: aiohttp.ClientSession | None = None,
         username: str = "admin",
     ) -> None:
         """Initialise a request.
@@ -128,11 +128,11 @@ class Request:
             bytes(f"{username}:{password}", "utf-8")
         ).decode("ascii")
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
-        self._payload: Optional[List[Dict] | Dict] = payload
+        self._payload: List[Dict] | Dict | None = payload
         self._raise_on_error: bool = raise_on_error
-        self._session: Optional[
-            aiohttp.ClientSession
-        ] = session or aiohttp.ClientSession(raise_for_status=True)
+        self._session: aiohttp.ClientSession | None = session or aiohttp.ClientSession(
+            raise_for_status=True
+        )
 
         self._jnap_url: str = jnap_url(target=target)
 
@@ -163,7 +163,7 @@ class Request:
             timeout,
         )
 
-        resp: Optional[aiohttp.ClientResponse] = None
+        resp: aiohttp.ClientResponse | None = None
         try:
             resp = await self._session.post(
                 url=self._jnap_url,
@@ -206,7 +206,7 @@ class Request:
         return self._action
 
     @property
-    def payload(self) -> Optional[List[Dict] | Dict]:
+    def payload(self) -> List[Dict] | Dict | None:
         """Return the payload used for the request.
 
         :return: Optional[List[Dict] | Dict] containing the payload

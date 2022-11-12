@@ -1,14 +1,9 @@
 """The pyvelop module."""
 
-# region #-- imports --#
-from typing import Optional
 
-# endregion
-
-
-def signal_strength_to_text(rssi: Optional[int]) -> Optional[str]:
+def signal_strength_to_text(rssi: int | None) -> str | None:
     """Convert the given RSSI value to a textual representation."""
-    ret: Optional[str] = None
+    ret: str | None = None
     if rssi is not None:
         if rssi <= 0:
             ret = "Excellent"
