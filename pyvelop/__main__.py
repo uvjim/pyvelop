@@ -175,10 +175,10 @@ async def device_delete(
 
 @device_group.command(cls=StandardCommand, name="details")
 @click.pass_context
-@click.argument("device")
+@click.argument("device", nargs=-1)
 async def device_details(
     ctx: click.Context,
-    device: str,
+    device: Tuple[str],
     **_,
 ) -> None:
     """Display details about a device on the Mesh."""
@@ -519,35 +519,36 @@ async def mesh_connect(ctx: click.Context = None) -> Mesh | None:
     return None
 
 
-async def _get_device_details(ctx: click.Context, device: str) -> List[Device] | None:
+async def _get_device_details(
+    ctx: click.Context, device: Tuple[str]
+) -> List[Device] | None:
     """Retreive device details from the mesh."""
     ret: List[Device | Node] | None
     if mesh_obj := await mesh_connect(ctx):
         async with mesh_obj:
             try:  # match a GUID?
-                _ = uuid.UUID(device)
-                ret = [
-                    await mesh_obj.async_get_device_from_id(
-                        device_id=device, force_refresh=True
-                    )
-                ]
-            except MeshDeviceNotFoundResponse:
-                _LOGGER.error("Device not found (%s)", device)
+                _ = uuid.UUID(device[0])
+                ret = await mesh_obj.async_get_device_from_id(
+                    device_id=device,
+                    force_refresh=True,
+                )
+            except MeshDeviceNotFoundResponse as err:
+                _LOGGER.error("%s (%s)", err, ", ".join(err.devices))
                 return
             except ValueError:  # not a GUID
                 regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
                 if (  # MAC address?
-                    re.match(pattern=regex_pattern, string=device, flags=re.IGNORECASE)
+                    re.match(
+                        pattern=regex_pattern, string=device[0], flags=re.IGNORECASE
+                    )
                     is not None
                 ):
                     try:
-                        ret = [
-                            await mesh_obj.async_get_device_from_mac_address(
-                                device, force_refresh=True
-                            )
-                        ]
-                    except MeshDeviceNotFoundResponse:
-                        _LOGGER.error("Device not found (%s)", device)
+                        ret = await mesh_obj.async_get_device_from_mac_address(
+                            device, force_refresh=True
+                        )
+                    except MeshDeviceNotFoundResponse as err:
+                        _LOGGER.error("%s (%s)", err, ", ".join(err.devices))
                         return
                 else:
                     ret = [
