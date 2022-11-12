@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Iterable
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import aiohttp
@@ -706,16 +707,20 @@ class Mesh:
         return resp.get(ATTR_CHANNEL_SCAN_INFO)
 
     async def async_get_device_from_id(
-        self, device_id: str, force_refresh: bool = False
-    ) -> Device | Node:
+        self,
+        device_id: Iterable[str],
+        force_refresh: bool = False,
+        raise_for_missing: bool = True,
+    ) -> List[Device | Node]:
         """Get a Device or Node object based on the ID.
 
         By default, the stored information is used, but you can refresh it from the API.
         Raises an error if the device is not found.
 
-        :param device_id: The ID of the device to get details about
+        :param device_id: Iterable of device IDs to get details about
         :param force_refresh: True to re-query the API for the latest details
-        :return: Device or Node object whichever is applicable
+        :param raise_for_missing: True to raise an error when a device is not found
+        :return: List of Device or Node objects whichever is applicable
         """
         _LOGGER.debug(
             self._log_formatter.format("entered, device_id: %s, force_refresh: %s"),
@@ -735,16 +740,21 @@ class Mesh:
         if not all_devices:
             raise MeshInvalidOutput from None
 
-        try:
-            ret = [device for device in all_devices if device.unique_id == device_id][0]
-        except IndexError as err:
-            raise MeshDeviceNotFoundResponse from err
+        ret = [device for device in all_devices if device.unique_id in device_id]
+        if len(ret) != len(device_id) and raise_for_missing:
+            found_ids = [device.unique_id for device in ret]
+            raise MeshDeviceNotFoundResponse(
+                devices=list(set(device_id).difference(found_ids))
+            )
 
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     async def async_get_device_from_mac_address(
-        self, mac_address: str, force_refresh: bool = False
+        self,
+        mac_address: Iterable[str],
+        force_refresh: bool = False,
+        raise_for_missing: bool = True,
     ) -> Device | Node:
         """To get a Device or Node object based on the MAC address.
 
@@ -752,8 +762,9 @@ class Mesh:
         By default, the stored information is used, but you can refresh it from the API.
         Raises an error if the device is not found.
 
-        :param mac_address: The MAC address to search for
+        :param mac_address: An iterable containing MAC address to search for
         :param force_refresh: True to re-query the details from the API
+        :param raise_for_missing: True to raise exception when a device is not found
         :return:  Device or Node object whichever is applicable
         """
         _LOGGER.debug(
@@ -762,7 +773,9 @@ class Mesh:
             force_refresh,
         )
 
-        ret: Optional[Device | Node] = None
+        ret: List[Device | Node] = []
+        lower_macs: List[str] = list(map(str.lower, mac_address))
+        found_macs: List[str] = []
 
         all_devices: List[Device | Node]
         if not force_refresh:
@@ -776,12 +789,15 @@ class Mesh:
         for device in all_devices:
             if device.network:
                 for adapter in device.network:
-                    if adapter.get("mac").lower() == mac_address.lower():
-                        ret = device
+                    if adapter.get("mac").lower() in lower_macs:
+                        ret.append(device)
+                        found_macs.append(adapter.get("mac").lower())
                         break
 
-        if not ret:
-            raise MeshDeviceNotFoundResponse
+        if len(ret) != len(mac_address) and raise_for_missing:
+            raise MeshDeviceNotFoundResponse(
+                devices=list(set(lower_macs).difference(found_macs))
+            )
 
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret

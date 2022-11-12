@@ -1,5 +1,12 @@
 """Exceptions for the pyvelop module."""
 
+# region #-- imports --#
+from __future__ import annotations
+
+from typing import List
+
+# endregion
+
 
 class MeshException(Exception):
     """Base Exsception for the Mesh."""
@@ -32,9 +39,10 @@ class MeshConnectionError(MeshException):
 class MeshDeviceNotFoundResponse(MeshException):
     """Device is not found in the mesh."""
 
-    def __init__(self) -> None:
+    def __init__(self, devices: List[str]) -> None:
         """Initialise and default message."""
-        super().__init__("Device not found")
+        self.devices = devices
+        super().__init__("Device(s) not found")
 
 
 class MeshInvalidArguments(MeshException):
