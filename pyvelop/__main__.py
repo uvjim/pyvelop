@@ -220,6 +220,17 @@ async def device_details(
             )
 
 
+@device_group.command(cls=StandardCommand, name="rename")
+@click.pass_context
+@click.argument("device_id")
+@click.argument("new_name")
+async def device_rename(ctx: click.Context, device_id: str, new_name: str, **_) -> None:
+    """Rename the given device."""
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_rename_device(device_id=device_id, name=new_name)
+
+
 @cli.group(name="mesh")
 @click.help_option()
 async def mesh_group() -> None:

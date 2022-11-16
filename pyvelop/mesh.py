@@ -928,6 +928,24 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    async def async_rename_device(self, device_id: str, name: str) -> None:
+        """Rename the given device."""
+        _LOGGER.debug(self._log_formatter.format("entered"))
+        try:
+            await self._async_make_request(
+                action=api.Actions.SET_DEVICE_PROPERTY,
+                payload={
+                    "deviceID": device_id,
+                    "propertiesToModify": [{"name": "userDeviceName", "value": name}],
+                },
+            )
+        except MeshException as err:
+            _LOGGER.error(err)
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.error(err)
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
 
