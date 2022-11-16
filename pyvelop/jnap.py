@@ -78,6 +78,7 @@ class Actions(str, Enum):
     GET_WAN_INFO: str = f"{ROOT}/router/GetWANStatus3"
     GET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/GetWPSServerSettings"
     REBOOT: str = f"{ROOT}/core/Reboot"
+    SET_DEVICE_PROPERTY: str = f"{ROOT}/devicelist/SetDeviceProperties"
     SET_GUEST_NETWORK: str = f"{ROOT}/guestnetwork/SetGuestRadioSettings2"
     SET_PARENTAL_CONTROL_INFO: str = (
         f"{ROOT}/parentalcontrol/SetParentalControlSettings"
@@ -261,6 +262,8 @@ class Response:
                         else f"Unknown action URI '{self.action}'"
                     )
                     err = MeshInvalidInput(action)
+                elif resp.get(self.RESULT_KEY) == "ErrorUnknownDevice":
+                    err = MeshInvalidInput("Unknown Device")
                 elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
                     err = MeshCannotDeleteDevice
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
