@@ -89,7 +89,7 @@
                 "twine",
                 "upload",
                 "--skip-existing",
-                "dist/*2022.10.*"
+                "dist/*2022.11.*"
             ]
         }
     ]
