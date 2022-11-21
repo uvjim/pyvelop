@@ -220,6 +220,30 @@ async def device_details(
             )
 
 
+@device_group.command(cls=StandardCommand, name="internet_access")
+@click.pass_context
+@click.argument("device_id")
+@click.option("--block/--no-block", default=False)
+async def device_internet_access(
+    ctx: click.Context,
+    device_id: str,
+    block: bool,
+    **_,
+) -> None:
+    """Block/Unblock access to the internet."""
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
+            try:
+                await mesh_obj.async_device_internet_access_state(
+                    device_id=device_id, state=not block
+                )
+            except MeshDeviceNotFoundResponse as err:
+                _LOGGER.error("Device not found: %s", err.devices[0])
+            except MeshException as err:
+                _LOGGER.error(err)
+
+
 @device_group.command(cls=StandardCommand, name="rename")
 @click.pass_context
 @click.argument("device_id")

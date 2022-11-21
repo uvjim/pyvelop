@@ -17,6 +17,7 @@ from . import jnap as api
 from .decorators import needs_gather_details
 from .device import Device
 from .exceptions import (
+    MeshDeviceHasPCRules,
     MeshDeviceNotFoundResponse,
     MeshException,
     MeshInvalidArguments,
@@ -575,6 +576,130 @@ class Mesh:
     # endregion
 
     # region #-- public methods --#
+    @needs_gather_details
+    async def async_device_internet_access_state(
+        self, device_id: str, state: bool, overwrite: bool = False
+    ) -> None:
+        """Instruct the Mesh to block/unblock internet access for a device.
+
+        :param device_id: the device ID to change internet state for
+        :param overwrite: True to overwrite current rules for the device
+        :param state: True to enable internet access, False to block
+        :return: None
+        """
+        _LOGGER.debug(self._log_formatter.format("entered"))
+
+        device: List[Device] = [
+            dev for dev in self.devices if dev.unique_id.lower() == device_id.lower()
+        ]
+        if not device:
+            raise MeshDeviceNotFoundResponse(devices=[device_id])
+
+        # get the current rules - they may have changed since the last poll
+        resp: Dict[str, Any] = await self._async_gather_details(
+            include_parental_control=True
+        )
+        current_rules = resp.get(ATTR_PARENTAL_CONTROL_INFO, {}).get("rules", [])
+
+        # build the defaults
+        daily_schedule: str = "0" * 48
+        blocking_schedule: Dict[str, str] = {
+            "sunday": daily_schedule,
+            "monday": daily_schedule,
+            "tuesday": daily_schedule,
+            "wednesday": daily_schedule,
+            "thursday": daily_schedule,
+            "friday": daily_schedule,
+            "saturday": daily_schedule,
+        }
+        mac_address: str = device[0].network[0].get("mac", None)
+
+        this_device_rules = [
+            rule
+            for rule in current_rules
+            if mac_address in rule.get("macAddresses", [])
+        ]
+
+        if len(this_device_rules) == 0 and state:
+            _LOGGER.debug(self._log_formatter.format("exited", include_lineno=True))
+            return
+
+        if len(this_device_rules) != 0 and not state and not overwrite:
+            raise MeshDeviceHasPCRules
+
+        if len(this_device_rules) != 0 and state and not overwrite:
+            for rule in this_device_rules:
+                if rule.get("wanSchedule", {}) != blocking_schedule:
+                    raise MeshDeviceHasPCRules
+
+        if state:
+            rules = [
+                rule
+                for rule in current_rules
+                if mac_address not in rule.get("macAddresses", [])
+            ]
+            payload: Dict[str, Any] = {
+                "isParentalControlEnabled": bool(len(rules)),
+                "rules": rules,
+            }
+            requests: List = [
+                self._async_make_request(
+                    action=api.Actions.SET_PARENTAL_CONTROL_INFO,
+                    payload=payload,
+                ),
+                self._async_make_request(
+                    action=api.Actions.SET_DEVICE_PROPERTY,
+                    payload={
+                        "deviceID": device[0].unique_id,
+                        "propertiesToRemove": [
+                            "blockAllManually",
+                            "showInPCList",
+                        ],
+                    },
+                ),
+            ]
+            await asyncio.gather(*requests)
+        else:
+            rules = [
+                rule
+                for rule in current_rules
+                if mac_address not in rule.get("macAddresses", [])
+            ]
+            payload: Dict[str, Any] = {
+                "isParentalControlEnabled": True,
+                "rules": rules
+                + [
+                    {
+                        "blockedURLs": [],
+                        "description": "default description",
+                        "isEnabled": True,
+                        "macAddresses": [mac_address],
+                        "wanSchedule": blocking_schedule,
+                    },
+                ],
+            }
+            await self._async_make_request(
+                action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload
+            )
+            await self._async_make_request(
+                action=api.Actions.SET_DEVICE_PROPERTY,
+                payload={
+                    "deviceID": device[0].unique_id,
+                    "propertiesToModify": [
+                        {
+                            "name": "blockAllManually",
+                            "value": "true",
+                        },
+                        {
+                            "name": "showInPCList",
+                            "value": "true",
+                        },
+                    ],
+                },
+            )
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
     async def async_check_for_updates(self) -> None:
         """Ask the mesh to look for new versions of firmware for the nodes.
 

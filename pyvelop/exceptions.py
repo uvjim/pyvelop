@@ -36,6 +36,14 @@ class MeshConnectionError(MeshException):
         super().__init__("Connection Error")
 
 
+class MeshDeviceHasPCRules(MeshException):
+    """Device already has Parental Control rules."""
+
+    def __init__(self) -> None:
+        """Initialise and default message."""
+        super().__init__("Device already has Parental Control rules")
+
+
 class MeshDeviceNotFoundResponse(MeshException):
     """Device is not found in the mesh."""
 
