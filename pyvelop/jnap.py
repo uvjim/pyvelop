@@ -262,12 +262,16 @@ class Response:
                         else f"Unknown action URI '{self.action}'"
                     )
                     err = MeshInvalidInput(action)
-                elif resp.get(self.RESULT_KEY) == "ErrorUnknownDevice":
-                    err = MeshInvalidInput("Unknown Device")
                 elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
                     err = MeshCannotDeleteDevice
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
                     err = MeshNodeNotPrimary
+                elif resp.get(self.RESULT_KEY) == "ErrorInvalidWANSchedule":
+                    err = MeshInvalidInput("Invalid WAN Schedule")
+                elif resp.get(self.RESULT_KEY) == "ErrorRulesOverlap":
+                    err = MeshInvalidInput("Rules Overlap")
+                elif resp.get(self.RESULT_KEY) == "ErrorUnknownDevice":
+                    err = MeshInvalidInput("Unknown Device")
                 elif resp.get(self.RESULT_KEY).startswith("_"):
                     err = MeshInvalidInput(
                         f"{resp.get(self.RESULT_KEY)}: '{self.action}'"
