@@ -47,9 +47,9 @@ class MeshDeviceHasPCRules(MeshException):
 class MeshDeviceNotFoundResponse(MeshException):
     """Device is not found in the mesh."""
 
-    def __init__(self, devices: List[str]) -> None:
+    def __init__(self, devices: List[str] | None = None) -> None:
         """Initialise and default message."""
-        self.devices = devices
+        self.devices = devices or []
         super().__init__("Device(s) not found")
 
 
