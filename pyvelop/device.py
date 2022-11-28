@@ -47,7 +47,7 @@ class ParentalControl:
 
         return ret
 
-    def _human_readable(self, schedule: Dict[str, str]) -> Dict[str, str]:
+    def _human_readable(self, schedule: Dict[str, str]) -> Dict[str, List[str]]:
         """Make the given schedule human readable."""
         ret = {}
         for day, sched in schedule.items():
@@ -125,7 +125,7 @@ class ParentalControl:
         return self._rule.get("description", "default description")
 
     @property
-    def human_readable_cached_schedule(self) -> Dict[str, str]:
+    def human_readable_cached_schedule(self) -> Dict[str, List[str]]:
         """Return the cached schedule in human readable form."""
         if self.cached_schedule is not None:
             return self._human_readable(self.cached_schedule)
@@ -133,7 +133,7 @@ class ParentalControl:
         return None
 
     @property
-    def human_readable_schedule(self) -> Dict[str, str]:
+    def human_readable_schedule(self) -> Dict[str, List[str]]:
         """Return the schedule in human readable form."""
         return self._human_readable(self.schedule)
 
