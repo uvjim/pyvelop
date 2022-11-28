@@ -633,15 +633,9 @@ class Mesh:
                 if mac_address not in rule.get("macAddresses", [])
             ]
             if pc_schedule.cached_schedule is not None:
-                rules.append(
-                    {
-                        "blockedURLs": pc_schedule.blocked_urls,
-                        "description": pc_schedule.description,
-                        "isEnabled": pc_schedule.is_enabled,
-                        "macAddresses": pc_schedule.mac_addresses,
-                        "wanSchedule": pc_schedule.cached_schedule,
-                    }
-                )
+                schedule: Dict[str, Any] = pc_schedule.rule
+                schedule["wanSchedule"] = pc_schedule.cached_schedule
+                rules.append(schedule)
             payload: Dict[str, Any] = {
                 "isParentalControlEnabled": bool(len(rules)),
                 "rules": rules,
@@ -670,18 +664,19 @@ class Mesh:
                 for rule in current_rules
                 if mac_address not in rule.get("macAddresses", [])
             ]
+            if pc_schedule is None:  # no existing rules but we're blocking
+                pc_schedule: ParentalControl = ParentalControl(None, None)
+                schedule: Dict[str, Any] = pc_schedule.rule
+                schedule["macAddresses"] = [mac_address]
+                schedule["wanSchedule"] = pc_schedule.paused_schedule
+                rules.append(schedule)
+            else:
+                schedule = pc_schedule.rule
+                schedule["wanSchedule"] = pc_schedule.paused_schedule
+                rules.append(schedule)
             payload: Dict[str, Any] = {
                 "isParentalControlEnabled": True,
-                "rules": rules
-                + [
-                    {
-                        "blockedURLs": pc_schedule.blocked_urls,
-                        "description": pc_schedule.description,
-                        "isEnabled": pc_schedule.is_enabled,
-                        "macAddresses": pc_schedule.mac_addresses,
-                        "wanSchedule": pc_schedule.paused_schedule,
-                    },
-                ],
+                "rules": rules,
             }
             await self._async_make_request(
                 action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload
@@ -699,7 +694,7 @@ class Mesh:
                     },
                 ],
             }
-            if pc_schedule is not None:
+            if pc_schedule.schedule:  # existing schedule to backup
                 payload["propertiesToModify"].append(
                     {
                         "name": "actualWanSchedule",

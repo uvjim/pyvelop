@@ -27,7 +27,7 @@ class ParentalControl:
         :param rule:
         :param: cached_schedule:
         """
-        self._rule: Dict[str, Any] = rule
+        self._rule: Dict[str, Any] = rule or {}
         self._cached_schedule: str | None = cached_schedule
 
     def _decode_for_restore(self, schedule: str) -> Dict[str, str]:
@@ -122,7 +122,7 @@ class ParentalControl:
     @property
     def description(self) -> str:
         """Return the rule description"""
-        return self._rule.get("description", "")
+        return self._rule.get("description", "default description")
 
     @property
     def human_readable_cached_schedule(self) -> Dict[str, str]:
@@ -157,6 +157,18 @@ class ParentalControl:
     def paused_schedule(self) -> Dict[str, str]:
         """Return a paused schedule."""
         return {day.name: self.BLOCKED * 48 for day in self.WEEKDAYS}
+
+    @final
+    @property
+    def rule(self) -> Dict[str, Any]:
+        """Return the rule"""
+        return {
+            "blockedURLs": self.blocked_urls,
+            "description": self.description,
+            "isEnabled": self.is_enabled,
+            "macAddresses": self.mac_addresses,
+            "wanSchedule": self.schedule,
+        }
 
     @property
     def schedule(self) -> Dict[str, str]:
