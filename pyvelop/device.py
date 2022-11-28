@@ -1,60 +1,169 @@
 """Representation of a mesh device."""
 
+import base64
 import datetime
-from typing import List
+from enum import IntEnum
+from typing import Any, Dict, List, final
 
 from .base import MeshDevice
 
 
-def _textualise_schedule(schedules: dict) -> dict:
-    """Establish a textual version of the schedule.
+class ParentalControl:
+    """Class to manage parental control schedules."""
 
-    The schedule is stored in a string of 48 characters ('0's and '1's) representing 30-minute periods.
-    '0' is blocked, '1' is allowed.
+    BLOCKED: str = "0"
+    UNBLOCKED: str = "1"
+    WEEKDAYS: IntEnum = IntEnum(
+        "Weekdays",
+        ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"),
+        start=0,
+    )
 
-    :param schedules: dictionary representing the schedules as per the API
-    :return: a dictionary showing the times that internet access is blocked and the sites that are also blocked
-    """
-    _pc_schedule_blocked: str = "0"
-    _pc_schedule_unblocked: str = "1"
+    def __init__(
+        self, rule: Dict[str, Any], cached_schedule: str | None = None
+    ) -> None:
+        """Initialise.
 
-    ret: dict = {}
+        :param rule:
+        :param: cached_schedule:
+        """
+        self._rule: Dict[str, Any] = rule
+        self._cached_schedule: str | None = cached_schedule
 
-    for day, schedule in schedules.items():
-        schedule_text: List = []
-        schedule_list = list(schedule)
-        start: datetime = None
-        end: datetime = None
-        for pos, minute in enumerate(schedule_list):
-            if not start and minute == _pc_schedule_blocked:
-                start: datetime = (
-                    datetime.datetime.combine(
-                        datetime.datetime.today(), datetime.datetime.min.time()
+    def _decode_for_restore(self, schedule: str) -> Dict[str, str]:
+        """Decode the schedule for restoring to the device."""
+        ret: Dict[str, str] = {}
+        chunk_length: int = 48
+        decoded = schedule and base64.b64decode(schedule)
+        sorted_schedule: str = ""
+        for chunk in decoded:
+            sorted_schedule += f"{int(chunk):08b}"
+
+        for daily_schedule in range(0, len(list(self.WEEKDAYS))):
+            start = daily_schedule * chunk_length
+            ret[self.WEEKDAYS(daily_schedule).name] = sorted_schedule[
+                start : start + chunk_length
+            ]
+
+        return ret
+
+    def _human_readable(self, schedule: Dict[str, str]) -> Dict[str, str]:
+        """Make the given schedule human readable."""
+        ret = {}
+        for day, sched in schedule.items():
+            schedule_text: List = []
+            schedule_list = list(sched)
+            start: datetime = None
+            end: datetime = None
+            for pos, minute in enumerate(schedule_list):
+                if not start and minute == self.BLOCKED:
+                    start: datetime = (
+                        datetime.datetime.combine(
+                            datetime.datetime.today(), datetime.datetime.min.time()
+                        )
+                        + datetime.timedelta(minutes=pos * 30)
+                    ).time()
+                    if end:
+                        end = None
+                if start and (
+                    minute == self.UNBLOCKED or pos == len(schedule_list) - 1
+                ):
+                    if pos == len(schedule_list) - 1:
+                        pos += 1
+                    end: datetime = (
+                        datetime.datetime.combine(
+                            datetime.datetime.today(), datetime.datetime.min.time()
+                        )
+                        + datetime.timedelta(minutes=pos * 30)
+                    ).time()
+                    schedule_text.append(
+                        f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
                     )
-                    + datetime.timedelta(minutes=pos * 30)
-                ).time()
-                if end:
-                    end = None
-            if start and (
-                minute == _pc_schedule_unblocked or pos == len(schedule_list) - 1
-            ):
-                if pos == len(schedule_list) - 1:
-                    pos += 1
-                end: datetime = (
-                    datetime.datetime.combine(
-                        datetime.datetime.today(), datetime.datetime.min.time()
-                    )
-                    + datetime.timedelta(minutes=pos * 30)
-                ).time()
-                schedule_text.append(
-                    f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
-                )
-                if start:
-                    start = None
+                    if start:
+                        start = None
 
-        ret[day] = schedule_text
+            ret[day] = schedule_text
 
-    return ret
+        return ret
+
+    def encode_for_backup(self, schedule: Dict[str, str]) -> str:
+        """Encode the schedule for storage in a property."""
+        ret: str = ""
+        chunk_length: int = 8
+        sorted_schedule: str = "".join(
+            [schedule[day.name] for day in list(self.WEEKDAYS)]
+        )
+        sorted_chunks: List[str] = [
+            (sorted_schedule[i : i + chunk_length])
+            for i in range(0, len(sorted_schedule), chunk_length)
+        ]
+
+        chunk_chars: bytearray = bytearray()
+        for chunk in sorted_chunks:
+            chunk_chars.append(int(chunk, base=2))
+
+        ret = chunk_chars and base64.b64encode(chunk_chars).decode()
+        return ret
+
+    # region #-- properties --#
+    @property
+    def blocked_urls(self) -> List[str]:
+        """Return blocked URLs."""
+        return self._rule.get("blockedURLs", [])
+
+    @property
+    def cached_schedule(self) -> Dict[str, str]:
+        """Return the cached schedule."""
+        if self._cached_schedule is not None:
+            return self._decode_for_restore(self._cached_schedule)
+
+        return None
+
+    @property
+    def description(self) -> str:
+        """Return the rule description"""
+        return self._rule.get("description", "")
+
+    @property
+    def human_readable_cached_schedule(self) -> Dict[str, str]:
+        """Return the cached schedule in human readable form."""
+        if self.cached_schedule is not None:
+            return self._human_readable(self.cached_schedule)
+
+        return None
+
+    @property
+    def human_readable_schedule(self) -> Dict[str, str]:
+        """Return the schedule in human readable form."""
+        return self._human_readable(self.schedule)
+
+    @property
+    def is_enabled(self) -> bool:
+        """Return whether the rule is enabled or not."""
+        return self._rule.get("isEnabled", True)
+
+    @property
+    def is_paused(self) -> bool:
+        """Return whether the rule is all blocking."""
+        return self.schedule == self.paused_schedule
+
+    @property
+    def mac_addresses(self) -> List[str]:
+        """Return the MAC addresses the rule is for."""
+        return self._rule.get("macAddresses", [])
+
+    @final
+    @property
+    def paused_schedule(self) -> Dict[str, str]:
+        """Return a paused schedule."""
+        return {day.name: self.BLOCKED * 48 for day in self.WEEKDAYS}
+
+    @property
+    def schedule(self) -> Dict[str, str]:
+        """Return the current internet access schedule used in the rule."""
+        return self._rule.get("wanSchedule", {})
+
+    # endregion
 
 
 class Device(MeshDevice):
@@ -115,11 +224,10 @@ class Device(MeshDevice):
         ret: dict = {}
         if self._attribs.get("parental_controls"):
             for rule in self._attribs.get("parental_controls"):
+                pc_details: ParentalControl = ParentalControl(rule=rule)
                 ret = {
-                    "blocked_internet_access": _textualise_schedule(
-                        rule.get("wanSchedule", {})
-                    ),
-                    "blocked_sites": rule.get("blockedURLs", []),
+                    "blocked_internet_access": pc_details.human_readable_schedule,
+                    "blocked_sites": pc_details.blocked_urls,
                 }
 
         return ret

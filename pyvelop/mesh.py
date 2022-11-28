@@ -15,7 +15,7 @@ import aiohttp
 from . import const
 from . import jnap as api
 from .decorators import needs_gather_details
-from .device import Device
+from .device import Device, ParentalControl
 from .exceptions import (
     MeshDeviceHasPCRules,
     MeshDeviceNotFoundResponse,
@@ -76,6 +76,28 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
 }
 
 
+def _get_speedtest_state(speedtest_results=None) -> str:
+    """Process the Speedtest results to get a textual state."""
+    if speedtest_results is None:
+        speedtest_results = {}
+
+    if speedtest_results:
+        if speedtest_results.get("uploadBandwidth", 0):
+            ret = "Checking upload speed"
+        elif speedtest_results.get("downloadBandwidth", 0):
+            ret = "Checking download speed"
+        elif speedtest_results.get("latency"):
+            ret = "Checking latency"
+        elif speedtest_results.get("serverID", "") == "0":
+            ret = "Detecting server"
+        else:
+            ret = ""
+    else:
+        ret = ""
+
+    return ret
+
+
 def _process_speedtest_results(
     speedtest_results=None, only_latest: bool = False, only_completed: bool = False
 ) -> List:
@@ -115,28 +137,6 @@ def _process_speedtest_results(
     if only_latest:
         if ret:
             ret = [ret[0]]
-
-    return ret
-
-
-def _get_speedtest_state(speedtest_results=None) -> str:
-    """Process the Speedtest results to get a textual state."""
-    if speedtest_results is None:
-        speedtest_results = {}
-
-    if speedtest_results:
-        if speedtest_results.get("uploadBandwidth", 0):
-            ret = "Checking upload speed"
-        elif speedtest_results.get("downloadBandwidth", 0):
-            ret = "Checking download speed"
-        elif speedtest_results.get("latency"):
-            ret = "Checking latency"
-        elif speedtest_results.get("serverID", "") == "0":
-            ret = "Detecting server"
-        else:
-            ret = ""
-    else:
-        ret = ""
 
     return ret
 
@@ -578,12 +578,11 @@ class Mesh:
     # region #-- public methods --#
     @needs_gather_details
     async def async_device_internet_access_state(
-        self, device_id: str, state: bool, overwrite: bool = False
+        self, device_id: str, state: bool
     ) -> None:
         """Instruct the Mesh to block/unblock internet access for a device.
 
         :param device_id: the device ID to change internet state for
-        :param overwrite: True to overwrite current rules for the device
         :param state: True to enable internet access, False to block
         :return: None
         """
@@ -602,42 +601,47 @@ class Mesh:
         current_rules = resp.get(ATTR_PARENTAL_CONTROL_INFO, {}).get("rules", [])
 
         # build the defaults
-        daily_schedule: str = "0" * 48
-        blocking_schedule: Dict[str, str] = {
-            "sunday": daily_schedule,
-            "monday": daily_schedule,
-            "tuesday": daily_schedule,
-            "wednesday": daily_schedule,
-            "thursday": daily_schedule,
-            "friday": daily_schedule,
-            "saturday": daily_schedule,
-        }
         mac_address: str = device[0].network[0].get("mac", None)
+        pc_schedule: ParentalControl | None = None
 
+        # current rules for this device
         this_device_rules = [
             rule
             for rule in current_rules
             if mac_address in rule.get("macAddresses", [])
         ]
 
-        if len(this_device_rules) == 0 and state:
+        if len(this_device_rules) == 0 and state:  # access already allowed
             _LOGGER.debug(self._log_formatter.format("exited", include_lineno=True))
             return
 
-        if len(this_device_rules) != 0 and not state and not overwrite:
-            raise MeshDeviceHasPCRules
-
-        if len(this_device_rules) != 0 and state and not overwrite:
-            for rule in this_device_rules:
-                if rule.get("wanSchedule", {}) != blocking_schedule:
-                    raise MeshDeviceHasPCRules
+        if len(this_device_rules) != 0:  # we've got some rules so process them
+            pc_schedule = ParentalControl(
+                rule=this_device_rules[0],
+                cached_schedule=getattr(device[0], "_get_user_property")(
+                    "actualWanSchedule"
+                ),
+            )
 
         if state:
+            if not pc_schedule.is_paused:  # not an all blocking rule
+                raise MeshDeviceHasPCRules
+
             rules = [
                 rule
                 for rule in current_rules
                 if mac_address not in rule.get("macAddresses", [])
             ]
+            if pc_schedule.cached_schedule is not None:
+                rules.append(
+                    {
+                        "blockedURLs": pc_schedule.blocked_urls,
+                        "description": pc_schedule.description,
+                        "isEnabled": pc_schedule.is_enabled,
+                        "macAddresses": pc_schedule.mac_addresses,
+                        "wanSchedule": pc_schedule.cached_schedule,
+                    }
+                )
             payload: Dict[str, Any] = {
                 "isParentalControlEnabled": bool(len(rules)),
                 "rules": rules,
@@ -652,6 +656,7 @@ class Mesh:
                     payload={
                         "deviceID": device[0].unique_id,
                         "propertiesToRemove": [
+                            "actualWanSchedule",
                             "blockAllManually",
                             "showInPCList",
                         ],
@@ -670,32 +675,42 @@ class Mesh:
                 "rules": rules
                 + [
                     {
-                        "blockedURLs": [],
-                        "description": "default description",
-                        "isEnabled": True,
-                        "macAddresses": [mac_address],
-                        "wanSchedule": blocking_schedule,
+                        "blockedURLs": pc_schedule.blocked_urls,
+                        "description": pc_schedule.description,
+                        "isEnabled": pc_schedule.is_enabled,
+                        "macAddresses": pc_schedule.mac_addresses,
+                        "wanSchedule": pc_schedule.paused_schedule,
                     },
                 ],
             }
             await self._async_make_request(
                 action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload
             )
+            payload: Dict[str, Any] = {
+                "deviceID": device[0].unique_id,
+                "propertiesToModify": [
+                    {
+                        "name": "blockAllManually",
+                        "value": "true",
+                    },
+                    {
+                        "name": "showInPCList",
+                        "value": "true",
+                    },
+                ],
+            }
+            if pc_schedule is not None:
+                payload["propertiesToModify"].append(
+                    {
+                        "name": "actualWanSchedule",
+                        "value": pc_schedule.encode_for_backup(
+                            schedule=pc_schedule.schedule
+                        ),
+                    }
+                )
+
             await self._async_make_request(
-                action=api.Actions.SET_DEVICE_PROPERTY,
-                payload={
-                    "deviceID": device[0].unique_id,
-                    "propertiesToModify": [
-                        {
-                            "name": "blockAllManually",
-                            "value": "true",
-                        },
-                        {
-                            "name": "showInPCList",
-                            "value": "true",
-                        },
-                    ],
-                },
+                action=api.Actions.SET_DEVICE_PROPERTY, payload=payload
             )
 
         _LOGGER.debug(self._log_formatter.format("exited"))
