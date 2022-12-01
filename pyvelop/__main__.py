@@ -293,6 +293,7 @@ async def mesh_details(
                                 speedtest_results=mesh_obj.latest_speedtest_result
                             ),
                         ),
+                        ("dhcp_enabled", "DHCP Enabled"),
                         ("parental_control_enabled", "Parental Control Enabled"),
                         ("wps_state", "WPS Enabled"),
                         ("is_channel_scan_running", "Channel Scan Running"),

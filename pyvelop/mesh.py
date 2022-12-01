@@ -1235,6 +1235,14 @@ class Mesh:
 
     @property
     @needs_gather_details
+    def dhcp_enabled(self) -> bool:
+        """Return if DHCP is enabled."""
+        return self._mesh_attributes.get(ATTR_LAN_SETTINGS, {}).get(
+            "isDHCPEnabled", False
+        )
+
+    @property
+    @needs_gather_details
     def firmware_update_setting(self) -> str | None:
         """Get the current setting for firmware updates.
 
