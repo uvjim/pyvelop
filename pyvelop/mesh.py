@@ -39,6 +39,7 @@ ATTR_CHANNEL_SCAN_INFO: str = "channel_scan_info"
 ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
 ATTR_GUEST_NETWORK_INFO: str = "guest_network"
 ATTR_HOMEKIT_SETTINGS: str = "homekit_settings"
+ATTR_LAN_SETTINGS: str = "lan_settings"
 ATTR_MAC_FILTERING_SETTINGS: str = "mac_filtering_settings"
 ATTR_NETWORK_CONNECTIONS: str = "network_connections"
 ATTR_NODES: str = "nodes"
@@ -62,6 +63,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
     api.Actions.GET_HOMEKIT_SETTINGS: ATTR_HOMEKIT_SETTINGS,
+    api.Actions.GET_LAN_SETTINGS: ATTR_LAN_SETTINGS,
     api.Actions.GET_MAC_FILTERING_SETTINGS: ATTR_MAC_FILTERING_SETTINGS,
     api.Actions.GET_NETWORK_CONNECTIONS: ATTR_NETWORK_CONNECTIONS,
     api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_PARENTAL_CONTROL_INFO,
@@ -274,6 +276,7 @@ class Mesh:
         :param include_firmware_update_settings: True to include the current settings for firmware updates
         :param include_guest_wifi: True to include details about the guest Wi-Fi
         :param include_homekit_settings: True to include the settings for the HomeKit integration
+        :param include_lan_settings: True to include LAN settings
         :param include_mac_filtering_settings: True to include the settings for MAC filtering
         :param include_network_connections: True to include details about network connections
         :param include_parental_control: True to include details about Parental Control
@@ -315,6 +318,10 @@ class Mesh:
         # -- get the guest WiFi details --#
         if kwargs.get("include_guest_wifi"):
             payload_safe.append({"action": api.Actions.GET_GUEST_NETWORK_INFO})
+
+        # -- get LAN settings --#
+        if kwargs.get("include_lan_settings"):
+            payload_safe.append({"action": api.Actions.GET_LAN_SETTINGS})
 
         # -- get the MAC filtering settings --#
         if kwargs.get("include_mac_filtering_settings"):
@@ -789,6 +796,7 @@ class Mesh:
             include_firmware_update_settings=True,
             include_guest_wifi=True,
             include_homekit_settings=True,
+            include_lan_settings=True,
             include_mac_filtering_settings=True,
             include_network_connections=True,
             include_parental_control=True,

@@ -57,6 +57,7 @@ class Actions(str, Enum):
     )
     GET_GUEST_NETWORK_INFO: str = f"{ROOT}/guestnetwork/GetGuestRadioSettings2"
     GET_HOMEKIT_SETTINGS: str = f"{ROOT}/homekit/GetHomeKitSettings"
+    GET_LAN_SETTINGS: str = f"{ROOT}/router/GetLANSettings"
     GET_MAC_FILTERING_SETTINGS: str = f"{ROOT}/macfilter/GetMACFilterSettings"
     GET_NETWORK_CONNECTIONS: str = (
         f"{ROOT}/nodes/networkconnections/GetNodesWirelessNetworkConnections"
