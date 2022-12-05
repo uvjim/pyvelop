@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from collections.abc import Iterable
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Tuple
 
 import aiohttp
 
@@ -532,31 +532,38 @@ class Mesh:
                 setattr(node, "_Device__parent_name", parent)
                 # endregion
 
+                # region #-- process MAC based details --#
                 network_adapater_macs = [adapter.get("mac") for adapter in node.network]
-                # region #-- get the parental control details --#
                 pc_schedule: List = []
                 for mac in network_adapater_macs:
+                    # -- get the parental control details --#
                     for rule in ret.get(ATTR_PARENTAL_CONTROL_INFO, {}).get(
                         "rules", []
                     ):
                         if mac in rule.get("macAddresses", []):
                             pc_schedule.append(rule)
                             break
-                getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
-                # endregion
+                    getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
 
-                # region #-- get additional connection details --#
-                if (
-                    network_connections := ret.get(ATTR_NETWORK_CONNECTIONS)
-                ) is not None:
-                    for mac in network_adapater_macs:
+                    # -- tag the interface with reservation info --#
+                    if (lan_settings := ret.get(ATTR_LAN_SETTINGS)) is not None:
+                        for reservation in lan_settings.get("dhcpSettings", {}).get(
+                            "reservations", []
+                        ):
+                            if reservation.get("macAddress", "").lower() == mac.lower():
+                                getattr(node, "_attribs", {})[
+                                    "reservation_details"
+                                ] = reservation
+                                break
+
+                    # -- get additional connection details --#
+                    if (
+                        network_connections := ret.get(ATTR_NETWORK_CONNECTIONS)
+                    ) is not None:
                         for conn_details in network_connections.get(
                             "nodeWirelessConnections", []
                         ):
-                            node_connections: List[Mapping] = conn_details.get(
-                                "connections", {}
-                            )
-                            for connection in node_connections:
+                            for connection in conn_details.get("connections", {}):
                                 if mac == connection.get("macAddress"):
                                     getattr(node, "_attribs", {})[
                                         "connection_details"
@@ -877,6 +884,7 @@ class Mesh:
         else:
             resp = await self._async_gather_details(
                 include_devices=True,
+                include_lan_settings=True,
             )
             all_devices = resp.get(ATTR_PROCESSED_DEVICES)
 
@@ -926,6 +934,7 @@ class Mesh:
         else:
             resp = await self._async_gather_details(
                 include_devices=True,
+                include_lan_settings=True,
             )
             all_devices = resp.get(ATTR_PROCESSED_DEVICES)
 
@@ -957,6 +966,7 @@ class Mesh:
 
         all_devices = await self._async_gather_details(
             include_devices=True,
+            include_lan_settings=True,
             include_network_connections=True,
         )
         ret: List[Device] = [
