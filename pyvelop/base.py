@@ -3,7 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
-from typing import List
+from typing import Any, Dict, List
 
 from . import signal_strength_to_text
 
@@ -32,6 +32,30 @@ class MeshDevice:
             ret += self.name
         return ret
 
+    def _get_connected_adapter_details(
+        self, mac: str, include_parent: bool = False
+    ) -> Dict[str, Any]:
+        """Return details about the connected adapter."""
+        ret: Dict[str, Any] = {}
+
+        adapter_details = [
+            details
+            for details in self._attribs.get("connections", [])
+            if details.get("macAddress", "").lower() == mac.lower()
+        ]
+
+        if adapter_details:
+            ret = {
+                "guest_network": adapter_details[0].get("isGuest", False),
+                "ip": adapter_details[0].get("ipAddress"),
+                "ipv6": adapter_details[0].get("ipv6Address"),
+                "mac": adapter_details[0].get("macAddress"),
+            }
+            if self.__class__.__name__.lower() == "device" and include_parent:
+                ret["parent_id"] = adapter_details[0].get("parentDeviceID")
+
+        return ret
+
     def _get_user_property(self, name: str) -> str | None:
         """Get the given property from the user properties."""
         ret = None
@@ -45,31 +69,55 @@ class MeshDevice:
 
         return ret
 
+    def _get_reservation_details(self, mac: str) -> Dict[str, Any]:
+        """Get DHCP reservation details for the given MAC."""
+        ret: Dict[str, Any] = {}
+
+        ret["reservation"] = False
+        if (
+            reservation_details := self._attribs.get("reservation_details")
+        ) is not None:
+            if reservation_details.get("macAddress", "").lower() == mac.lower():
+                ret["reservation"] = True
+                ret["reservation_description"] = reservation_details.get(
+                    "description", ""
+                )
+
+        return ret
+
+    def _get_signal_details(self, mac: str) -> Dict[str, Any]:
+        """Get the signal details for the given MAC."""
+        ret: Dict[str, Any] = {}
+
+        if (conn_details := self._attribs.get("connection_details")) is not None:
+            if conn_details.get("macAddress", "").lower() == mac.lower():
+                ret["rssi"] = conn_details.get("wireless", {}).get("signalDecibels")
+                ret["signal_strength"] = signal_strength_to_text(ret["rssi"])
+
+        return ret
+
     @property
     def connected_adapters(self) -> List[dict]:
         """Get the network adapters that are connected to the mesh.
 
         :return: a list of dictionaries that contain the MAC, IP and Guest Network status of the adapter
         """
-        ret = [
-            {
-                "mac": adapter.get("macAddress"),
-                "ip": adapter.get("ipAddress"),
-                "ipv6": adapter.get("ipv6Address"),
-                "guest_network": adapter.get("isGuest", False),
-            }
-            for adapter in self._attribs.get("connections", [])
-        ]
+        ret: List[Dict[str, Any]] = []
 
-        for idx, adapter in enumerate(ret):
-            if conn_details := self._attribs.get("connection_details", {}):
-                if conn_details["macAddress"] == adapter["mac"]:
-                    ret[idx]["rssi"] = conn_details.get("wireless", {}).get(
-                        "signalDecibels"
-                    )
-                    ret[idx]["signal_strength"] = signal_strength_to_text(
-                        ret[idx]["rssi"]
-                    )
+        for adapter in self._attribs.get("connections", []):
+            adapter_details: Dict[str, Any] = self._get_connected_adapter_details(
+                mac=adapter.get("macAddress", "")
+            )
+
+            signal_details: Dict[str, Any] = self._get_signal_details(
+                mac=adapter.get("macAddress", "")
+            )
+
+            reservation_details: Dict[str, Any] = self._get_reservation_details(
+                mac=adapter.get("macAddress", "")
+            )
+
+            ret.append(dict(**reservation_details, **signal_details, **adapter_details))
 
         return ret
 
@@ -95,7 +143,7 @@ class MeshDevice:
     def network(self) -> List[dict]:
         """Get all the adapters the device has installed.
 
-        :return: List of dictionaries containing MAC, IP, Wi-Fi band, Parent unique ID.
+        :return: List of dictionaries containing details of adapaters.
         """
         ret = []
 
@@ -112,23 +160,19 @@ class MeshDevice:
                 ret.append(props)
         # -- get the IP addresses, parentId and additional connection details if relevant --#
         for idx, adapter in enumerate(ret):
-            adapter_details = self._attribs.get("connections", [])
-            adapter_details = [
-                details
-                for details in adapter_details
-                if details["macAddress"] == adapter["mac"]
-            ]
-            if adapter_details:
-                ret[idx]["guest_network"] = adapter_details[0].get("isGuest", False)
-                ret[idx]["ip"] = adapter_details[0].get("ipAddress")
-                ret[idx]["ipv6"] = adapter_details[0].get("ipv6Address")
-                if self.__class__.__name__.lower() == "device":
-                    ret[idx]["parent_id"] = adapter_details[0].get("parentDeviceID")
-            if conn_details := self._attribs.get("connection_details", {}):
-                ret[idx]["rssi"] = conn_details.get("wireless", {}).get(
-                    "signalDecibels"
-                )
-                ret[idx]["signal_strength"] = signal_strength_to_text(ret[idx]["rssi"])
+            adapter_details: Dict[str, Any] = self._get_connected_adapter_details(
+                mac=adapter.get("mac"), include_parent=True
+            )
+
+            signal_details: Dict[str, Any] = self._get_signal_details(
+                mac=adapter.get("mac")
+            )
+            reservation_details: Dict[str, Any] = self._get_reservation_details(
+                mac=adapter.get("mac", "")
+            )
+
+            ret[idx].update(**signal_details, **reservation_details, **adapter_details)
+
         return ret
 
     @property
