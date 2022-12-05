@@ -642,6 +642,8 @@ def _connected_details(adapters: List[Dict]) -> str:
             ("mac", "MAC"),
             ("ip", "IPv4"),
             ("ipv6", "IPv6"),
+            ("reservation", "Reservation"),
+            ("reservation_description", "Reserved Name"),
             ("guest_network", "Guest"),
             (
                 "signal_strength",
