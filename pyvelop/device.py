@@ -187,7 +187,6 @@ class Device(MeshDevice):
         :param kwargs: keyword arguments
         """
         super().__init__(**kwargs)
-        self.__parent_name: str | None = None
 
     @property
     def description(self) -> str | None:
@@ -247,7 +246,7 @@ class Device(MeshDevice):
     @property
     def parent_name(self) -> str | None:
         """Name of the node the device is connected to."""
-        return self.__parent_name
+        return self._attribs.get("parent_name")
 
     @property
     def serial(self) -> str | None:
