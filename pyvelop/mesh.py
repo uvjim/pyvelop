@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Tuple
 
 import aiohttp
 
+from . import camel_to_snake
 from . import const
 from . import jnap as api
 from .decorators import needs_gather_details
@@ -1253,6 +1254,24 @@ class Mesh:
 
     @property
     @needs_gather_details
+    def dhcp_reservations(self) -> List[Dict[str, str]]:
+        """Return the DHCP reservations."""
+        ret: List[Dict[str, str]] = []
+        temp_dict: Dict[str, str] = {}
+
+        for reservation in (
+            self._mesh_attributes.get(ATTR_LAN_SETTINGS, {})
+            .get("dhcpSettings", {})
+            .get("reservations", [])
+        ):
+            for key, details in reservation.items():
+                temp_dict[camel_to_snake(key)] = details
+            ret.append(temp_dict)
+
+        return ret
+
+    @property
+    @needs_gather_details
     def firmware_update_setting(self) -> str | None:
         """Get the current setting for firmware updates.
 
@@ -1540,5 +1559,3 @@ class Mesh:
         return self._mesh_attributes.get(ATTR_WPS_SERVER_SETTINGS, {}).get(
             "enabled", False
         )
-
-    # endregion

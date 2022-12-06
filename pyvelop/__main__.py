@@ -294,6 +294,21 @@ async def mesh_details(
                             ),
                         ),
                         ("dhcp_enabled", "DHCP Enabled"),
+                        (
+                            "dhcp_reservations",
+                            "DHCP Reservations",
+                            prefix
+                            + prefix.join(
+                                [
+                                    f"{reservation.get('description')},"
+                                    f"{reservation.get('mac_address')},"
+                                    f"{reservation.get('ip_address')}"
+                                    for reservation in mesh_obj.dhcp_reservations
+                                ]
+                            )
+                            if len(mesh_obj.dhcp_reservations)
+                            else "None",
+                        ),
                         ("parental_control_enabled", "Parental Control Enabled"),
                         ("wps_state", "WPS Enabled"),
                         ("is_channel_scan_running", "Channel Scan Running"),
