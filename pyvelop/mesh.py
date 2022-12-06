@@ -529,7 +529,7 @@ class Mesh:
                             ][0]
                         except IndexError:
                             pass
-                setattr(node, "_Device__parent_name", parent)
+                getattr(node, "_attribs", {})["parent_name"] = parent
                 # endregion
 
                 # region #-- process MAC based details --#
