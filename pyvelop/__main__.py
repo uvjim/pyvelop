@@ -296,7 +296,7 @@ async def mesh_details(
                         ("dhcp_enabled", "DHCP Enabled"),
                         (
                             "dhcp_reservations",
-                            f"DHCP Reservations ({len(mesh_obj.dhcp_reservations)})",
+                            "DHCP Reservations",
                             prefix
                             + prefix.join(
                                 [
@@ -305,7 +305,9 @@ async def mesh_details(
                                     f"{reservation.get('ip_address')}"
                                     for reservation in mesh_obj.dhcp_reservations
                                 ]
-                            ),
+                            )
+                            if len(mesh_obj.dhcp_reservations)
+                            else "None",
                         ),
                         ("parental_control_enabled", "Parental Control Enabled"),
                         ("wps_state", "WPS Enabled"),
