@@ -1,6 +1,8 @@
 """Logging."""
 
 # region #-- imports --#
+from __future__ import annotations
+
 import inspect
 
 # endregion
