@@ -1,11 +1,16 @@
 """Representation of a mesh device."""
 
+# region #-- imports --#
+from __future__ import annotations
+
 import base64
 import datetime
 from enum import IntEnum
 from typing import Any, Dict, List, final
 
 from .base import MeshDevice
+
+# endregion
 
 
 class ParentalControl:
