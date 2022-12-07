@@ -1,6 +1,8 @@
 """The pyvelop module."""
 
 # region #-- imports --#
+from __future__ import annotations
+
 import re
 
 # endregion
