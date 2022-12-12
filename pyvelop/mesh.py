@@ -38,6 +38,7 @@ _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 ATTR_ALG_SETTINGS: str = "alg_settings"
 ATTR_BACKHAUL_INFO: str = "backhaul"
 ATTR_CHANNEL_SCAN_INFO: str = "channel_scan_info"
+ATTR_EXPRESS_FORWARDING: str = "express_forwarding"
 ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
 ATTR_GUEST_NETWORK_INFO: str = "guest_network"
 ATTR_HOMEKIT_SETTINGS: str = "homekit_settings"
@@ -64,6 +65,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_BACKHAUL: ATTR_BACKHAUL_INFO,
     api.Actions.GET_CHANNEL_SCAN_STATUS: ATTR_CHANNEL_SCAN_INFO,
     api.Actions.GET_DEVICES: ATTR_RAW_DEVICES,
+    api.Actions.GET_EXPRESS_FORWARDING: ATTR_EXPRESS_FORWARDING,
     api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
     api.Actions.GET_HOMEKIT_SETTINGS: ATTR_HOMEKIT_SETTINGS,
@@ -321,6 +323,10 @@ class Mesh:
         # -- get the channel scan info --#
         if kwargs.get("include_channel_scan"):
             payload_safe.append({"action": api.Actions.GET_CHANNEL_SCAN_STATUS})
+
+        # -- get the channel scan info --#
+        if kwargs.get("include_express_forwarding"):
+            payload_safe.append({"action": api.Actions.GET_EXPRESS_FORWARDING})
 
         # -- get the update check details --#
         if kwargs.get("include_firmware_update"):
@@ -815,6 +821,7 @@ class Mesh:
             include_backhaul=True,
             include_channel_scan=True,
             include_devices=True,
+            include_express_forwarding=True,
             include_firmware_update=True,
             include_firmware_update_settings=True,
             include_guest_wifi=True,
@@ -1285,6 +1292,22 @@ class Mesh:
             ret.append(temp_dict)
 
         return ret
+
+    @property
+    @needs_gather_details
+    def express_forwarding_enabled(self) -> bool | None:
+        """Return whether Express Forwarding is enabled."""
+        return self._mesh_attributes.get(ATTR_EXPRESS_FORWARDING, {}).get(
+            "isExpressForwardingEnabled"
+        )
+
+    @property
+    @needs_gather_details
+    def express_forwarding_supported(self) -> bool | None:
+        """Return whether Express Forwarding is supported."""
+        return self._mesh_attributes.get(ATTR_EXPRESS_FORWARDING, {}).get(
+            "isExpressForwardingSupported"
+        )
 
     @property
     @needs_gather_details

@@ -53,6 +53,7 @@ class Actions(str, Enum):
     GET_BACKHAUL: str = f"{ROOT}/nodes/diagnostics/GetBackhaulInfo"
     GET_CHANNEL_SCAN_STATUS: str = f"{ROOT}/nodes/setup/GetSelectedChannels"
     GET_DEVICES: str = f"{ROOT}/devicelist/GetDevices3"
+    GET_EXPRESS_FORWARDING: str = f"{ROOT}/router/GetExpressForwardingSettings"
     GET_FIRMWARE_UPDATE_SETTINGS: str = (
         f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
     )
