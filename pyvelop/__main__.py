@@ -318,6 +318,15 @@ async def mesh_details(
                         ("homekit_paired", "HomeKit Integration Paired"),
                         ("client_steering_enabled", "Client Steering Enabled"),
                         ("node_steering_enabled", "Node Steering Enabled"),
+                        ("upnp_enabled", "UPnP Enabled"),
+                        ("upnp_allow_change_settings", "UPnP Allow Change Settings"),
+                        ("upnp_allow_disable_internet", "UPnP Allow Disable Internet"),
+                        ("sip_enabled", "SIP Enabled"),
+                        (
+                            "express_forwarding_supported",
+                            "Express Forwarding Supported",
+                        ),
+                        ("express_forwarding_enabled", "Express Forwarding Enabled"),
                         (
                             "mac_filtering",
                             "MAC Filtering",
