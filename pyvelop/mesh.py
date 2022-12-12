@@ -53,6 +53,7 @@ ATTR_STORAGE_PARTITIONS: str = "storage_partitions"
 ATTR_STORAGE_SMB_SERVER: str = "storage_smb_server"
 ATTR_TOPOLOGY_OPTIMISATION_SETTINGS: str = "topology_optimisation_settings"
 ATTR_UPDATE_FIRMWARE_STATE: str = "check_update_state"
+ATTR_UPNP_SETTINGS: str = "upnp_settings"
 ATTR_WAN_INFO: str = "wan_info"
 ATTR_WPS_SERVER_SETTINGS: str = "wps_server_settings"
 # endregion
@@ -73,6 +74,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_STORAGE_PARTITIONS: ATTR_STORAGE_PARTITIONS,
     api.Actions.GET_STORAGE_SMB_SERVER: ATTR_STORAGE_SMB_SERVER,
     api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS: ATTR_TOPOLOGY_OPTIMISATION_SETTINGS,
+    api.Actions.GET_UPNP_SETTINGS: ATTR_UPNP_SETTINGS,
     api.Actions.GET_WAN_INFO: ATTR_WAN_INFO,
     api.Actions.GET_WPS_SERVER_SETTINGS: ATTR_WPS_SERVER_SETTINGS,
     api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_UPDATE_FIRMWARE_STATE,
@@ -285,6 +287,7 @@ class Mesh:
         :param include_speedtest_status: True to include the currently running speedtest status
         :param include_storage: True to include the external storage details if available
         :param include_topology_optimisation_settings: True to include details about topology optimisation
+        :param include_upnp_settings: True to include details about the UPnP settings
         :param include_wan: True to include WAN details
         :param include_wps_server_settings: True to include the WPS server settings
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
@@ -353,6 +356,10 @@ class Mesh:
             payload_safe.append(
                 {"action": api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS}
             )
+
+        # -- get the UPnP settings --#
+        if kwargs.get("include_upnp_settings"):
+            payload_safe.append({"action": api.Actions.GET_UPNP_SETTINGS})
 
         # -- get the WAN details --#
         if kwargs.get("include_wan"):
@@ -812,6 +819,7 @@ class Mesh:
             include_speedtest_status=True,
             include_storage=True,
             include_topology_optimisation_settings=True,
+            include_upnp_settings=True,
             include_wan=True,
             include_wps_server_settings=True,
         )
@@ -1500,6 +1508,28 @@ class Mesh:
             ret = {"anonymous_access": ret.get("isAnonymousAccessEnabled")}
 
         return ret
+
+    @property
+    @needs_gather_details
+    def upnp_enabled(self) -> bool | None:
+        """Return whether UPnP is enabled."""
+        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get("isUPnPEnabled")
+
+    @property
+    @needs_gather_details
+    def upnp_allow_change_settings(self) -> bool | None:
+        """Return whether users can change settings when UPnP is enabled."""
+        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get(
+            "canUsersConfigure"
+        )
+
+    @property
+    @needs_gather_details
+    def upnp_allow_disable_internet(self) -> bool | None:
+        """Return whether users can change disable the Internet when UPnP is enabled."""
+        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get(
+            "canUsersDisableWANAccess"
+        )
 
     @property
     @needs_gather_details

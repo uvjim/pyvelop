@@ -76,6 +76,7 @@ class Actions(str, Enum):
         f"{ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
     )
     GET_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
+    GET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/GetUPnPSettings"
     GET_WAN_INFO: str = f"{ROOT}/router/GetWANStatus3"
     GET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/GetWPSServerSettings"
     REBOOT: str = f"{ROOT}/core/Reboot"
