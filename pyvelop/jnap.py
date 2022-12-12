@@ -49,6 +49,7 @@ class Actions(str, Enum):
 
     CHECK_PASSWORD: str = f"{ROOT}/core/CheckAdminPassword"
     DELETE_DEVICE: str = f"{ROOT}/devicelist/DeleteDevice"
+    GET_ALG_SETTINGS: str = f"{ROOT}/firewall/GetALGSettings"
     GET_BACKHAUL: str = f"{ROOT}/nodes/diagnostics/GetBackhaulInfo"
     GET_CHANNEL_SCAN_STATUS: str = f"{ROOT}/nodes/setup/GetSelectedChannels"
     GET_DEVICES: str = f"{ROOT}/devicelist/GetDevices3"

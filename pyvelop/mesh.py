@@ -35,6 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 # region #-- attributes for results --#
+ATTR_ALG_SETTINGS: str = "alg_settings"
 ATTR_BACKHAUL_INFO: str = "backhaul"
 ATTR_CHANNEL_SCAN_INFO: str = "channel_scan_info"
 ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
@@ -59,6 +60,7 @@ ATTR_WPS_SERVER_SETTINGS: str = "wps_server_settings"
 # endregion
 
 JNAP_ACTION_TO_ATTRIBUTE: dict = {
+    api.Actions.GET_ALG_SETTINGS: ATTR_ALG_SETTINGS,
     api.Actions.GET_BACKHAUL: ATTR_BACKHAUL_INFO,
     api.Actions.GET_CHANNEL_SCAN_STATUS: ATTR_CHANNEL_SCAN_INFO,
     api.Actions.GET_DEVICES: ATTR_RAW_DEVICES,
@@ -272,6 +274,7 @@ class Mesh:
     async def _async_gather_details(self, **kwargs) -> dict:
         """Work is done here to gather the necessary details for mesh.
 
+        :param inlcude_alg_settings: True to include Application Layer Gateway settings
         :param include_backhaul: True to include backhaul details
         :param include_channel_scan: True to include details about the channel scan process
         :param include_devices: True to include devices
@@ -306,6 +309,10 @@ class Mesh:
 
         if kwargs.get("include_firmware_update_settings"):
             payload_safe.append({"action": api.Actions.GET_FIRMWARE_UPDATE_SETTINGS})
+
+        # -- get ALG settings --#
+        if kwargs.get("include_alg_settings"):
+            payload_safe.append({"action": api.Actions.GET_ALG_SETTINGS})
 
         # -- get the backhaul info --#
         if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
@@ -804,6 +811,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         details = await self._async_gather_details(
+            include_alg_settings=True,
             include_backhaul=True,
             include_channel_scan=True,
             include_devices=True,
@@ -1433,6 +1441,12 @@ class Mesh:
                 "isParentalControlEnabled", False
             )
         return ret
+
+    @property
+    @needs_gather_details
+    def sip_enabled(self) -> bool | None:
+        """Return whether SIP is enabled."""
+        return self._mesh_attributes.get(ATTR_ALG_SETTINGS, {}).get("isSIPEnabled")
 
     @property
     @needs_gather_details
