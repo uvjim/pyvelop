@@ -49,9 +49,11 @@ class Actions(str, Enum):
 
     CHECK_PASSWORD: str = f"{ROOT}/core/CheckAdminPassword"
     DELETE_DEVICE: str = f"{ROOT}/devicelist/DeleteDevice"
+    GET_ALG_SETTINGS: str = f"{ROOT}/firewall/GetALGSettings"
     GET_BACKHAUL: str = f"{ROOT}/nodes/diagnostics/GetBackhaulInfo"
     GET_CHANNEL_SCAN_STATUS: str = f"{ROOT}/nodes/setup/GetSelectedChannels"
     GET_DEVICES: str = f"{ROOT}/devicelist/GetDevices3"
+    GET_EXPRESS_FORWARDING: str = f"{ROOT}/router/GetExpressForwardingSettings"
     GET_FIRMWARE_UPDATE_SETTINGS: str = (
         f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
     )
@@ -76,6 +78,7 @@ class Actions(str, Enum):
         f"{ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
     )
     GET_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
+    GET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/GetUPnPSettings"
     GET_WAN_INFO: str = f"{ROOT}/router/GetWANStatus3"
     GET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/GetWPSServerSettings"
     REBOOT: str = f"{ROOT}/core/Reboot"

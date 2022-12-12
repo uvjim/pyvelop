@@ -35,8 +35,10 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 # region #-- attributes for results --#
+ATTR_ALG_SETTINGS: str = "alg_settings"
 ATTR_BACKHAUL_INFO: str = "backhaul"
 ATTR_CHANNEL_SCAN_INFO: str = "channel_scan_info"
+ATTR_EXPRESS_FORWARDING: str = "express_forwarding"
 ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
 ATTR_GUEST_NETWORK_INFO: str = "guest_network"
 ATTR_HOMEKIT_SETTINGS: str = "homekit_settings"
@@ -53,14 +55,17 @@ ATTR_STORAGE_PARTITIONS: str = "storage_partitions"
 ATTR_STORAGE_SMB_SERVER: str = "storage_smb_server"
 ATTR_TOPOLOGY_OPTIMISATION_SETTINGS: str = "topology_optimisation_settings"
 ATTR_UPDATE_FIRMWARE_STATE: str = "check_update_state"
+ATTR_UPNP_SETTINGS: str = "upnp_settings"
 ATTR_WAN_INFO: str = "wan_info"
 ATTR_WPS_SERVER_SETTINGS: str = "wps_server_settings"
 # endregion
 
 JNAP_ACTION_TO_ATTRIBUTE: dict = {
+    api.Actions.GET_ALG_SETTINGS: ATTR_ALG_SETTINGS,
     api.Actions.GET_BACKHAUL: ATTR_BACKHAUL_INFO,
     api.Actions.GET_CHANNEL_SCAN_STATUS: ATTR_CHANNEL_SCAN_INFO,
     api.Actions.GET_DEVICES: ATTR_RAW_DEVICES,
+    api.Actions.GET_EXPRESS_FORWARDING: ATTR_EXPRESS_FORWARDING,
     api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
     api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
     api.Actions.GET_HOMEKIT_SETTINGS: ATTR_HOMEKIT_SETTINGS,
@@ -73,6 +78,7 @@ JNAP_ACTION_TO_ATTRIBUTE: dict = {
     api.Actions.GET_STORAGE_PARTITIONS: ATTR_STORAGE_PARTITIONS,
     api.Actions.GET_STORAGE_SMB_SERVER: ATTR_STORAGE_SMB_SERVER,
     api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS: ATTR_TOPOLOGY_OPTIMISATION_SETTINGS,
+    api.Actions.GET_UPNP_SETTINGS: ATTR_UPNP_SETTINGS,
     api.Actions.GET_WAN_INFO: ATTR_WAN_INFO,
     api.Actions.GET_WPS_SERVER_SETTINGS: ATTR_WPS_SERVER_SETTINGS,
     api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_UPDATE_FIRMWARE_STATE,
@@ -270,6 +276,7 @@ class Mesh:
     async def _async_gather_details(self, **kwargs) -> dict:
         """Work is done here to gather the necessary details for mesh.
 
+        :param inlcude_alg_settings: True to include Application Layer Gateway settings
         :param include_backhaul: True to include backhaul details
         :param include_channel_scan: True to include details about the channel scan process
         :param include_devices: True to include devices
@@ -285,6 +292,7 @@ class Mesh:
         :param include_speedtest_status: True to include the currently running speedtest status
         :param include_storage: True to include the external storage details if available
         :param include_topology_optimisation_settings: True to include details about topology optimisation
+        :param include_upnp_settings: True to include details about the UPnP settings
         :param include_wan: True to include WAN details
         :param include_wps_server_settings: True to include the WPS server settings
         :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
@@ -304,6 +312,10 @@ class Mesh:
         if kwargs.get("include_firmware_update_settings"):
             payload_safe.append({"action": api.Actions.GET_FIRMWARE_UPDATE_SETTINGS})
 
+        # -- get ALG settings --#
+        if kwargs.get("include_alg_settings"):
+            payload_safe.append({"action": api.Actions.GET_ALG_SETTINGS})
+
         # -- get the backhaul info --#
         if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
             payload_safe.append({"action": api.Actions.GET_BACKHAUL})
@@ -311,6 +323,10 @@ class Mesh:
         # -- get the channel scan info --#
         if kwargs.get("include_channel_scan"):
             payload_safe.append({"action": api.Actions.GET_CHANNEL_SCAN_STATUS})
+
+        # -- get the channel scan info --#
+        if kwargs.get("include_express_forwarding"):
+            payload_safe.append({"action": api.Actions.GET_EXPRESS_FORWARDING})
 
         # -- get the update check details --#
         if kwargs.get("include_firmware_update"):
@@ -353,6 +369,10 @@ class Mesh:
             payload_safe.append(
                 {"action": api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS}
             )
+
+        # -- get the UPnP settings --#
+        if kwargs.get("include_upnp_settings"):
+            payload_safe.append({"action": api.Actions.GET_UPNP_SETTINGS})
 
         # -- get the WAN details --#
         if kwargs.get("include_wan"):
@@ -797,9 +817,11 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         details = await self._async_gather_details(
+            include_alg_settings=True,
             include_backhaul=True,
             include_channel_scan=True,
             include_devices=True,
+            include_express_forwarding=True,
             include_firmware_update=True,
             include_firmware_update_settings=True,
             include_guest_wifi=True,
@@ -812,6 +834,7 @@ class Mesh:
             include_speedtest_status=True,
             include_storage=True,
             include_topology_optimisation_settings=True,
+            include_upnp_settings=True,
             include_wan=True,
             include_wps_server_settings=True,
         )
@@ -1272,6 +1295,22 @@ class Mesh:
 
     @property
     @needs_gather_details
+    def express_forwarding_enabled(self) -> bool | None:
+        """Return whether Express Forwarding is enabled."""
+        return self._mesh_attributes.get(ATTR_EXPRESS_FORWARDING, {}).get(
+            "isExpressForwardingEnabled"
+        )
+
+    @property
+    @needs_gather_details
+    def express_forwarding_supported(self) -> bool | None:
+        """Return whether Express Forwarding is supported."""
+        return self._mesh_attributes.get(ATTR_EXPRESS_FORWARDING, {}).get(
+            "isExpressForwardingSupported"
+        )
+
+    @property
+    @needs_gather_details
     def firmware_update_setting(self) -> str | None:
         """Get the current setting for firmware updates.
 
@@ -1428,6 +1467,12 @@ class Mesh:
 
     @property
     @needs_gather_details
+    def sip_enabled(self) -> bool | None:
+        """Return whether SIP is enabled."""
+        return self._mesh_attributes.get(ATTR_ALG_SETTINGS, {}).get("isSIPEnabled")
+
+    @property
+    @needs_gather_details
     def speedtest_status(self) -> str:
         """Return the current status of the Speedtest.
 
@@ -1500,6 +1545,28 @@ class Mesh:
             ret = {"anonymous_access": ret.get("isAnonymousAccessEnabled")}
 
         return ret
+
+    @property
+    @needs_gather_details
+    def upnp_enabled(self) -> bool | None:
+        """Return whether UPnP is enabled."""
+        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get("isUPnPEnabled")
+
+    @property
+    @needs_gather_details
+    def upnp_allow_change_settings(self) -> bool | None:
+        """Return whether users can change settings when UPnP is enabled."""
+        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get(
+            "canUsersConfigure"
+        )
+
+    @property
+    @needs_gather_details
+    def upnp_allow_disable_internet(self) -> bool | None:
+        """Return whether users can change disable the Internet when UPnP is enabled."""
+        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get(
+            "canUsersDisableWANAccess"
+        )
 
     @property
     @needs_gather_details
