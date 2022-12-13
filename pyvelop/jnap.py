@@ -92,6 +92,16 @@ class Actions(str, Enum):
     TRANSACTION: str = f"{ROOT}/core/Transaction"
     UPDATE_FIRMWARE: str = f"{ROOT}/nodes/firmwareupdate/UpdateFirmwareNow"
 
+    @classmethod
+    def is_unsafe(cls, action: str) -> bool:
+        """Return if the action is unsafe."""
+        return action in {
+            "GET_HOMEKIT_SETTINGS",
+            "GET_NETWORK_CONNECTIONS",
+            "GET_STORAGE_SMB_SERVER",
+            "GET_STORAGE_PARTITIONS",
+        }
+
 
 @dataclass
 class Defaults:
@@ -101,7 +111,7 @@ class Defaults:
     payloads[Actions.GET_SPEEDTEST_RESULTS] = {
         "healthCheckModule": "SpeedTest",
         "includeModuleResults": True,
-        "lastNumberOfResults": 1,
+        "lastNumberOfResults": 10,
     }
 
 

@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Iterable
+from enum import auto, Flag
 from typing import Any, Dict, List, Tuple
 
 import aiohttp
@@ -31,58 +31,61 @@ from .node import Node, NodeType
 
 # endregion
 
+_ATTR_PROCESSED_DEVICES: str = "devices"
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
-# region #-- attributes for results --#
-ATTR_ALG_SETTINGS: str = "alg_settings"
-ATTR_BACKHAUL_INFO: str = "backhaul"
-ATTR_CHANNEL_SCAN_INFO: str = "channel_scan_info"
-ATTR_EXPRESS_FORWARDING: str = "express_forwarding"
-ATTR_FIRMWARE_UPDATE_SETTINGS: str = "firmware_update_settings"
-ATTR_GUEST_NETWORK_INFO: str = "guest_network"
-ATTR_HOMEKIT_SETTINGS: str = "homekit_settings"
-ATTR_LAN_SETTINGS: str = "lan_settings"
-ATTR_MAC_FILTERING_SETTINGS: str = "mac_filtering_settings"
-ATTR_NETWORK_CONNECTIONS: str = "network_connections"
-ATTR_NODES: str = "nodes"
-ATTR_PARENTAL_CONTROL_INFO: str = "parental_control"
-ATTR_PROCESSED_DEVICES: str = "devices"
-ATTR_SPEEDTEST_RESULTS: str = "speedtest_results"
-ATTR_SPEEDTEST_STATUS: str = "speedtest_status"
-ATTR_RAW_DEVICES: str = "raw_devices"
-ATTR_STORAGE_PARTITIONS: str = "storage_partitions"
-ATTR_STORAGE_SMB_SERVER: str = "storage_smb_server"
-ATTR_TOPOLOGY_OPTIMISATION_SETTINGS: str = "topology_optimisation_settings"
-ATTR_UPDATE_FIRMWARE_STATE: str = "check_update_state"
-ATTR_UPNP_SETTINGS: str = "upnp_settings"
-ATTR_WAN_INFO: str = "wan_info"
-ATTR_WPS_SERVER_SETTINGS: str = "wps_server_settings"
-# endregion
 
-JNAP_ACTION_TO_ATTRIBUTE: dict = {
-    api.Actions.GET_ALG_SETTINGS: ATTR_ALG_SETTINGS,
-    api.Actions.GET_BACKHAUL: ATTR_BACKHAUL_INFO,
-    api.Actions.GET_CHANNEL_SCAN_STATUS: ATTR_CHANNEL_SCAN_INFO,
-    api.Actions.GET_DEVICES: ATTR_RAW_DEVICES,
-    api.Actions.GET_EXPRESS_FORWARDING: ATTR_EXPRESS_FORWARDING,
-    api.Actions.GET_FIRMWARE_UPDATE_SETTINGS: ATTR_FIRMWARE_UPDATE_SETTINGS,
-    api.Actions.GET_GUEST_NETWORK_INFO: ATTR_GUEST_NETWORK_INFO,
-    api.Actions.GET_HOMEKIT_SETTINGS: ATTR_HOMEKIT_SETTINGS,
-    api.Actions.GET_LAN_SETTINGS: ATTR_LAN_SETTINGS,
-    api.Actions.GET_MAC_FILTERING_SETTINGS: ATTR_MAC_FILTERING_SETTINGS,
-    api.Actions.GET_NETWORK_CONNECTIONS: ATTR_NETWORK_CONNECTIONS,
-    api.Actions.GET_PARENTAL_CONTROL_INFO: ATTR_PARENTAL_CONTROL_INFO,
-    api.Actions.GET_SPEEDTEST_RESULTS: ATTR_SPEEDTEST_RESULTS,
-    api.Actions.GET_SPEEDTEST_STATUS: ATTR_SPEEDTEST_STATUS,
-    api.Actions.GET_STORAGE_PARTITIONS: ATTR_STORAGE_PARTITIONS,
-    api.Actions.GET_STORAGE_SMB_SERVER: ATTR_STORAGE_SMB_SERVER,
-    api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS: ATTR_TOPOLOGY_OPTIMISATION_SETTINGS,
-    api.Actions.GET_UPNP_SETTINGS: ATTR_UPNP_SETTINGS,
-    api.Actions.GET_WAN_INFO: ATTR_WAN_INFO,
-    api.Actions.GET_WPS_SERVER_SETTINGS: ATTR_WPS_SERVER_SETTINGS,
-    api.Actions.GET_UPDATE_FIRMWARE_STATE: ATTR_UPDATE_FIRMWARE_STATE,
-}
+class JNAPActionMappings(Flag):
+    """JNAP attribute mappings."""
+
+    GET_ALG_SETTINGS = auto()
+    GET_BACKHAUL = auto()
+    GET_CHANNEL_SCAN_STATUS = auto()
+    GET_DEVICES = auto()
+    GET_EXPRESS_FORWARDING = auto()
+    GET_FIRMWARE_UPDATE_SETTINGS = auto()
+    GET_GUEST_NETWORK_INFO = auto()
+    GET_HOMEKIT_SETTINGS = auto()
+    GET_LAN_SETTINGS = auto()
+    GET_MAC_FILTERING_SETTINGS = auto()
+    GET_NETWORK_CONNECTIONS = auto()
+    GET_PARENTAL_CONTROL_INFO = auto()
+    GET_SPEEDTEST_RESULTS = auto()
+    GET_SPEEDTEST_STATUS = auto()
+    GET_STORAGE_PARTITIONS = auto()
+    GET_STORAGE_SMB_SERVER = auto()
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS = auto()
+    GET_UPDATE_FIRMWARE_STATE = auto()
+    GET_UPNP_SETTINGS = auto()
+    GET_WAN_INFO = auto()
+    GET_WPS_SERVER_SETTINGS = auto()
+
+    # -- compound flags --#
+    CMP_DEVICE_DETAILS = GET_DEVICES | GET_LAN_SETTINGS | GET_NETWORK_CONNECTIONS
+    CMP_MESH_DETAILS = (
+        GET_ALG_SETTINGS
+        | GET_BACKHAUL
+        | GET_CHANNEL_SCAN_STATUS
+        | GET_DEVICES
+        | GET_EXPRESS_FORWARDING
+        | GET_FIRMWARE_UPDATE_SETTINGS
+        | GET_GUEST_NETWORK_INFO
+        | GET_HOMEKIT_SETTINGS
+        | GET_LAN_SETTINGS
+        | GET_MAC_FILTERING_SETTINGS
+        | GET_NETWORK_CONNECTIONS
+        | GET_PARENTAL_CONTROL_INFO
+        | GET_SPEEDTEST_RESULTS
+        | GET_SPEEDTEST_STATUS
+        | GET_STORAGE_PARTITIONS
+        | GET_STORAGE_SMB_SERVER
+        | GET_TOPOLOGY_OPTIMISATION_SETTINGS
+        | GET_UPNP_SETTINGS
+        | GET_WAN_INFO
+        | GET_WPS_SERVER_SETTINGS
+        | GET_UPDATE_FIRMWARE_STATE
+    )
 
 
 def _get_speedtest_state(speedtest_results=None) -> str:
@@ -273,174 +276,49 @@ class Mesh:
             _LOGGER.debug(self._log_formatter.format("exited"))
             return (req, req_resp)
 
-    async def _async_gather_details(self, **kwargs) -> dict:
+    async def _async_gather_details(self, props: JNAPActionMappings) -> dict:
         """Work is done here to gather the necessary details for mesh.
 
-        :param inlcude_alg_settings: True to include Application Layer Gateway settings
-        :param include_backhaul: True to include backhaul details
-        :param include_channel_scan: True to include details about the channel scan process
-        :param include_devices: True to include devices
-        :param include_firmware_update: True to include the current firmware update details (does not issue a check)
-        :param include_firmware_update_settings: True to include the current settings for firmware updates
-        :param include_guest_wifi: True to include details about the guest Wi-Fi
-        :param include_homekit_settings: True to include the settings for the HomeKit integration
-        :param include_lan_settings: True to include LAN settings
-        :param include_mac_filtering_settings: True to include the settings for MAC filtering
-        :param include_network_connections: True to include details about network connections
-        :param include_parental_control: True to include details about Parental Control
-        :param include_speedtest_results: True to include the latest completed Speedtest result
-        :param include_speedtest_status: True to include the currently running speedtest status
-        :param include_storage: True to include the external storage details if available
-        :param include_topology_optimisation_settings: True to include details about topology optimisation
-        :param include_upnp_settings: True to include details about the UPnP settings
-        :param include_wan: True to include WAN details
-        :param include_wps_server_settings: True to include the WPS server settings
-        :return: A dictionary containing the relevant details.  Keys used will match those of the instance variable.
+        :return: A dictionary containing the relevant details.
         """
-        _LOGGER.debug(
-            self._log_formatter.format("entered, args: %s"), json.dumps(kwargs)
-        )
+        _LOGGER.debug(self._log_formatter.format("entered, args: %s"), props)
 
         ret = {}
+        payload_safe: List[Dict[str, Any]] = []
+        request_unsafe: List = []
 
-        # region #-- prepare the safe request --#
-        payload_safe: List = []
-        # -- get the devices --#
-        if kwargs.get("include_devices"):
-            payload_safe.append({"action": api.Actions.GET_DEVICES})
+        for jnap_action in JNAPActionMappings:
+            if (
+                jnap_action.name.startswith("CMP_")
+                or jnap_action & props != jnap_action
+            ):
+                continue
 
-        if kwargs.get("include_firmware_update_settings"):
-            payload_safe.append({"action": api.Actions.GET_FIRMWARE_UPDATE_SETTINGS})
-
-        # -- get ALG settings --#
-        if kwargs.get("include_alg_settings"):
-            payload_safe.append({"action": api.Actions.GET_ALG_SETTINGS})
-
-        # -- get the backhaul info --#
-        if kwargs.get("include_backhaul") or kwargs.get("include_devices"):
-            payload_safe.append({"action": api.Actions.GET_BACKHAUL})
-
-        # -- get the channel scan info --#
-        if kwargs.get("include_channel_scan"):
-            payload_safe.append({"action": api.Actions.GET_CHANNEL_SCAN_STATUS})
-
-        # -- get the channel scan info --#
-        if kwargs.get("include_express_forwarding"):
-            payload_safe.append({"action": api.Actions.GET_EXPRESS_FORWARDING})
-
-        # -- get the update check details --#
-        if kwargs.get("include_firmware_update"):
-            payload_safe.append({"action": api.Actions.GET_UPDATE_FIRMWARE_STATE})
-
-        # -- get the guest WiFi details --#
-        if kwargs.get("include_guest_wifi"):
-            payload_safe.append({"action": api.Actions.GET_GUEST_NETWORK_INFO})
-
-        # -- get LAN settings --#
-        if kwargs.get("include_lan_settings"):
-            payload_safe.append({"action": api.Actions.GET_LAN_SETTINGS})
-
-        # -- get the MAC filtering settings --#
-        if kwargs.get("include_mac_filtering_settings"):
-            payload_safe.append({"action": api.Actions.GET_MAC_FILTERING_SETTINGS})
-
-        # -- get the Parental Control details --#
-        if kwargs.get("include_parental_control") or kwargs.get("include_devices"):
-            payload_safe.append({"action": api.Actions.GET_PARENTAL_CONTROL_INFO})
-
-        # -- get the current Speedtest status --#
-        if kwargs.get("include_speedtest_status"):
-            payload_safe.append({"action": api.Actions.GET_SPEEDTEST_STATUS})
-
-        # -- get the latest Speedtest result --#
-        if kwargs.get("include_speedtest_results"):
-            payload_safe.append(
-                {
-                    "action": api.Actions.GET_SPEEDTEST_RESULTS,
-                    "request": {
-                        **api.Defaults.payloads[api.Actions.GET_SPEEDTEST_RESULTS],
-                        "lastNumberOfResults": 10,
-                    },
-                }
-            )
-
-        # -- get the topology optimisation settings --#
-        if kwargs.get("include_topology_optimisation_settings"):
-            payload_safe.append(
-                {"action": api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS}
-            )
-
-        # -- get the UPnP settings --#
-        if kwargs.get("include_upnp_settings"):
-            payload_safe.append({"action": api.Actions.GET_UPNP_SETTINGS})
-
-        # -- get the WAN details --#
-        if kwargs.get("include_wan"):
-            payload_safe.append({"action": api.Actions.GET_WAN_INFO})
-
-        # -- get the WPS server settings --#
-        if kwargs.get("include_wps_server_settings"):
-            payload_safe.append({"action": api.Actions.GET_WPS_SERVER_SETTINGS})
+            if api.Actions.is_unsafe(action=jnap_action.name):
+                request_unsafe.append(
+                    self._async_make_request(
+                        action=getattr(api.Actions, jnap_action.name),
+                        payload=api.Defaults.payloads[
+                            getattr(api.Actions, jnap_action.name)
+                        ],
+                        raise_on_error=False,
+                    ),
+                )
+            else:
+                payload_safe.append(
+                    {
+                        "action": getattr(api.Actions, jnap_action.name).value,
+                        "request": api.Defaults.payloads[
+                            getattr(api.Actions, jnap_action.name)
+                        ],
+                    }
+                )
 
         request_safe = self._async_make_request(
             action=api.Actions.TRANSACTION,
-            payload=list(
-                map(
-                    lambda r: {
-                        "action": r.get("action").value,
-                        "request": r.get(
-                            "request", api.Defaults.payloads[r.get("action")]
-                        ),
-                    },
-                    payload_safe,
-                )
-            ),
+            payload=payload_safe,
             raise_on_error=False,
         )
-        # endregion
-
-        # region #-- prepare the potentially unsafe requests --#
-        request_unsafe = []
-        if kwargs.get("include_homekit_settings"):
-            request_unsafe.append(
-                self._async_make_request(
-                    action=api.Actions.GET_HOMEKIT_SETTINGS,
-                    payload={},
-                    raise_on_error=False,
-                )
-            )
-
-        if kwargs.get("include_network_connections"):
-            request_unsafe.append(
-                self._async_make_request(
-                    action=api.Actions.GET_NETWORK_CONNECTIONS,
-                    payload={},
-                    raise_on_error=False,
-                )
-            )
-
-        if kwargs.get("include_storage"):
-            request_unsafe.append(
-                self._async_make_request(
-                    action=api.Actions.TRANSACTION,
-                    payload=[
-                        {
-                            "action": api.Actions.GET_STORAGE_SMB_SERVER,
-                            "request": api.Defaults.payloads[
-                                api.Actions.GET_STORAGE_SMB_SERVER
-                            ],
-                        },
-                        {
-                            "action": api.Actions.GET_STORAGE_PARTITIONS,
-                            "request": api.Defaults.payloads[
-                                api.Actions.GET_STORAGE_PARTITIONS
-                            ],
-                        },
-                    ],
-                    raise_on_error=False,
-                )
-            )
-        # endregion
 
         responses: List[Tuple[api.Request, api.Response]] = await asyncio.gather(
             request_safe, *request_unsafe
@@ -454,7 +332,10 @@ class Mesh:
             except MeshException as err:
                 _LOGGER.debug(self._log_formatter.format("%s"), err)
             else:
-                ret[JNAP_ACTION_TO_ATTRIBUTE[action]] = api_response.data
+                mapping: JNAPActionMappings = getattr(
+                    JNAPActionMappings, api.Actions(action).name
+                )
+                ret[mapping.value] = api_response.data
 
         response: Tuple[api.Request, api.Response]
         for response in responses:
@@ -465,14 +346,15 @@ class Mesh:
                         action=req.payload[idx].get("action"), data=action_response
                     )
             else:
-                if req.action in JNAP_ACTION_TO_ATTRIBUTE:
-                    _set_raw_value(action=req.action, data=getattr(resp, "_data", {}))
+                _set_raw_value(action=req.action, data=getattr(resp, "_data", {}))
         # endregion
 
         # region #-- handle devices --#
         devices: List[Device | Node] = []
         # region #-- build the properties for the device types --#
-        for device in ret.get(ATTR_RAW_DEVICES, {}).get("devices", []):
+        for device in ret.get(JNAPActionMappings.GET_DEVICES.value, {}).get(
+            "devices", []
+        ):
             device["results_time"]: int = int(time.time())
             if "nodeType" not in device:
                 devices.append(Device(**device))
@@ -480,19 +362,21 @@ class Mesh:
                 # region #-- determine the backhaul information --#
                 device_backhaul = [
                     bi
-                    for bi in ret.get(ATTR_BACKHAUL_INFO, {}).get("backhaulDevices", [])
+                    for bi in ret.get(JNAPActionMappings.GET_BACKHAUL.value, {}).get(
+                        "backhaulDevices", []
+                    )
                     if bi.get("deviceUUID") == device.get("deviceID")
                 ]
                 # endregion
 
                 # region #-- calculate if there is a firmware update available --#
                 node_firmware: List | dict = {}
-                if ATTR_UPDATE_FIRMWARE_STATE in ret:
+                if JNAPActionMappings.GET_UPDATE_FIRMWARE_STATE.value in ret:
                     node_firmware = [
                         firmware_details
-                        for firmware_details in ret[ATTR_UPDATE_FIRMWARE_STATE].get(
-                            "firmwareUpdateStatus", []
-                        )
+                        for firmware_details in ret[
+                            JNAPActionMappings.GET_UPDATE_FIRMWARE_STATE.value
+                        ].get("firmwareUpdateStatus", [])
                         if firmware_details.get("deviceUUID") == device.get("deviceID")
                     ]
                 # endregion
@@ -558,16 +442,20 @@ class Mesh:
                 pc_schedule: List = []
                 for mac in network_adapater_macs:
                     # -- get the parental control details --#
-                    for rule in ret.get(ATTR_PARENTAL_CONTROL_INFO, {}).get(
-                        "rules", []
-                    ):
+                    for rule in ret.get(
+                        JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value, {}
+                    ).get("rules", []):
                         if mac in rule.get("macAddresses", []):
                             pc_schedule.append(rule)
                             break
                     getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
 
                     # -- tag the interface with reservation info --#
-                    if (lan_settings := ret.get(ATTR_LAN_SETTINGS)) is not None:
+                    if (
+                        lan_settings := ret.get(
+                            JNAPActionMappings.GET_LAN_SETTINGS.value
+                        )
+                    ) is not None:
                         for reservation in lan_settings.get("dhcpSettings", {}).get(
                             "reservations", []
                         ):
@@ -579,7 +467,9 @@ class Mesh:
 
                     # -- get additional connection details --#
                     if (
-                        network_connections := ret.get(ATTR_NETWORK_CONNECTIONS)
+                        network_connections := ret.get(
+                            JNAPActionMappings.GET_NETWORK_CONNECTIONS.value
+                        )
                     ) is not None:
                         for conn_details in network_connections.get(
                             "nodeWirelessConnections", []
@@ -593,7 +483,7 @@ class Mesh:
                 # endregion
         # endregion
 
-        ret[ATTR_PROCESSED_DEVICES] = devices or []
+        ret[_ATTR_PROCESSED_DEVICES] = devices or []
         # endregion
 
         _LOGGER.debug(self._log_formatter.format("exited"))
@@ -631,9 +521,11 @@ class Mesh:
 
         # get the current rules - they may have changed since the last poll
         resp: Dict[str, Any] = await self._async_gather_details(
-            include_parental_control=True
+            props=JNAPActionMappings.GET_PARENTAL_CONTROL_INFO
         )
-        current_rules = resp.get(ATTR_PARENTAL_CONTROL_INFO, {}).get("rules", [])
+        current_rules = resp.get(
+            JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value, {}
+        ).get("rules", [])
 
         # build the defaults
         mac_address: str = device[0].network[0].get("mac", None)
@@ -794,7 +686,7 @@ class Mesh:
         dev: Device
         device = [
             dev
-            for dev in self._mesh_attributes[ATTR_PROCESSED_DEVICES]
+            for dev in self._mesh_attributes[_ATTR_PROCESSED_DEVICES]
             if dev.name == device
         ]
         if len(device) == 0:
@@ -816,59 +708,9 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        details = await self._async_gather_details(
-            include_alg_settings=True,
-            include_backhaul=True,
-            include_channel_scan=True,
-            include_devices=True,
-            include_express_forwarding=True,
-            include_firmware_update=True,
-            include_firmware_update_settings=True,
-            include_guest_wifi=True,
-            include_homekit_settings=True,
-            include_lan_settings=True,
-            include_mac_filtering_settings=True,
-            include_network_connections=True,
-            include_parental_control=True,
-            include_speedtest_results=True,
-            include_speedtest_status=True,
-            include_storage=True,
-            include_topology_optimisation_settings=True,
-            include_upnp_settings=True,
-            include_wan=True,
-            include_wps_server_settings=True,
-        )
-
-        # region #-- split the devices into their types --#
-        _LOGGER_VERBOSE.debug(self._log_formatter.format("Populating nodes"))
-        self._mesh_attributes[ATTR_NODES] = [
-            device
-            for device in details.get(ATTR_PROCESSED_DEVICES, [])
-            if device.__class__.__name__.lower() == "node"
-        ]
-        _LOGGER_VERBOSE.debug(
-            self._log_formatter.format("Populated %i nodes"),
-            len(self._mesh_attributes[ATTR_NODES]),
-        )
-
-        _LOGGER_VERBOSE.debug(self._log_formatter.format("Populating devices"))
-        self._mesh_attributes[ATTR_PROCESSED_DEVICES] = [
-            device
-            for device in details.get(ATTR_PROCESSED_DEVICES, [])
-            if device.__class__.__name__.lower() == "device"
-        ]
-        _LOGGER_VERBOSE.debug(
-            self._log_formatter.format("Populated %i devices"),
-            len(self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, [])),
-        )
-        # endregion
-
-        # region #-- manage the other attributes --#
-        details.pop(ATTR_PROCESSED_DEVICES, None)
-        for attr in details:
-            _LOGGER_VERBOSE.debug(self._log_formatter.format("Populating %s"), attr)
-            self._mesh_attributes[attr] = details[attr]
-        # endregion
+        self._mesh_attributes: Dict[
+            int | str, List[Device | Node] | Dict[str, Any]
+        ] = await self._async_gather_details(props=JNAPActionMappings.CMP_MESH_DETAILS)
 
         self.__gather_details_executed = True  # pylint: disable=unused-private-member
         _LOGGER.debug(self._log_formatter.format("exited"))
@@ -876,9 +718,9 @@ class Mesh:
     async def async_get_channel_scan_info(self) -> Dict[str, Any]:
         """Get the current state of the channel scan."""
         resp = await self._async_gather_details(
-            include_channel_scan=True,
+            props=JNAPActionMappings.GET_CHANNEL_SCAN_STATUS
         )
-        return resp.get(ATTR_CHANNEL_SCAN_INFO)
+        return resp.get(JNAPActionMappings.GET_CHANNEL_SCAN_STATUS.value)
 
     async def async_get_device_from_id(
         self,
@@ -907,10 +749,9 @@ class Mesh:
             all_devices = self.devices + self.nodes
         else:
             resp = await self._async_gather_details(
-                include_devices=True,
-                include_lan_settings=True,
+                props=JNAPActionMappings.CMP_DEVICE_DETAILS
             )
-            all_devices = resp.get(ATTR_PROCESSED_DEVICES)
+            all_devices = resp.get(_ATTR_PROCESSED_DEVICES)
 
         if not all_devices:
             raise MeshInvalidOutput from None
@@ -957,10 +798,9 @@ class Mesh:
             all_devices = self.nodes + self.devices
         else:
             resp = await self._async_gather_details(
-                include_devices=True,
-                include_lan_settings=True,
+                props=JNAPActionMappings.CMP_DEVICE_DETAILS
             )
-            all_devices = resp.get(ATTR_PROCESSED_DEVICES)
+            all_devices = resp.get(_ATTR_PROCESSED_DEVICES)
 
         for device in all_devices:
             if device.network:
@@ -989,14 +829,12 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         all_devices = await self._async_gather_details(
-            include_devices=True,
-            include_lan_settings=True,
-            include_network_connections=True,
+            props=JNAPActionMappings.CMP_DEVICE_DETAILS
         )
         ret: List[Device] = [
             device
-            for device in all_devices.get(ATTR_PROCESSED_DEVICES, [])
-            if device.__class__.__name__.lower() == "device"
+            for device in all_devices.get(_ATTR_PROCESSED_DEVICES, [])
+            if isinstance(device, Device)
         ]
         ret = sorted(ret, key=lambda device: device.name)
 
@@ -1039,9 +877,13 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        resp = await self._async_gather_details(include_speedtest_status=True)
+        resp = await self._async_gather_details(
+            props=JNAPActionMappings.GET_SPEEDTEST_STATUS
+        )
         ret = _get_speedtest_state(
-            speedtest_results=resp[ATTR_SPEEDTEST_STATUS].get("speedTestResult", {})
+            speedtest_results=resp[JNAPActionMappings.GET_SPEEDTEST_STATUS.value].get(
+                "speedTestResult", {}
+            )
         )
 
         _LOGGER.debug(self._log_formatter.format("exited"))
@@ -1054,11 +896,13 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        resp = await self._async_gather_details(include_firmware_update=True)
-
-        node_results = resp.get(ATTR_UPDATE_FIRMWARE_STATE, {}).get(
-            "firmwareUpdateStatus", []
+        resp = await self._async_gather_details(
+            props=JNAPActionMappings.GET_UPDATE_FIRMWARE_STATE
         )
+
+        node_results = resp.get(
+            JNAPActionMappings.GET_UPDATE_FIRMWARE_STATE.value, {}
+        ).get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
 
         ret: bool = any(all_states)
@@ -1136,7 +980,9 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
 
         # get the current radio settings from the API; they may have changed
-        resp = await self._async_gather_details(include_guest_wifi=True)
+        resp = await self._async_gather_details(
+            props=JNAPActionMappings.GET_GUEST_NETWORK_INFO
+        )
         radios = resp.get("radios", [])
 
         payload = {
@@ -1160,7 +1006,9 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
         # get the current rules from the API because they may be different
-        resp = await self._async_gather_details(include_parental_control=True)
+        resp = await self._async_gather_details(
+            props=JNAPActionMappings.GET_PARENTAL_CONTROL_INFO
+        )
         rules = resp.get("rules", [])
 
         payload = {
@@ -1225,11 +1073,11 @@ class Mesh:
 
         If you need the live state then use the async_get_update_state to re-query the API.
 
-        :return: True if checking, False if not
+        :return: True if checking
         """
-        node_results = self._mesh_attributes.get(ATTR_UPDATE_FIRMWARE_STATE, {}).get(
-            "firmwareUpdateStatus", []
-        )
+        node_results = self._mesh_attributes.get(
+            JNAPActionMappings.GET_UPDATE_FIRMWARE_STATE.value, {}
+        ).get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
         ret = any(all_states)
 
@@ -1237,11 +1085,11 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def client_steering_enabled(self) -> bool:
+    def client_steering_enabled(self) -> bool | None:
         """Return if client steering is enabled."""
-        return self._mesh_attributes.get(ATTR_TOPOLOGY_OPTIMISATION_SETTINGS, {}).get(
-            "isClientSteeringEnabled", False
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}
+        ).get("isClientSteeringEnabled")
 
     @property
     @needs_gather_details
@@ -1254,7 +1102,7 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def devices(self) -> List:
+    def devices(self) -> List[Device]:
         """Get the devices in the mesh.
 
         The list will be returned in alphabetical order based on the device name.
@@ -1262,18 +1110,21 @@ class Mesh:
 
         :return: A list containing Device objects
         """
-        return sorted(
-            self._mesh_attributes.get(ATTR_PROCESSED_DEVICES, []),
-            key=lambda device: device.name,
-        )
+        ret: List[Device] = [
+            device
+            for device in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, [])
+            if isinstance(device, Device)
+        ]
+        ret = sorted(ret, key=lambda device: device.name)
+        return ret
 
     @property
     @needs_gather_details
-    def dhcp_enabled(self) -> bool:
+    def dhcp_enabled(self) -> bool | None:
         """Return if DHCP is enabled."""
-        return self._mesh_attributes.get(ATTR_LAN_SETTINGS, {}).get(
-            "isDHCPEnabled", False
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_LAN_SETTINGS.value, {}
+        ).get("isDHCPEnabled")
 
     @property
     @needs_gather_details
@@ -1283,7 +1134,7 @@ class Mesh:
         temp_dict: Dict[str, str] = {}
 
         for reservation in (
-            self._mesh_attributes.get(ATTR_LAN_SETTINGS, {})
+            self._mesh_attributes.get(JNAPActionMappings.GET_LAN_SETTINGS.value, {})
             .get("dhcpSettings", {})
             .get("reservations", [])
         ):
@@ -1297,17 +1148,17 @@ class Mesh:
     @needs_gather_details
     def express_forwarding_enabled(self) -> bool | None:
         """Return whether Express Forwarding is enabled."""
-        return self._mesh_attributes.get(ATTR_EXPRESS_FORWARDING, {}).get(
-            "isExpressForwardingEnabled"
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_EXPRESS_FORWARDING.value, {}
+        ).get("isExpressForwardingEnabled")
 
     @property
     @needs_gather_details
     def express_forwarding_supported(self) -> bool | None:
         """Return whether Express Forwarding is supported."""
-        return self._mesh_attributes.get(ATTR_EXPRESS_FORWARDING, {}).get(
-            "isExpressForwardingSupported"
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_EXPRESS_FORWARDING.value, {}
+        ).get("isExpressForwardingSupported")
 
     @property
     @needs_gather_details
@@ -1317,7 +1168,9 @@ class Mesh:
         :return: a lowercase string representing the update method
         """
         return (
-            self._mesh_attributes.get(ATTR_FIRMWARE_UPDATE_SETTINGS, {})
+            self._mesh_attributes.get(
+                JNAPActionMappings.GET_FIRMWARE_UPDATE_SETTINGS.value, {}
+            )
             .get("updatePolicy", "")
             .lower()
             or None
@@ -1325,18 +1178,18 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def guest_wifi_enabled(self) -> bool:
+    def guest_wifi_enabled(self) -> bool | None:
         """Get the state of the guest Wi-Fi.
 
-        :return: True if enabled, False if not
+        :return: True if enabled
         """
-        return self._mesh_attributes.get(ATTR_GUEST_NETWORK_INFO, {}).get(
-            "isGuestNetworkEnabled", False
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_GUEST_NETWORK_INFO.value, {}
+        ).get("isGuestNetworkEnabled")
 
     @property
     @needs_gather_details
-    def guest_wifi_details(self) -> List:
+    def guest_wifi_details(self) -> List[Dict[str, str]]:
         """Get the guest network Wi-Fi details.
 
         :return: A list of dictionaries containing the SSID and band for the networks
@@ -1346,35 +1199,37 @@ class Mesh:
                 "ssid": radio.get("guestSSID"),
                 "band": radio.get("radioID").split("_")[-1],
             }
-            for idx, radio in enumerate(
-                self._mesh_attributes.get(ATTR_GUEST_NETWORK_INFO, {}).get("radios", [])
+            for _, radio in enumerate(
+                self._mesh_attributes.get(
+                    JNAPActionMappings.GET_GUEST_NETWORK_INFO.value, {}
+                ).get("radios", [])
             )
         ]
         return ret
 
     @property
     @needs_gather_details
-    def homekit_enabled(self) -> bool:
+    def homekit_enabled(self) -> bool | None:
         """Return if the HomeKit integration is enabled."""
-        return self._mesh_attributes.get(ATTR_HOMEKIT_SETTINGS, {}).get(
-            "isEnabled", False
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_HOMEKIT_SETTINGS.value, {}
+        ).get("isEnabled")
 
     @property
     @needs_gather_details
-    def homekit_paired(self) -> bool:
+    def homekit_paired(self) -> bool | None:
         """Return if the HomeKit integration is paired."""
-        return self._mesh_attributes.get(ATTR_HOMEKIT_SETTINGS, {}).get(
-            "isPaired", False
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_HOMEKIT_SETTINGS.value, {}
+        ).get("isPaired")
 
     @property
     @needs_gather_details
-    def is_channel_scan_running(self) -> bool:
+    def is_channel_scan_running(self) -> bool | None:
         """Get the current state of channel scanning."""
-        return bool(
-            self._mesh_attributes.get(ATTR_CHANNEL_SCAN_INFO, {}).get("isRunning", None)
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_CHANNEL_SCAN_STATUS.value, {}
+        ).get("isRunning")
 
     @property
     @needs_gather_details
@@ -1386,9 +1241,9 @@ class Mesh:
         :return: the Speedtest results
         """
         ret = _process_speedtest_results(
-            speedtest_results=self._mesh_attributes.get(ATTR_SPEEDTEST_RESULTS, {}).get(
-                "healthCheckResults", []
-            ),
+            speedtest_results=self._mesh_attributes.get(
+                JNAPActionMappings.GET_SPEEDTEST_RESULTS.value, {}
+            ).get("healthCheckResults", []),
             only_completed=True,
             only_latest=True,
         )
@@ -1401,16 +1256,18 @@ class Mesh:
     @needs_gather_details
     def mac_filtering_addresses(self) -> List[str]:
         """Return address that are configured for MAC filtering."""
-        return self._mesh_attributes.get(ATTR_MAC_FILTERING_SETTINGS, {}).get(
-            "macAddresses", []
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_MAC_FILTERING_SETTINGS.value, {}
+        ).get("macAddresses", [])
 
     @property
     @needs_gather_details
     def mac_filtering_enabled(self) -> bool:
         """Return if MAC filtering is enabled."""
         return (
-            self._mesh_attributes.get(ATTR_MAC_FILTERING_SETTINGS, {})
+            self._mesh_attributes.get(
+                JNAPActionMappings.GET_MAC_FILTERING_SETTINGS.value, {}
+            )
             .get("macFilterMode", "")
             .lower()
             != "disabled"
@@ -1422,7 +1279,9 @@ class Mesh:
         """Return the MAC filtering mode."""
         if self.mac_filtering_enabled:
             return (
-                self._mesh_attributes.get(ATTR_MAC_FILTERING_SETTINGS, {})
+                self._mesh_attributes.get(
+                    JNAPActionMappings.GET_MAC_FILTERING_SETTINGS.value, {}
+                )
                 .get("macFilterMode", "")
                 .lower()
             )
@@ -1431,24 +1290,28 @@ class Mesh:
 
     @property
     @needs_gather_details
-    def node_steering_enabled(self) -> bool:
+    def node_steering_enabled(self) -> bool | None:
         """Return if node steering is enabled."""
-        return self._mesh_attributes.get(ATTR_TOPOLOGY_OPTIMISATION_SETTINGS, {}).get(
-            "isNodeSteeringEnabled", False
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}
+        ).get("isNodeSteeringEnabled")
 
     @property
     @needs_gather_details
-    def nodes(self) -> List:
+    def nodes(self) -> List[Node]:
         """Get the nodes in the mesh.
 
         The return is sorted in alphabetical order based on node name.
 
         :return: A list of Node objects
         """
-        ret: List = []
-        if ATTR_NODES in self._mesh_attributes:
-            ret = sorted(self._mesh_attributes[ATTR_NODES], key=lambda node: node.name)
+        ret: List = [
+            node
+            for node in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, [])
+            if isinstance(node, Node)
+        ]
+
+        ret = sorted(ret, key=lambda node: node.name)
         return ret
 
     @property
@@ -1456,20 +1319,19 @@ class Mesh:
     def parental_control_enabled(self) -> bool | None:
         """Get the state of the Parental Control feature.
 
-        :return: True if enabled, False if not
+        :return: True if enabled
         """
-        ret: bool | None = None
-        if ATTR_PARENTAL_CONTROL_INFO in self._mesh_attributes:
-            ret = self._mesh_attributes[ATTR_PARENTAL_CONTROL_INFO].get(
-                "isParentalControlEnabled", False
-            )
-        return ret
+        return self._mesh_attributes[
+            JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value
+        ].get("isParentalControlEnabled")
 
     @property
     @needs_gather_details
     def sip_enabled(self) -> bool | None:
         """Return whether SIP is enabled."""
-        return self._mesh_attributes.get(ATTR_ALG_SETTINGS, {}).get("isSIPEnabled")
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_ALG_SETTINGS.value, {}
+        ).get("isSIPEnabled")
 
     @property
     @needs_gather_details
@@ -1479,9 +1341,9 @@ class Mesh:
         :return: Textual representation of the Speedtest state
         """
         ret = _get_speedtest_state(
-            speedtest_results=self._mesh_attributes.get(ATTR_SPEEDTEST_STATUS, {}).get(
-                "speedTestResult", {}
-            )
+            speedtest_results=self._mesh_attributes.get(
+                JNAPActionMappings.GET_SPEEDTEST_STATUS.value, {}
+            ).get("speedTestResult", {})
         )
 
         return ret
@@ -1496,7 +1358,9 @@ class Mesh:
         ret: List = []
         node: List[Node]
         device: dict
-        storage_available = self._mesh_attributes.get(ATTR_STORAGE_PARTITIONS, {})
+        storage_available = self._mesh_attributes.get(
+            JNAPActionMappings.GET_STORAGE_PARTITIONS.value, {}
+        )
         for storage_node in storage_available.get("storageNodes", []):
             for device in storage_node.get("storageDevices", []):
                 for partition in device.get("partitions", []):
@@ -1540,7 +1404,9 @@ class Mesh:
 
         :return: Dictionary of the storage settings
         """
-        ret = self._mesh_attributes.get(ATTR_STORAGE_SMB_SERVER, {})
+        ret = self._mesh_attributes.get(
+            JNAPActionMappings.GET_STORAGE_SMB_SERVER.value, {}
+        )
         if ret:
             ret = {"anonymous_access": ret.get("isAnonymousAccessEnabled")}
 
@@ -1550,23 +1416,25 @@ class Mesh:
     @needs_gather_details
     def upnp_enabled(self) -> bool | None:
         """Return whether UPnP is enabled."""
-        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get("isUPnPEnabled")
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_UPNP_SETTINGS.value, {}
+        ).get("isUPnPEnabled")
 
     @property
     @needs_gather_details
     def upnp_allow_change_settings(self) -> bool | None:
         """Return whether users can change settings when UPnP is enabled."""
-        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get(
-            "canUsersConfigure"
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_UPNP_SETTINGS.value, {}
+        ).get("canUsersConfigure")
 
     @property
     @needs_gather_details
     def upnp_allow_disable_internet(self) -> bool | None:
         """Return whether users can change disable the Internet when UPnP is enabled."""
-        return self._mesh_attributes.get(ATTR_UPNP_SETTINGS, {}).get(
-            "canUsersDisableWANAccess"
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_UPNP_SETTINGS.value, {}
+        ).get("canUsersDisableWANAccess")
 
     @property
     @needs_gather_details
@@ -1577,7 +1445,9 @@ class Mesh:
         """
         ret = [
             val
-            for key, val in self._mesh_attributes.get(ATTR_WAN_INFO, {})
+            for key, val in self._mesh_attributes.get(
+                JNAPActionMappings.GET_WAN_INFO.value, {}
+            )
             .get("wanConnection", {})
             .items()
             if key.startswith("dnsServer")
@@ -1593,7 +1463,7 @@ class Mesh:
         :return: A string containing the IP address for the WAN
         """
         return (
-            self._mesh_attributes.get(ATTR_WAN_INFO, {})
+            self._mesh_attributes.get(JNAPActionMappings.GET_WAN_INFO.value, {})
             .get("wanConnection", {})
             .get("ipAddress")
         )
@@ -1605,7 +1475,9 @@ class Mesh:
 
         :return: A string containing the MAC address for the WAN adapter
         """
-        return self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("macAddress", "")
+        return self._mesh_attributes.get(JNAPActionMappings.GET_WAN_INFO.value, {}).get(
+            "macAddress", ""
+        )
 
     @property
     @needs_gather_details
@@ -1615,7 +1487,9 @@ class Mesh:
         :return: True if connected, False if not
         """
         return (
-            self._mesh_attributes.get(ATTR_WAN_INFO, {}).get("wanStatus", "").lower()
+            self._mesh_attributes.get(JNAPActionMappings.GET_WAN_INFO.value, {})
+            .get("wanStatus", "")
+            .lower()
             == "connected"
         )
 
@@ -1623,8 +1497,8 @@ class Mesh:
     @needs_gather_details
     def wps_state(self) -> bool:
         """Return if WPS is enabled or not."""
-        return self._mesh_attributes.get(ATTR_WPS_SERVER_SETTINGS, {}).get(
-            "enabled", False
-        )
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_WPS_SERVER_SETTINGS.value, {}
+        ).get("enabled", False)
 
     # endregion
