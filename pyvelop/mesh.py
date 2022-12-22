@@ -1138,6 +1138,7 @@ class Mesh:
             .get("dhcpSettings", {})
             .get("reservations", [])
         ):
+            temp_dict = {}
             for key, details in reservation.items():
                 temp_dict[camel_to_snake(key)] = details
             ret.append(temp_dict)
