@@ -1021,6 +1021,18 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    async def async_set_wps_state(self, state: bool) -> None:
+        """Set the state of the WPS feature.
+
+        :param state: True to enable, False to disable
+        :return: None
+        """
+        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
+        await self._async_make_request(
+            action=api.Actions.SET_WPS_SERVER_SETTINGS, payload={"enabled": state}
+        )
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
     async def async_start_channel_scan(self) -> None:
         """Start a channel scan on the mesh."""
         _LOGGER.debug(self._log_formatter.format("entered"))
