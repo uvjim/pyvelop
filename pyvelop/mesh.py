@@ -995,6 +995,18 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    async def async_set_homekit_state(self, state: bool) -> None:
+        """Set the state of the HomeKit feature.
+
+        :param state: True to enable, False to disable
+        :return: None
+        """
+        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
+        await self._async_make_request(
+            action=api.Actions.SET_HOMEKIT_SETTINGS, payload={"isEnabled": state}
+        )
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature.
 

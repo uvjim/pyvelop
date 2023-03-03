@@ -84,6 +84,7 @@ class Actions(str, Enum):
     REBOOT: str = f"{ROOT}/core/Reboot"
     SET_DEVICE_PROPERTY: str = f"{ROOT}/devicelist/SetDeviceProperties"
     SET_GUEST_NETWORK: str = f"{ROOT}/guestnetwork/SetGuestRadioSettings2"
+    SET_HOMEKIT_SETTINGS: str = f"{ROOT}/homekit/SetHomeKitSettings"
     SET_PARENTAL_CONTROL_INFO: str = (
         f"{ROOT}/parentalcontrol/SetParentalControlSettings"
     )
