@@ -87,6 +87,7 @@ class Actions(str, Enum):
     SET_PARENTAL_CONTROL_INFO: str = (
         f"{ROOT}/parentalcontrol/SetParentalControlSettings"
     )
+    SET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/SetWPSServerSettings"
     START_CHANNEL_SCAN: str = f"{ROOT}/nodes/setup/StartAutoChannelSelection"
     START_SPEEDTEST: str = f"{ROOT}/healthcheck/RunHealthCheck"
     TRANSACTION: str = f"{ROOT}/core/Transaction"

@@ -133,6 +133,8 @@ MESH_ALLOWED_ACTIONS: Set = (
     "speedtest_start",
     "speedtest_state",
     "update_check_start",
+    "wps_off",
+    "wps_on",
 )
 DEF_INDENT: int = 2
 
@@ -415,6 +417,10 @@ async def mesh_action(
                 ret = await mesh_obj.async_get_speedtest_state()
             elif action == "update_check_start":
                 ret = await mesh_obj.async_check_for_updates()
+            elif action == "wps_off":
+                ret = await mesh_obj.async_set_wps_state(state=False)
+            elif action == "wps_on":
+                ret = await mesh_obj.async_set_wps_state(state=True)
 
     print(json.dumps(ret))
 
