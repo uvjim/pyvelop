@@ -127,6 +127,8 @@ MESH_ALLOWED_ACTIONS: Set = (
     "channel_scan_start",
     "guest_wifi_off",
     "guest_wifi_on",
+    "homekit_off",
+    "homekit_on",
     "parental_control_off",
     "parental_control_on",
     "speedtest_results",
@@ -405,6 +407,10 @@ async def mesh_action(
                 ret = await mesh_obj.async_set_guest_wifi_state(state=False)
             elif action == "guest_wifi_on":
                 ret = await mesh_obj.async_set_guest_wifi_state(state=True)
+            elif action == "homekit_off":
+                ret = await mesh_obj.async_set_homekit_state(state=False)
+            elif action == "homekit_on":
+                ret = await mesh_obj.async_set_homekit_state(state=True)
             elif action == "parental_control_off":
                 ret = await mesh_obj.async_set_parental_control_state(state=False)
             elif action == "parental_control_on":
