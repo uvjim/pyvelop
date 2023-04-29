@@ -7,13 +7,12 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterable
-from enum import auto, Flag
+from enum import Flag, auto
 from typing import Any, Dict, List, Tuple
 
 import aiohttp
 
-from . import camel_to_snake
-from . import const
+from . import camel_to_snake, const
 from . import jnap as api
 from .decorators import needs_gather_details
 from .device import Device, ParentalControl
@@ -62,7 +61,12 @@ class JNAPActionMappings(Flag):
     GET_WPS_SERVER_SETTINGS = auto()
 
     # -- compound flags --#
-    CMP_DEVICE_DETAILS = GET_DEVICES | GET_LAN_SETTINGS | GET_NETWORK_CONNECTIONS
+    CMP_DEVICE_DETAILS = (
+        GET_DEVICES
+        | GET_LAN_SETTINGS
+        | GET_NETWORK_CONNECTIONS
+        | GET_PARENTAL_CONTROL_INFO
+    )
     CMP_MESH_DETAILS = (
         GET_ALG_SETTINGS
         | GET_BACKHAUL
