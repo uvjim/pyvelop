@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import datetime
+from collections import namedtuple
 from enum import IntEnum
 from typing import Any, Dict, List, final
 
@@ -16,6 +17,7 @@ from .base import MeshDevice
 class ParentalControl:
     """Class to manage parental control schedules."""
 
+    BINARY_LENGTH: int = 48
     BLOCKED: str = "0"
     UNBLOCKED: str = "1"
     WEEKDAYS: IntEnum = IntEnum(
@@ -52,7 +54,8 @@ class ParentalControl:
 
         return ret
 
-    def _human_readable(self, schedule: Dict[str, str]) -> Dict[str, List[str]]:
+    @staticmethod
+    def _human_readable(schedule: Dict[str, str]) -> Dict[str, List[str]]:
         """Make the given schedule human readable."""
         ret = {}
         for day, sched in schedule.items():
@@ -61,7 +64,7 @@ class ParentalControl:
             start: datetime = None
             end: datetime = None
             for pos, minute in enumerate(schedule_list):
-                if not start and minute == self.BLOCKED:
+                if not start and minute == __class__.BLOCKED:
                     start: datetime = (
                         datetime.datetime.combine(
                             datetime.datetime.today(), datetime.datetime.min.time()
@@ -71,7 +74,7 @@ class ParentalControl:
                     if end:
                         end = None
                 if start and (
-                    minute == self.UNBLOCKED or pos == len(schedule_list) - 1
+                    minute == __class__.UNBLOCKED or pos == len(schedule_list) - 1
                 ):
                     if pos == len(schedule_list) - 1:
                         pos += 1
@@ -91,6 +94,7 @@ class ParentalControl:
 
         return ret
 
+    # region #-- public methods --#
     def encode_for_backup(self, schedule: Dict[str, str]) -> str:
         """Encode the schedule for storage in a property."""
         ret: str = ""
@@ -110,6 +114,90 @@ class ParentalControl:
         ret = chunk_chars and base64.b64encode(chunk_chars).decode()
         return ret
 
+    @staticmethod
+    def human_readable_to_binary(
+        to_encode: str | Dict[str, str]
+    ) -> str | Dict[str, str]:
+        """Encode the human readble information to somethings that can be stored."""
+        fake_day = "sunday"
+        if isinstance(to_encode, str):
+            to_process = {fake_day: to_encode}
+        else:
+            to_process = to_encode
+            if len(to_process) > len(__class__.WEEKDAYS):
+                raise ValueError("Too many arguments")
+            if len(to_process) < len(__class__.WEEKDAYS) and len(to_process) > 1:
+                for idx in range(len(to_process), len(__class__.WEEKDAYS)):
+                    to_process[__class__.WEEKDAYS(idx).name] = None
+
+        ret: str | Dict[str, str] = {}
+        for day, schedule in to_process.items():
+            default_binary = [__class__.UNBLOCKED] * __class__.BINARY_LENGTH
+            if schedule is not None:
+                time_schedules: List[str] = schedule.split(",")
+                TimeBlock = namedtuple("TimeBlock", ["start", "end"])
+                for schedule in time_schedules:
+                    times: List[str] = schedule.split("-")
+                    time_block: TimeBlock = TimeBlock(
+                        datetime.datetime.strptime(times[0].strip(), "%H:%M"),
+                        datetime.datetime.strptime(times[1].strip(), "%H:%M"),
+                    )
+                    if (  # midnight to midnight
+                        time_block.start == time_block.end
+                        and time_block.start.hour == 0
+                        and time_block.start.minute == 0
+                    ):
+                        offset_start = 0
+                        offset_end = __class__.BINARY_LENGTH
+                    elif (  # time wrapping
+                        time_block.end < time_block.start
+                        and str(time_block.end.time()) != "00:00:00"
+                    ):
+                        offset_start = 0
+                        offset_end = __class__.BINARY_LENGTH
+                    else:  # normal time
+                        offset_start = time_block.start.hour * 2 + (
+                            1 if time_block.start.minute >= 30 else 0
+                        )
+                        offset_end = (  # extend to end if midnight is the end time
+                            time_block.end.hour
+                            if time_block.end.hour != 0
+                            or (time_block.end.hour == 0 and time_block.start.hour == 0)
+                            else 24
+                        ) * 2 + (1 if time_block.end.minute >= 30 else 0)
+
+                    for idx in range(offset_start, offset_end):
+                        default_binary[idx] = __class__.BLOCKED
+
+                    if all(  # break out early if all blocked
+                        val == __class__.BLOCKED for val in default_binary
+                    ):
+                        break
+
+            ret[day] = "".join(default_binary)
+
+        if isinstance(to_encode, str):
+            ret = ret[fake_day]
+
+        return ret
+
+    @staticmethod
+    def binary_to_human_readable(
+        to_decode: str | Dict[str, str]
+    ) -> str | Dict[str, List[str]]:
+        """Decode the binary format string to humand readble form."""
+        if isinstance(to_decode, str):
+            fake_day = "sunday"
+            fake_obj = {fake_day: to_decode}
+            fake_ret = ParentalControl._human_readable(schedule=fake_obj)
+            ret = fake_ret[fake_day]
+        else:
+            ret = ParentalControl._human_readable(schedule=to_decode)
+
+        return ret
+
+    # endregion
+
     # region #-- properties --#
     @property
     def blocked_urls(self) -> List[str]:
@@ -126,7 +214,7 @@ class ParentalControl:
 
     @property
     def description(self) -> str:
-        """Return the rule description"""
+        """Return the rule description."""
         return self._rule.get("description", "default description")
 
     @property
@@ -166,7 +254,7 @@ class ParentalControl:
     @final
     @property
     def rule(self) -> Dict[str, Any]:
-        """Return the rule"""
+        """Return the rule."""
         return {
             "blockedURLs": self.blocked_urls,
             "description": self.description,
@@ -186,13 +274,7 @@ class ParentalControl:
 class Device(MeshDevice):
     """Represents a user device in the mesh, i.e. not a node."""
 
-    def __init__(self, **kwargs):
-        """Initialise the Device.
-
-        :param kwargs: keyword arguments
-        """
-        super().__init__(**kwargs)
-
+    # region #-- properties --#
     @property
     def description(self) -> str | None:
         """Get the description.
@@ -257,3 +339,5 @@ class Device(MeshDevice):
     def serial(self) -> str | None:
         """Get the serial number."""
         return self._attribs.get("unit", {}).get("serialNumber", None)
+
+    # endregion
