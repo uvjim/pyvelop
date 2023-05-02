@@ -184,7 +184,7 @@ async def device_delete(
 @click.argument("device", nargs=-1)
 async def device_details(
     ctx: click.Context,
-    device: Tuple[str],
+    device: Tuple[str, ...],
     **_,
 ) -> None:
     """Display details about a device on the Mesh."""
@@ -259,6 +259,30 @@ async def device_rename(ctx: click.Context, device_id: str, new_name: str, **_) 
     if mesh_obj := await mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_rename_device(device_id=device_id, name=new_name)
+
+
+@device_group.command(cls=StandardCommand, name="set_rules")
+@click.pass_context
+@click.argument("device_id")
+@click.argument("rules", nargs=-1)
+async def device_pc_set_rules(
+    ctx: click.Context, device_id: str, rules: Tuple[str, ...], **_
+) -> None:
+    """Set the parental control rules."""
+    rules_to_apply: Dict[str, str] = dict(
+        map(
+            lambda weekday, readable_schedule: (weekday.name, readable_schedule),
+            ParentalControl.WEEKDAYS,
+            rules,
+        )
+    )
+
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
+            await mesh_obj.async_set_parental_control_rules(
+                device_id=device_id, rules=rules_to_apply
+            )
 
 
 @cli.group(name="mesh")
@@ -570,7 +594,7 @@ async def parental_schedule_group() -> None:
 
 @parental_schedule_group.command(name="decode")
 @click.argument("to_decode", nargs=-1, required=True)
-async def ps_decode(to_decode: Tuple(str)) -> None:
+async def ps_decode(to_decode: Tuple[str, ...]) -> None:
     """Decode the given binary schedule forms to a human readable form."""
     if len(to_decode) > len(ParentalControl.WEEKDAYS):
         _LOGGER.error("Too many arguments specified")
@@ -591,7 +615,7 @@ async def ps_decode(to_decode: Tuple(str)) -> None:
 
 @parental_schedule_group.command(name="encode")
 @click.argument("to_encode", nargs=-1, required=True)
-async def ps_encode(to_encode: Tuple(str)) -> None:
+async def ps_encode(to_encode: Tuple[str, ...]) -> None:
     """Encode the given human readable form schedules to binary form."""
     if len(to_encode) > len(ParentalControl.WEEKDAYS):
         _LOGGER.error("Too many arguments specified")
