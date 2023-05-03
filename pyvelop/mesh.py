@@ -880,15 +880,8 @@ class Mesh:
     ) -> None:
         """Set the parental control schedule for the given device.
 
-        rules should be in the form: -
-
-        {
-            "monday": "00:00-02:00,17:30:18:00",
-            "sunday": "00:00",
-        }
-
         :param device_id: The unique identifier for the device
-        :param rules: A dictionary of time string pairs
+        :param rules: A dictionary of time string pairs in the form: `"monday": "00:00-02:00,17:30:18:00"`
         :param force_enable: True to enable Parental Control, False to leave in current state
         :return: None
         """
