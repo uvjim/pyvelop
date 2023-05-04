@@ -624,7 +624,7 @@ async def ps_encode(to_encode: Tuple[str, ...]) -> None:
     else:
         dict_to_encode = dict(
             map(
-                lambda weekday, readable_schedule: (weekday.name, readable_schedule),
+                lambda weekday, readable_schedule: (weekday.name, readable_schedule if readable_schedule else None),
                 ParentalControl.WEEKDAYS,
                 to_encode,
             )
