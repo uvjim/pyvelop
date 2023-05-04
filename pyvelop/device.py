@@ -54,7 +54,7 @@ class ParentalControl:
             while idx < __class__.BINARY_LENGTH:
                 block_start: int | None = (
                     sched.index(__class__.BLOCKED, idx)
-                    if __class__.BLOCKED in sched
+                    if __class__.BLOCKED in sched[idx + 1 :]
                     else None
                 )
                 block_end: int | None = None
