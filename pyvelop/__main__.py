@@ -13,7 +13,7 @@ import aiohttp
 import asyncclick as click
 
 from pyvelop.const import _PACKAGE_NAME, _PACKAGE_VERSION
-from pyvelop.device import Device
+from pyvelop.device import Device, ParentalControl
 from pyvelop.exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -184,7 +184,7 @@ async def device_delete(
 @click.argument("device", nargs=-1)
 async def device_details(
     ctx: click.Context,
-    device: Tuple[str],
+    device: Tuple[str, ...],
     **_,
 ) -> None:
     """Display details about a device on the Mesh."""
@@ -259,6 +259,30 @@ async def device_rename(ctx: click.Context, device_id: str, new_name: str, **_) 
     if mesh_obj := await mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_rename_device(device_id=device_id, name=new_name)
+
+
+@device_group.command(cls=StandardCommand, name="set_rules")
+@click.pass_context
+@click.argument("device_id")
+@click.argument("rules", nargs=-1)
+async def device_pc_set_rules(
+    ctx: click.Context, device_id: str, rules: Tuple[str, ...], **_
+) -> None:
+    """Set the parental control rules."""
+    rules_to_apply: Dict[str, str] = dict(
+        map(
+            lambda weekday, readable_schedule: (weekday.name, readable_schedule),
+            ParentalControl.WEEKDAYS,
+            rules,
+        )
+    )
+
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
+            await mesh_obj.async_set_parental_control_rules(
+                device_id=device_id, rules=rules_to_apply
+            )
 
 
 @cli.group(name="mesh")
@@ -562,6 +586,54 @@ async def node_restart(
                 _LOGGER.error(err)
 
 
+@cli.group(name="parental_schedules")
+@click.help_option()
+async def parental_schedule_group() -> None:
+    """Parental schedule conversions."""
+
+
+@parental_schedule_group.command(name="decode")
+@click.argument("to_decode", nargs=-1, required=True)
+async def ps_decode(to_decode: Tuple[str, ...]) -> None:
+    """Decode the given binary schedule forms to a human readable form."""
+    if len(to_decode) > len(ParentalControl.WEEKDAYS):
+        _LOGGER.error("Too many arguments specified")
+    elif len(to_decode) == 1:
+        _display_data(ParentalControl.binary_to_human_readable(to_decode=to_decode[0]))
+    else:
+        dict_to_decode = dict(
+            map(
+                lambda weekday, binary_schedule: (weekday.name, binary_schedule),
+                ParentalControl.WEEKDAYS,
+                to_decode,
+            )
+        )
+        _display_data(
+            ParentalControl.binary_to_human_readable(to_decode=dict_to_decode)
+        )
+
+
+@parental_schedule_group.command(name="encode")
+@click.argument("to_encode", nargs=-1, required=True)
+async def ps_encode(to_encode: Tuple[str, ...]) -> None:
+    """Encode the given human readable form schedules to binary form."""
+    if len(to_encode) > len(ParentalControl.WEEKDAYS):
+        _LOGGER.error("Too many arguments specified")
+    elif len(to_encode) == 1:
+        _display_data(ParentalControl.human_readable_to_binary(to_encode=to_encode[0]))
+    else:
+        dict_to_encode = dict(
+            map(
+                lambda weekday, readable_schedule: (weekday.name, readable_schedule if readable_schedule else None),
+                ParentalControl.WEEKDAYS,
+                to_encode,
+            )
+        )
+        _display_data(
+            ParentalControl.human_readable_to_binary(to_encode=dict_to_encode)
+        )
+
+
 async def mesh_connect(ctx: click.Context = None) -> Mesh | None:
     """Return the Mesh object."""
     if ctx is not None:
@@ -699,7 +771,7 @@ def _connected_details(adapters: List[Dict]) -> str:
 
 def _display_data(message: str = "") -> None:
     """Display the given data on screen."""
-    print(message)
+    click.echo(message)
 
 
 def _guest_wifi_details(state: bool, networks: List[Dict]) -> str:
