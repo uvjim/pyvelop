@@ -892,13 +892,15 @@ class Mesh:
         )
 
         current_schedule: Dict[str, str] = {}
+
+        # region #-- get the device details --#
         device: List[Device | Node] = await self.async_get_device_from_id(
             device_id=[device_id],
         )
-
         device_mac: str = device[0].network[0].get("mac", None)
         if device_mac is None:
             raise MeshException("No MAC available")
+        # endregion
 
         # -- get the current rules as they may have changed --#
         current_parental_control_info: Dict[
@@ -928,6 +930,7 @@ class Mesh:
         cached_schedule: Dict[str, str] = getattr(device[0], "_get_user_property")(
             "actualWanSchedule"
         )
+
         if new_rule != ParentalControl.ALL_ALLOWED_SCHEDULE():
             _LOGGER.debug(self._log_formatter.format("Adding new rules"))
             if this_device_rules:
@@ -941,18 +944,26 @@ class Mesh:
                     )
                 )
         else:
-            _LOGGER.debug(
-                self._log_formatter.format("All allowed rule, removing from rules")
-            )
-            this_device_rules = []
             if cached_schedule:
                 _LOGGER.debug(
                     self._log_formatter.format("Restoring backed up schedule")
                 )
                 new_rule = ParentalControl.backup_to_binary(schedule=cached_schedule)
                 this_device_rules[0]["wanSchedule"] = new_rule
+            else:
+                if this_device_rules[0].get("blockedURLs", []):
+                    _LOGGER.debug(
+                        self._log_formatter.format(
+                            "Blocked URLs found, applying permissive rule"
+                        )
+                    )
+                    this_device_rules[0]["wanSchedule"] = new_rule
+                else:
+                    _LOGGER.debug(self._log_formatter.format("Removing from rules"))
+                    this_device_rules = []
+        # endregion
 
-        requests: List = [
+        requests: List = [  # build a list of requests to send
             self._async_make_request(
                 action=api.Actions.SET_PARENTAL_CONTROL_INFO,
                 payload={
@@ -966,7 +977,7 @@ class Mesh:
             )
         ]
 
-        # -- decide whether to show in the list or not --#
+        # region #-- calculate the device properties to update --#
         props_to_remove: List[str] = []
         props_to_modify: List[Dict[str, str]] = []
         if new_rule == ParentalControl.ALL_ALLOWED_SCHEDULE():
@@ -1013,8 +1024,9 @@ class Mesh:
                     },
                 )
             )
-        await asyncio.gather(*requests)
         # endregion
+
+        await asyncio.gather(*requests)
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
