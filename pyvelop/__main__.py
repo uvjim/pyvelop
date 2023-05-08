@@ -285,6 +285,23 @@ async def device_pc_set_rules(
             )
 
 
+@device_group.command(cls=StandardCommand, name="set_urls")
+@click.pass_context
+@click.argument("device_id")
+@click.argument("urls", nargs=-1)
+@click.option("--merge/--no-merge", default=True)
+async def device_pc_set_urls(
+    ctx: click.Context, device_id: str, merge: bool, urls: Tuple[str, ...], **_
+) -> None:
+    """Set the parental control URLs."""
+    if mesh_obj := await mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_gather_details()
+            await mesh_obj.async_set_parental_control_urls(
+                device_id=device_id, merge=merge, urls=list(urls)
+            )
+
+
 @cli.group(name="mesh")
 @click.help_option()
 async def mesh_group() -> None:
@@ -624,7 +641,10 @@ async def ps_encode(to_encode: Tuple[str, ...]) -> None:
     else:
         dict_to_encode = dict(
             map(
-                lambda weekday, readable_schedule: (weekday.name, readable_schedule if readable_schedule else None),
+                lambda weekday, readable_schedule: (
+                    weekday.name,
+                    readable_schedule if readable_schedule else None,
+                ),
                 ParentalControl.WEEKDAYS,
                 to_encode,
             )

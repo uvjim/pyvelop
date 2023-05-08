@@ -156,6 +156,37 @@ def _process_speedtest_results(
     return ret
 
 
+def _get_parental_control_device_attributes(
+    schedule: Dict[str, str], urls: List[str]
+) -> Dict[str, List[str | Dict[str, str]]]:
+    """Determine what happens with device properties for parental control."""
+    ret = {
+        "remove": [],
+        "modify": [],
+    }
+    if schedule == ParentalControl.ALL_ALLOWED_SCHEDULE() and not urls:
+        ret["remove"].extend(
+            [
+                "actualWanSchedule",
+                "blockAllManually",
+                "showInPCList",
+            ]
+        )
+
+    if (
+        schedule != ParentalControl.ALL_ALLOWED_SCHEDULE()
+        or schedule == ParentalControl.ALL_ALLOWED_SCHEDULE()
+        and urls
+    ):
+        ret["modify"].append({"name": "showInPCList", "value": "true"})
+        if schedule == ParentalControl.ALL_PAUSED_SCHEDULE():
+            ret["modify"].append({"name": "blockAllManually", "value": "true"})
+        else:
+            ret["remove"].append("blockAllManually")
+
+    return ret
+
+
 class Mesh:
     """Representation of the Velop Mesh.
 
@@ -978,52 +1009,176 @@ class Mesh:
         ]
 
         # region #-- calculate the device properties to update --#
-        props_to_remove: List[str] = []
-        props_to_modify: List[Dict[str, str]] = []
-        if new_rule == ParentalControl.ALL_ALLOWED_SCHEDULE():
-            props_to_remove = [
-                "actualWanSchedule",
-                "blockAllManually",
-                "showInPCList",
-            ]
+        device_properties: Dict[
+            str, List[str, Dict[str, str]]
+        ] = _get_parental_control_device_attributes(
+            schedule=new_rule,
+            urls=this_device_rules[0].get("blockedURLs", [])
+            if this_device_rules
+            else [],
+        )
+        if new_rule == ParentalControl.ALL_PAUSED_SCHEDULE():
+            if current_schedule:
+                device_properties["modify"].append(
+                    {
+                        "name": "actualWanSchedule",
+                        "value": ParentalControl.encode_for_backup(
+                            schedule=current_schedule
+                        ),
+                    }
+                )
         else:
-            props_to_modify.append({"name": "showInPCList", "value": "true"})
-            if new_rule == ParentalControl.ALL_PAUSED_SCHEDULE():
-                props_to_modify.append({"name": "blockAllManually", "value": "true"})
-                if current_schedule:
-                    props_to_modify.append(
-                        {
-                            "name": "actualWanSchedule",
-                            "value": ParentalControl.encode_for_backup(
-                                schedule=current_schedule
-                            ),
-                        }
-                    )
-            else:
-                props_to_remove = ["blockAllManually"]
-                if cached_schedule:
-                    props_to_remove.append("actualWanSchedule")
+            if cached_schedule:
+                device_properties["remove"].append("actualWanSchedule")
 
-        if props_to_modify:
+        if device_properties["modify"]:
             requests.append(
                 self._async_make_request(
                     action=api.Actions.SET_DEVICE_PROPERTY,
                     payload={
                         "deviceID": device_id,
-                        "propertiesToModify": props_to_modify,
+                        "propertiesToModify": device_properties["modify"],
                     },
                 )
             )
-        if props_to_remove:
+        if device_properties["remove"]:
             requests.append(
                 self._async_make_request(
                     action=api.Actions.SET_DEVICE_PROPERTY,
                     payload={
                         "deviceID": device_id,
-                        "propertiesToRemove": props_to_remove,
+                        "propertiesToRemove": device_properties["remove"],
                     },
                 )
             )
+        # endregion
+
+        await asyncio.gather(*requests)
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
+    @needs_gather_details
+    async def async_set_parental_control_urls(
+        self,
+        device_id: str,
+        urls: List[str],
+        force_enable: bool = False,
+        merge: bool = True,
+    ) -> None:
+        """Set the URLs for Parental Control.
+
+        :param device_id: The unique identifier for the device
+        :param urls: List of the URLs to add
+        :param force_enable: True to enable the rule if it isn't enabled
+        :param merge: True to merge with existing URLs, False to replace
+        :return: None
+        """
+        _LOGGER.debug(
+            self._log_formatter.format(
+                "entered, device_id: %s, urls: %s, force_enable: %s, merge: %s"
+            ),
+            device_id,
+            urls,
+            force_enable,
+            merge,
+        )
+
+        # region #-- get the device details --#
+        device: List[Device | Node] = await self.async_get_device_from_id(
+            device_id=[device_id],
+        )
+        device_mac: str = device[0].network[0].get("mac", None)
+        if device_mac is None:
+            raise MeshException("No MAC available")
+        # endregion
+
+        # -- get the current rules as they may have changed --#
+        current_parental_control_info: Dict[
+            int | str, Any
+        ] = await self._async_gather_details(
+            props=JNAPActionMappings.GET_PARENTAL_CONTROL_INFO
+        )
+        current_parental_control_info = current_parental_control_info.get(
+            JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value, {}
+        )
+
+        # region #-- determine the rules --#
+        keep_rules: List[Dict[str, Any]] = [
+            rule
+            for rule in current_parental_control_info.get("rules", [])
+            if device_mac.upper() not in rule.get("macAddresses", [])
+        ]
+        this_device_rules: List[Dict[str, Any]] = [
+            rule
+            for rule in current_parental_control_info.get("rules", [])
+            if device_mac.upper() in rule.get("macAddresses", [])
+        ]
+        if not this_device_rules:  # no existing rules so create all permissive
+            this_device_rules.append(
+                ParentalControl.create_rule(
+                    blocked_urls=list(set(urls)),
+                    mac_address=device_mac,
+                    schedule=ParentalControl.ALL_ALLOWED_SCHEDULE(),
+                    schedule_to_binary=False,
+                )
+            )
+        else:
+            if merge:
+                this_device_rules[0]["blockedURLs"].extend(urls)
+            else:
+                this_device_rules[0]["blockedURLs"] = urls
+            this_device_rules[0]["blockedURLs"] = list(
+                set(this_device_rules[0]["blockedURLs"])
+            )
+        # endregion
+
+        # region #-- build a list of requests to send --#
+        device_properties: Dict[
+            str, List[str | Dict[str, str]]
+        ] = _get_parental_control_device_attributes(
+            schedule=this_device_rules[0].get("wanSchedule", {}), urls=urls
+        )
+
+        requests: List = [
+            self._async_make_request(
+                action=api.Actions.SET_PARENTAL_CONTROL_INFO,
+                payload={
+                    "isParentalControlEnabled": True
+                    if force_enable
+                    else current_parental_control_info.get(
+                        "isParentalControlEnabled", True
+                    ),
+                    "rules": keep_rules
+                    + (
+                        this_device_rules
+                        if "showInPCList" not in device_properties["remove"]
+                        else []
+                    ),
+                },
+            )
+        ]
+
+        if device_properties["modify"]:
+            requests.append(
+                self._async_make_request(
+                    action=api.Actions.SET_DEVICE_PROPERTY,
+                    payload={
+                        "deviceID": device_id,
+                        "propertiesToModify": device_properties["modify"],
+                    },
+                )
+            )
+        if device_properties["remove"]:
+            requests.append(
+                self._async_make_request(
+                    action=api.Actions.SET_DEVICE_PROPERTY,
+                    payload={
+                        "deviceID": device_id,
+                        "propertiesToRemove": device_properties["remove"],
+                    },
+                )
+            )
+
         # endregion
 
         await asyncio.gather(*requests)
