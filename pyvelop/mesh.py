@@ -982,7 +982,7 @@ class Mesh:
                 new_rule = ParentalControl.backup_to_binary(schedule=cached_schedule)
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
-                if this_device_rules[0].get("blockedURLs", []):
+                if len(this_device_rules) > 0 and this_device_rules[0].get("blockedURLs", []):
                     _LOGGER.debug(
                         self._log_formatter.format(
                             "Blocked URLs found, applying permissive rule"
