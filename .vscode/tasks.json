@@ -8,7 +8,7 @@
             "type": "shell",
             "command": "${command:python.interpreterPath}",
             "args": [
-                "c:\\python\\scripts\\sphinx-build.exe",
+                "/usr/local/bin/sphinx-build",
                 "-a",
                 "-b",
                 "html",
@@ -75,7 +75,7 @@
             "label": "Release: Full",
             "group": "build",
             "dependsOn": [
-                "Release: Library and EXE",
+                "Build: Library",
                 "Release: Documentation"
             ],
             "problemMatcher": []
@@ -89,7 +89,7 @@
                 "twine",
                 "upload",
                 "--skip-existing",
-                "dist/*2023.3.*"
+                "dist/*2023.7.*"
             ]
         }
     ]
