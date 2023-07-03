@@ -241,8 +241,22 @@ async def device_internet_access(
         async with mesh_obj:
             await mesh_obj.async_gather_details()
             try:
-                await mesh_obj.async_device_internet_access_state(
-                    device_id=device_id, state=not block
+                if not block:
+                    rules_to_apply: Dict[str, str] = {}
+                else:
+                    rules_to_apply: Dict[str, str] = dict(
+                        map(
+                            lambda weekday, readable_schedule: (
+                                weekday.name,
+                                readable_schedule,
+                            ),
+                            ParentalControl.WEEKDAYS,
+                            ("00:00-00:00",) * len(ParentalControl.WEEKDAYS),
+                        )
+                    )
+                await mesh_obj.async_set_parental_control_rules(
+                    device_id=device_id,
+                    rules=rules_to_apply,
                 )
             except MeshDeviceNotFoundResponse as err:
                 _LOGGER.error("Device not found: %s", err.devices[0])
