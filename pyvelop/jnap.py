@@ -16,6 +16,7 @@ import aiohttp
 
 from .const import DEF_REDACT
 from .exceptions import (
+    MeshAlreadyInProgress,
     MeshBadResponse,
     MeshCannotDeleteDevice,
     MeshConnectionError,
@@ -208,10 +209,13 @@ class Request:
             self.payload,
             resp_json,
         )
-        _LOGGER.debug(self._log_formatter.format("exited"))
-        return Response(
+
+        ret: Response = Response(
             action=self.action, data=resp_json, raise_on_error=self._raise_on_error
         )
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+        return ret
 
     # region #-- properties --#
     @property
@@ -278,6 +282,11 @@ class Response:
                         else f"Unknown action URI '{self.action}'"
                     )
                     err = MeshInvalidInput(action)
+                elif (
+                    resp.get(self.RESULT_KEY)
+                    == "ErrorAutoChannelSelectionAlreadyInProgress"
+                ):
+                    err = MeshAlreadyInProgress
                 elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
                     err = MeshCannotDeleteDevice
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":

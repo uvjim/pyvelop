@@ -9,7 +9,15 @@ from typing import List
 
 
 class MeshException(Exception):
-    """Base Exsception for the Mesh."""
+    """Base Exception for the Mesh."""
+
+
+class MeshAlreadyInProgress(MeshException):
+    """API returns an already in progress response."""
+
+    def __init__(self) -> None:
+        """Initialise and default message."""
+        super().__init__("Specified action already in progress")
 
 
 class MeshBadResponse(MeshException):
