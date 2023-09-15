@@ -982,7 +982,9 @@ class Mesh:
                 new_rule = ParentalControl.backup_to_binary(schedule=cached_schedule)
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
-                if len(this_device_rules) > 0 and this_device_rules[0].get("blockedURLs", []):
+                if len(this_device_rules) > 0 and this_device_rules[0].get(
+                    "blockedURLs", []
+                ):
                     _LOGGER.debug(
                         self._log_formatter.format(
                             "Blocked URLs found, applying permissive rule"
@@ -1524,9 +1526,9 @@ class Mesh:
 
         :return: True if enabled
         """
-        return self._mesh_attributes[
-            JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value
-        ].get("isParentalControlEnabled")
+        return self._mesh_attributes.get(
+            JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value, {}
+        ).get("isParentalControlEnabled")
 
     @property
     @needs_gather_details
