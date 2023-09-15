@@ -17,6 +17,7 @@ from . import jnap as api
 from .decorators import needs_gather_details
 from .device import Device, ParentalControl
 from .exceptions import (
+    MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
     MeshException,
     MeshInvalidArguments,
@@ -1228,7 +1229,22 @@ class Mesh:
     async def async_start_channel_scan(self) -> None:
         """Start a channel scan on the mesh."""
         _LOGGER.debug(self._log_formatter.format("entered"))
-        await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN)
+
+        try:
+            await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN)
+        except MeshAlreadyInProgress as err:
+            _LOGGER.debug(
+                self._log_formatter.format("%s"),
+                err,
+            )
+        except MeshInvalidInput as err:
+            _LOGGER.warning(
+                self._log_formatter.format(
+                    "%s - are you sure the functionality is available"
+                ),
+                err,
+            )
+
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_start_speedtest(self) -> None:
