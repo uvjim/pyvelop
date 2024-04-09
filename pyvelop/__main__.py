@@ -358,17 +358,19 @@ async def mesh_details(
                         (
                             "dhcp_reservations",
                             "DHCP Reservations",
-                            prefix
-                            + prefix.join(
-                                [
-                                    f"{reservation.get('description')},"
-                                    f"{reservation.get('mac_address')},"
-                                    f"{reservation.get('ip_address')}"
-                                    for reservation in mesh_obj.dhcp_reservations
-                                ]
-                            )
-                            if len(mesh_obj.dhcp_reservations)
-                            else "None",
+                            (
+                                prefix
+                                + prefix.join(
+                                    [
+                                        f"{reservation.get('description')},"
+                                        f"{reservation.get('mac_address')},"
+                                        f"{reservation.get('ip_address')}"
+                                        for reservation in mesh_obj.dhcp_reservations
+                                    ]
+                                )
+                                if len(mesh_obj.dhcp_reservations)
+                                else "None"
+                            ),
                         ),
                         ("parental_control_enabled", "Parental Control Enabled"),
                         ("wps_state", "WPS Enabled"),
@@ -555,21 +557,25 @@ async def node_details(
                                                 (
                                                     "speed_mbps",
                                                     "Speed",
-                                                    f"{found_node.backhaul.get('speed_mbps')}mbps"
-                                                    if found_node.backhaul.get(
-                                                        "speed_mbps"
-                                                    )
-                                                    else None,
+                                                    (
+                                                        f"{found_node.backhaul.get('speed_mbps')}mbps"
+                                                        if found_node.backhaul.get(
+                                                            "speed_mbps"
+                                                        )
+                                                        else None
+                                                    ),
                                                 ),
                                                 ("signal_strength", "Signal strength"),
                                                 (
                                                     "rssi_dbm",
                                                     "RSSI",
-                                                    f"{found_node.backhaul.get('rssi_dbm')}dBm"
-                                                    if found_node.backhaul.get(
-                                                        "rssi_dbm"
-                                                    )
-                                                    else None,
+                                                    (
+                                                        f"{found_node.backhaul.get('rssi_dbm')}dBm"
+                                                        if found_node.backhaul.get(
+                                                            "rssi_dbm"
+                                                        )
+                                                        else None
+                                                    ),
                                                 ),
                                                 ("last_checked", "Last checked"),
                                             ],
@@ -786,15 +792,18 @@ def _connected_details(adapters: List[Dict]) -> str:
             ("mac", "MAC"),
             ("ip", "IPv4"),
             ("ipv6", "IPv6"),
+            ("primary", "Primary Adapter"),
             ("reservation", "Reservation"),
             ("reservation_description", "Reserved Name"),
             ("guest_network", "Guest"),
             (
                 "signal_strength",
                 "Signal Strength",
-                f"{adapter.get('signal_strength', None)} ({adapter.get('rssi', None)}dBm)"
-                if adapter.get("signal_strength", None)
-                else "N/A",
+                (
+                    f"{adapter.get('signal_strength', None)} ({adapter.get('rssi', None)}dBm)"
+                    if adapter.get("signal_strength", None)
+                    else "N/A"
+                ),
             ),
         ],
         obj=adapter,
@@ -878,24 +887,28 @@ def _parental_control_schedule_details(schedule: Dict) -> str:
             (
                 "blocked_internet_access",
                 "Blocked Access",
-                prefix
-                + prefix.join(
-                    [
-                        f"{day.title()}: {', '.join(times) if times else 'N/A'}"
-                        for day, times in schedule.get(
-                            "blocked_internet_access", {}
-                        ).items()
-                    ]
-                )
-                if schedule.get("blocked_internet_access", {})
-                else "N/A",
+                (
+                    prefix
+                    + prefix.join(
+                        [
+                            f"{day.title()}: {', '.join(times) if times else 'N/A'}"
+                            for day, times in schedule.get(
+                                "blocked_internet_access", {}
+                            ).items()
+                        ]
+                    )
+                    if schedule.get("blocked_internet_access", {})
+                    else "N/A"
+                ),
             ),
             (
                 "blocked_sites",
                 "Prohibited Sites",
-                prefix + prefix.join(schedule.get("blocked_sites", []))
-                if schedule.get("blocked_sites", [])
-                else "N/A",
+                (
+                    prefix + prefix.join(schedule.get("blocked_sites", []))
+                    if schedule.get("blocked_sites", [])
+                    else "N/A"
+                ),
             ),
         ],
         obj=schedule,

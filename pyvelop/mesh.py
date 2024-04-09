@@ -222,8 +222,8 @@ class Mesh:
         self._timeout: int = request_timeout or 10
 
         # flag used to denote that a full gather has been executed
-        self.__gather_details_executed: bool = (  # pylint: disable=unused-private-member
-            False
+        self.__gather_details_executed: bool = (
+            False  # pylint: disable=unused-private-member
         )
 
         self.__username: str = username
@@ -269,7 +269,7 @@ class Mesh:
         node_address: str | None = None,
         payload: List[Dict] | Dict | None = None,
         raise_on_error: bool = True,
-    ) -> Tuple(api.Request, api.Response):
+    ) -> Tuple[api.Request, api.Response]:
         """Execute the API request against the connected node.
 
         :param action: The JNAP action to execute
@@ -390,7 +390,7 @@ class Mesh:
         for device in ret.get(JNAPActionMappings.GET_DEVICES.value, {}).get(
             "devices", []
         ):
-            device["results_time"]: int = int(time.time())
+            device["results_time"] = int(time.time())
             if "nodeType" not in device:
                 devices.append(Device(**device))
             else:
@@ -607,9 +607,9 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        self._mesh_attributes: Dict[
-            int | str, List[Device | Node] | Dict[str, Any]
-        ] = await self._async_gather_details(props=JNAPActionMappings.CMP_MESH_DETAILS)
+        self._mesh_attributes: Dict[int | str, List[Device | Node] | Dict[str, Any]] = (
+            await self._async_gather_details(props=JNAPActionMappings.CMP_MESH_DETAILS)
+        )
 
         self.__gather_details_executed = True  # pylint: disable=unused-private-member
         _LOGGER.debug(self._log_formatter.format("exited"))
@@ -834,11 +834,17 @@ class Mesh:
         if node_details[0].type == NodeType.PRIMARY and not force:
             raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
 
-        node_ip = [
+        # node_ip = [
+        #     adapter.get("ip")
+        #     for adapter in node_details[0].network
+        #     if adapter.get("ip")
+        # ]
+        node_ip: List[str] | None = [
             adapter.get("ip")
-            for adapter in node_details[0].network
-            if adapter.get("ip")
+            for adapter in node_details[0].connected_adapters
+            if adapter.get("ip") and adapter.get("primary")
         ]
+
         if not node_ip:
             raise MeshInvalidInput(f"{node_name}: no valid address found")
 
@@ -935,10 +941,10 @@ class Mesh:
         # endregion
 
         # -- get the current rules as they may have changed --#
-        current_parental_control_info: Dict[
-            int | str, Any
-        ] = await self._async_gather_details(
-            props=JNAPActionMappings.GET_PARENTAL_CONTROL_INFO
+        current_parental_control_info: Dict[int | str, Any] = (
+            await self._async_gather_details(
+                props=JNAPActionMappings.GET_PARENTAL_CONTROL_INFO
+            )
         )
         current_parental_control_info = current_parental_control_info.get(
             JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value, {}
@@ -1001,10 +1007,12 @@ class Mesh:
             self._async_make_request(
                 action=api.Actions.SET_PARENTAL_CONTROL_INFO,
                 payload={
-                    "isParentalControlEnabled": True
-                    if force_enable
-                    else current_parental_control_info.get(
-                        "isParentalControlEnabled", True
+                    "isParentalControlEnabled": (
+                        True
+                        if force_enable
+                        else current_parental_control_info.get(
+                            "isParentalControlEnabled", True
+                        )
                     ),
                     "rules": keep_rules + this_device_rules,
                 },
@@ -1012,13 +1020,15 @@ class Mesh:
         ]
 
         # region #-- calculate the device properties to update --#
-        device_properties: Dict[
-            str, List[str, Dict[str, str]]
-        ] = _get_parental_control_device_attributes(
-            schedule=new_rule,
-            urls=this_device_rules[0].get("blockedURLs", [])
-            if this_device_rules
-            else [],
+        device_properties: Dict[str, List[str, Dict[str, str]]] = (
+            _get_parental_control_device_attributes(
+                schedule=new_rule,
+                urls=(
+                    this_device_rules[0].get("blockedURLs", [])
+                    if this_device_rules
+                    else []
+                ),
+            )
         )
         if new_rule == ParentalControl.ALL_PAUSED_SCHEDULE():
             if current_schedule:
@@ -1096,10 +1106,10 @@ class Mesh:
         # endregion
 
         # -- get the current rules as they may have changed --#
-        current_parental_control_info: Dict[
-            int | str, Any
-        ] = await self._async_gather_details(
-            props=JNAPActionMappings.GET_PARENTAL_CONTROL_INFO
+        current_parental_control_info: Dict[int | str, Any] = (
+            await self._async_gather_details(
+                props=JNAPActionMappings.GET_PARENTAL_CONTROL_INFO
+            )
         )
         current_parental_control_info = current_parental_control_info.get(
             JNAPActionMappings.GET_PARENTAL_CONTROL_INFO.value, {}
@@ -1136,20 +1146,22 @@ class Mesh:
         # endregion
 
         # region #-- build a list of requests to send --#
-        device_properties: Dict[
-            str, List[str | Dict[str, str]]
-        ] = _get_parental_control_device_attributes(
-            schedule=this_device_rules[0].get("wanSchedule", {}), urls=urls
+        device_properties: Dict[str, List[str | Dict[str, str]]] = (
+            _get_parental_control_device_attributes(
+                schedule=this_device_rules[0].get("wanSchedule", {}), urls=urls
+            )
         )
 
         requests: List = [
             self._async_make_request(
                 action=api.Actions.SET_PARENTAL_CONTROL_INFO,
                 payload={
-                    "isParentalControlEnabled": True
-                    if force_enable
-                    else current_parental_control_info.get(
-                        "isParentalControlEnabled", True
+                    "isParentalControlEnabled": (
+                        True
+                        if force_enable
+                        else current_parental_control_info.get(
+                            "isParentalControlEnabled", True
+                        )
                     ),
                     "rules": keep_rules
                     + (
