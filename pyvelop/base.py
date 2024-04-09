@@ -97,7 +97,7 @@ class MeshDevice:
         return ret
 
     @property
-    def connected_adapters(self) -> List[dict]:
+    def connected_adapters(self) -> List[dict[str, Any]]:
         """Get the network adapters that are connected to the mesh.
 
         :return: a list of dictionaries that contain the MAC, IP and Guest Network status of the adapter
