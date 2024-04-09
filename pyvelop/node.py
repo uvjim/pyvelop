@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List
+from typing import Any, List
 
 from . import signal_strength_to_text
 from .base import MeshDevice
@@ -55,6 +55,23 @@ class Node(MeshDevice):
                 "signal_strength": signal_strength_to_text(rssi=signal_strength_raw),
             }
 
+        return ret
+
+    @property
+    def connected_adapters(self) -> List[dict[str, Any]]:
+        """Get the network adapters that are connected to the mesh.
+
+        :return: a list of dictionaries that contain the MAC, IP and Guest Network status of the adapter
+        """
+
+        ret: List[dict[str, Any]] = []
+        super_adapters: List[dict] = super().connected_adapters
+        backhaul = self._attribs.get("backhaul", {})
+        for adapter in super_adapters:
+            adapter["primary"] = (
+                True if adapter.get("ip") == backhaul.get("ipAddress") else False
+            )
+            ret += [adapter]
         return ret
 
     @property
