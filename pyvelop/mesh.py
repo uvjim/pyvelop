@@ -834,11 +834,6 @@ class Mesh:
         if node_details[0].type == NodeType.PRIMARY and not force:
             raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
 
-        # node_ip = [
-        #     adapter.get("ip")
-        #     for adapter in node_details[0].network
-        #     if adapter.get("ip")
-        # ]
         node_ip: List[str] | None = [
             adapter.get("ip")
             for adapter in node_details[0].connected_adapters
