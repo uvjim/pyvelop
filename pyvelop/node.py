@@ -67,11 +67,16 @@ class Node(MeshDevice):
         ret: List[dict[str, Any]] = []
         super_adapters: List[dict] = super().connected_adapters
         backhaul = self._attribs.get("backhaul", {})
-        for adapter in super_adapters:
-            adapter["primary"] = (
-                True if adapter.get("ip") == backhaul.get("ipAddress") else False
-            )
-            ret += [adapter]
+        if self.type == NodeType.PRIMARY:
+            for adapter in super_adapters:
+                adapter["primary"] = True
+                ret += [adapter]
+        else:
+            for adapter in super_adapters:
+                adapter["primary"] = (
+                    True if adapter.get("ip") == backhaul.get("ipAddress") else False
+                )
+                ret += [adapter]
         return ret
 
     @property
