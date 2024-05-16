@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from . import signal_strength_to_text
-
+from .const import DEF_EMPTY_NAME
 # endregion
 
 
@@ -129,14 +129,14 @@ class MeshDevice:
 
             - User set name
             - Friendly name
-            - "Network Device" if no name is found
+            - DEF_EMPTY_NAME if no name is found
 
         :return: A string containing the name of the device
         """
         return (
             self._get_user_property(name="userDeviceName")
             or self._attribs.get("friendlyName")
-            or "Network Device"
+            or DEF_EMPTY_NAME
         )
 
     @property
