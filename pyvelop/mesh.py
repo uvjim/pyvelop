@@ -21,6 +21,7 @@ from .exceptions import (
     MeshDeviceNotFoundResponse,
     MeshException,
     MeshInvalidArguments,
+    MeshInvalidCredentials,
     MeshInvalidInput,
     MeshInvalidOutput,
     MeshTooManyMatches,
@@ -1282,10 +1283,14 @@ class Mesh:
         try:
             await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
             ret = True
-        except MeshException:
+        except MeshInvalidCredentials as err:
             pass
+        except MeshException as err:
+            _LOGGER.error(err)
+            raise
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.error(err)
+            raise
 
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret

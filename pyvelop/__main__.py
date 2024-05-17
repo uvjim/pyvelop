@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 import aiohttp
 import asyncclick as click
@@ -454,38 +454,39 @@ async def mesh_action(
     **_,
 ) -> None:
     """Carry out a specified action on the mesh."""
-    if mesh_obj := await mesh_connect(ctx):
-        async with mesh_obj:
-            if action == "channel_scan_info":
-                ret = await mesh_obj.async_get_channel_scan_info()
-            elif action == "channel_scan_start":
-                ret = await mesh_obj.async_start_channel_scan()
-            elif action == "guest_wifi_off":
-                ret = await mesh_obj.async_set_guest_wifi_state(state=False)
-            elif action == "guest_wifi_on":
-                ret = await mesh_obj.async_set_guest_wifi_state(state=True)
-            elif action == "homekit_off":
-                ret = await mesh_obj.async_set_homekit_state(state=False)
-            elif action == "homekit_on":
-                ret = await mesh_obj.async_set_homekit_state(state=True)
-            elif action == "parental_control_off":
-                ret = await mesh_obj.async_set_parental_control_state(state=False)
-            elif action == "parental_control_on":
-                ret = await mesh_obj.async_set_parental_control_state(state=True)
-            elif action == "speedtest_results":
-                ret = await mesh_obj.async_get_speedtest_results()
-            elif action == "speedtest_start":
-                ret = await mesh_obj.async_start_speedtest()
-            elif action == "speedtest_state":
-                ret = await mesh_obj.async_get_speedtest_state()
-            elif action == "update_check_start":
-                ret = await mesh_obj.async_check_for_updates()
-            elif action == "wps_off":
-                ret = await mesh_obj.async_set_wps_state(state=False)
-            elif action == "wps_on":
-                ret = await mesh_obj.async_set_wps_state(state=True)
 
-    print(json.dumps(ret))
+    ret: Any = None
+    if (mesh_obj := await mesh_connect(ctx)) is not None:
+        if action == "channel_scan_info":
+            ret = await mesh_obj.async_get_channel_scan_info()
+        elif action == "channel_scan_start":
+            ret = await mesh_obj.async_start_channel_scan()
+        elif action == "guest_wifi_off":
+            ret = await mesh_obj.async_set_guest_wifi_state(state=False)
+        elif action == "guest_wifi_on":
+            ret = await mesh_obj.async_set_guest_wifi_state(state=True)
+        elif action == "homekit_off":
+            ret = await mesh_obj.async_set_homekit_state(state=False)
+        elif action == "homekit_on":
+            ret = await mesh_obj.async_set_homekit_state(state=True)
+        elif action == "parental_control_off":
+            ret = await mesh_obj.async_set_parental_control_state(state=False)
+        elif action == "parental_control_on":
+            ret = await mesh_obj.async_set_parental_control_state(state=True)
+        elif action == "speedtest_results":
+            ret = await mesh_obj.async_get_speedtest_results()
+        elif action == "speedtest_start":
+            ret = await mesh_obj.async_start_speedtest()
+        elif action == "speedtest_state":
+            ret = await mesh_obj.async_get_speedtest_state()
+        elif action == "update_check_start":
+            ret = await mesh_obj.async_check_for_updates()
+        elif action == "wps_off":
+            ret = await mesh_obj.async_set_wps_state(state=False)
+        elif action == "wps_on":
+            ret = await mesh_obj.async_set_wps_state(state=True)
+        print(ret)
+        print(json.dumps(ret))
 
 
 @cli.group(name="node")
@@ -982,4 +983,7 @@ def _storage_details(available_shares: List[Dict], server_details: Dict) -> str:
 
 
 if __name__ == "__main__":
-    cli()
+    try:
+        cli()
+    except:
+        pass
