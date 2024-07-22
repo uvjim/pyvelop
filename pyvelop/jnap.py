@@ -197,6 +197,7 @@ class Request:
             aiohttp.ClientConnectorError,
             aiohttp.ContentTypeError,
         ):
+            _LOGGER.error(self._log_formatter.format("%s"), err)
             raise MeshConnectionError from None
         except json.JSONDecodeError as err:
             _LOGGER.debug(self._log_formatter.format("resp: %s"), resp)
