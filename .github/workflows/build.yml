@@ -39,7 +39,7 @@ jobs:
         run: |
           sphinx-build --builder html --doctree-dir .doctrees --fresh-env --write-all docs/source docs/build
           cd docs/build
-          zip -r -b "${{ env.ARTIFACT_PATH }}" "${{ env.PACKAGE_NAME }}-$GITHUB_REF_NAME-help" _static/ *.html *.js
+          zip -r -b "../../${{ env.ARTIFACT_PATH }}" "${{ env.PACKAGE_NAME }}-$GITHUB_REF_NAME-help" _static/ *.html *.js
 
       - name: Upload the artifacts
         uses: actions/upload-artifact@v4
