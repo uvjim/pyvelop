@@ -29,7 +29,7 @@ jobs:
       - name: Install prereqs
         run: |
           sudo apt update && sudo apt install zip
-          python -m pip install build Sphinx sphinx-rtd-theme
+          python -m pip install aiohttp build Sphinx sphinx-rtd-theme
 
       - name: Build distribution packages
         run: |
