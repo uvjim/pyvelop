@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "[0-9][0-9][0-9][0-9].[1-9][0-2]?.[0-9]+b[0-9]+"
-      - "[0-9][0-9][0-9][0-9].[1-9][0-2]?.[0-9]+b[0-9]+b[0-9]+"
 
 run-name: "Build and release ${{ github.ref_name }}"
 
@@ -73,7 +72,7 @@ jobs:
             generate_release_notes: true
             prerelease: ${{ env.BETA_RELEASE }}
 
-        - name: Publish package to PyPI
-          uses: pypa/gh-action-pypi-publish@release/v1
-          with: 
-            packages-dir: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/*
+        # - name: Publish package to PyPI
+        #   uses: pypa/gh-action-pypi-publish@release/v1
+        #   with: 
+        #     packages-dir: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/*
