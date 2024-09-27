@@ -35,26 +35,26 @@ jobs:
 
       - name: Build distribution packages
         run: |
-          python -m build --outdir ${{ env.ARTIFACT_PATH }}
+          python -m build --outdir ${{ env.ARTIFACT_PATH }}/dist
 
       - name: Build & clean documentation
         run: |
           sphinx-build --builder html --doctree-dir .doctrees --fresh-env --write-all docs/source docs/build
+          mkdir ${{ env.ARTIFACT_PATH }}/docs
           cd docs/build
           zip -r "${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-help.zip" *.html *.js _static
-          mv "${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-help.zip" "../../${{ env.ARTIFACT_PATH }}"
+          mv "${{ env.PACKAGE_NAME }}-${{ github.ref_name }}-help.zip" "../../${{ env.ARTIFACT_PATH }}/docs"
 
       - name: Upload the artifacts
         uses: actions/upload-artifact@v4
-        id: upload_artifact
         with:
           name: "${{ env.PACKAGE_NAME }}-${{ github.ref_name }}"
           path: "${{ env.ARTIFACT_PATH }}"
           if-no-files-found: error
           retention-days: 1
           
-  release:
-    name: Create release
+  release_publish:
+    name: Create release & publish
     needs: 
       - build
     runs-on: ubuntu-latest
@@ -68,6 +68,12 @@ jobs:
           with:
             draft: true
             files: |
-              ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+              ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+              ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/docs/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
             generate_release_notes: true
             prerelease: ${{ env.BETA_RELEASE }}
+
+        - name: Publish package to PyPI
+          uses: pypa/gh-action-pypi-publish@release/v1
+          with: 
+            packages-dir: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/*
