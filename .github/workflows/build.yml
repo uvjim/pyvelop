@@ -64,6 +64,7 @@ jobs:
 
         - name: Unzip artifacts
           run: |
+            ls -l
             unzip ${{ env.PACKAGE_NAME }}/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}
 
         - name: Create release
