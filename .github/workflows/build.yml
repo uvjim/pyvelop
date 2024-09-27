@@ -64,7 +64,7 @@ jobs:
 
         - name: Unzip artifacts
           run: |
-            unzip ${{ env.PACKAGE_NAME }}/*
+            unzip ${{ env.PACKAGE_NAME }}/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}
 
         - name: Create release
           uses: softprops/action-gh-release@v2
