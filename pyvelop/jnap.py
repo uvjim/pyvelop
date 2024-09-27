@@ -20,6 +20,7 @@ from .exceptions import (
     MeshBadResponse,
     MeshCannotDeleteDevice,
     MeshConnectionError,
+    MeshException,
     MeshInvalidCredentials,
     MeshInvalidInput,
     MeshInvalidOutput,
@@ -298,10 +299,12 @@ class Response:
                     err = MeshInvalidInput("Rules Overlap")
                 elif resp.get(self.RESULT_KEY) == "ErrorUnknownDevice":
                     err = MeshInvalidInput("Unknown Device")
-                elif resp.get(self.RESULT_KEY).startswith("_"):
+                elif resp.get(self.RESULT_KEY, "").startswith("_"):
                     err = MeshInvalidInput(
                         f"{resp.get(self.RESULT_KEY)}: '{self.action}'"
                     )
+                else:
+                    err = MeshException(f"{resp}: '{self.action}'")
 
                 if err:
                     break
