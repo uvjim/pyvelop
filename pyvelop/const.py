@@ -3,7 +3,7 @@
 # region #-- generic details --#
 _PACKAGE_NAME: str = "pyvelop"
 _PACKAGE_AUTHOR: str = "uvjim"
-_PACKAGE_VERSION: str = "2024.9.1"
+_PACKAGE_VERSION: str = "2024.9.1b0"
 # endregion
 
 DEF_REDACT: str = "**REDACTED**"
