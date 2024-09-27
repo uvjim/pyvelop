@@ -61,17 +61,15 @@ jobs:
     steps:
         - name: Download artifacts
           uses: actions/download-artifact@v4
-          with:
-            path: "${{ env.ARTIFACT_PATH }}"
 
         - name: Unzip artifacts
           run: |
-            unzip ${{ env.ARTIFACT_PATH }}/*
+            unzip ${{ env.PACKAGE_NAME }}/*
 
         - name: Create release
           uses: softprops/action-gh-release@v2
           with:
             draft: true
             files: |
-              ${{ env.ARTIFACT_PATH }}/*.zip
+              ${{ env.PACKAGE_NAME }}/*.zip
             generate_release_notes: true
