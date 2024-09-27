@@ -20,8 +20,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: commitlint
-        uses: wagoid/commitlint-github-action@v6
+      - name: Conventional Changelog Action 
+        id: changelog 
+        uses: TriPSs/conventional-changelog-action@v5 
+        with: 
+          output-file: "false"
+
+      - name: Echo
+        run: |
+          echo ${{ steps.changelog.outputs }}
 
   #     - name: Verify version
   #       run: |
