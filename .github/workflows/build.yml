@@ -23,7 +23,7 @@ jobs:
 
       - name: Verify version
         run: |
-          CONST_VERSION=$(grep -oP '^_PACKAGE_VERSION:.*$' ${{env.PACKAGE_NAME}}/const.py | grep -oP '[0-9]{4}\.[1-9]+[1-2]*\.[0-9]+')
+          CONST_VERSION=$(grep -oP '^_PACKAGE_VERSION:.*$' ${{env.PACKAGE_NAME}}/const.py | grep -oP '[0-9]{4}\.[1-9]+[1-2]*\.[0-9]+(b[0-9]+)*')
           if [ "$GITHUB_REF_NAME" != "$CONST_VERSION" ]; then
             echo "Version in code ($CONST_VERSION) doesn't match git version tag ($GITHUB_REF_NAME)!"
             exit 1
