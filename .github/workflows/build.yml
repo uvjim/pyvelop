@@ -91,7 +91,7 @@ jobs:
       - name: Directory list
         run: |
           pwd
-          ls -l
+          ls -l ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}
 
       # - name: Publish package to PyPI
       #   uses: pypa/gh-action-pypi-publish@release/v1
