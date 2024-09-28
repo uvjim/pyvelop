@@ -54,7 +54,7 @@ jobs:
           retention-days: 1  
 
   release:
-    name: Create release
+    name: Release
     needs: 
       - build
     runs-on: ubuntu-latest
@@ -93,7 +93,7 @@ jobs:
           pwd
           ls -l ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist
 
-      # - name: Publish package to PyPI
-      #   uses: pypa/gh-action-pypi-publish@release/v1
-      #   with: 
-      #     packages-dir: dist/*
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with: 
+          packages-dir: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/*
