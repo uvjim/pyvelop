@@ -51,29 +51,44 @@ jobs:
           name: "${{ env.PACKAGE_NAME }}-${{ github.ref_name }}"
           path: "${{ env.ARTIFACT_PATH }}"
           if-no-files-found: error
-          retention-days: 1
-          
-  release_publish:
-    name: Create release & publish
+          retention-days: 1  
+
+  release:
+    name: Create release
     needs: 
       - build
     runs-on: ubuntu-latest
-      
+    
     steps:
-        - name: Download artifacts
-          uses: actions/download-artifact@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
 
-        - name: Create release
-          uses: softprops/action-gh-release@v2
-          with:
-            draft: true
-            files: |
-              ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
-              ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/docs/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
-            generate_release_notes: true
-            prerelease: ${{ env.BETA_RELEASE }}
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+            ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/docs/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+          generate_release_notes: true
+          prerelease: ${{ env.BETA_RELEASE }}
 
-        - name: Publish package to PyPI
-          uses: pypa/gh-action-pypi-publish@release/v1
-          with: 
-            packages-dir: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/*
+  publish:
+    name: Create release
+    needs: 
+      - build
+      - release
+
+    permissions: 
+      id-token: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with: 
+          packages-dir: ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/*
