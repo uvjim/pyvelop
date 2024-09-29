@@ -21,5 +21,7 @@ Homepage = "https://github.com/uvjim/pyvelop"
 Repository = "https://github.com/uvjim/pyvelop"
 Issues = "https://github.com/uvjim/pyvelop/issues"
 
+[tool.setuptools_scm]
+
 [tool.setuptools.packages.find]
 include = ["pyvelop"]
