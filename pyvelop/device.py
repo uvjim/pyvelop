@@ -6,46 +6,53 @@ from __future__ import annotations
 import base64
 import datetime
 from collections import namedtuple
-from enum import IntEnum
-from typing import Any, Dict, List, final
+from enum import IntEnum, StrEnum
+from typing import Any, final
 
 from .base import MeshDevice
 
 # endregion
 
 
+class ParentalControlActionType(StrEnum):
+    """Representation of parental control time actions."""
+
+    BLOCKED = "0"
+    UNBLOCKED = "1"
+
+
 class ParentalControl:
     """Class to manage parental control schedules."""
 
     BINARY_LENGTH: int = 48
-    BLOCKED: str = "0"
     DEFAULT_DESCRIPTION: str = "default description"
-    UNBLOCKED: str = "1"
     WEEKDAYS: IntEnum = IntEnum(
         "Weekdays",
         ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"),
         start=0,
     )
 
-    ALL_ALLOWED_SCHEDULE: Dict[str, str] = lambda: {
-        day.name: ParentalControl.UNBLOCKED * ParentalControl.BINARY_LENGTH
+    ALL_ALLOWED_SCHEDULE: dict[str, str] = lambda: {
+        day.name: ParentalControlActionType.UNBLOCKED.value
+        * ParentalControl.BINARY_LENGTH
         for day in ParentalControl.WEEKDAYS
     }
 
-    ALL_PAUSED_SCHEDULE: Dict[str, str] = lambda: {
-        day.name: ParentalControl.BLOCKED * ParentalControl.BINARY_LENGTH
+    ALL_PAUSED_SCHEDULE: dict[str, str] = lambda: {
+        day.name: ParentalControlActionType.BLOCKED.value
+        * ParentalControl.BINARY_LENGTH
         for day in ParentalControl.WEEKDAYS
     }
 
-    def __init__(self, rule: Dict[str, Any]) -> None:
+    def __init__(self, rule: dict[str, Any]) -> None:
         """Initialise.
 
         :param rule: a single rule object as returned by the API
         """
-        self._rule: Dict[str, Any] = rule
+        self._rule: dict[str, Any] = rule
 
     @staticmethod
-    def _human_readable(schedule: Dict[str, str]) -> Dict[str, List[str]]:
+    def _human_readable(schedule: dict[str, str]) -> dict[str, list[str]]:
         """Make the given schedule human readable."""
         ret = {}
         for day, sched in schedule.items():
@@ -53,16 +60,19 @@ class ParentalControl:
             idx = 0
             while idx < __class__.BINARY_LENGTH:
                 block_start: int | None = (
-                    sched.index(__class__.BLOCKED, idx)
-                    if __class__.BLOCKED in sched[idx + 1 :]
+                    sched.index(ParentalControlActionType.BLOCKED.value, idx)
+                    if ParentalControlActionType.BLOCKED.value in sched[idx + 1 :]
                     else None
                 )
                 block_end: int | None = None
                 if block_start is None:
                     break
                 block_end = (
-                    sched.index(__class__.UNBLOCKED, block_start + 1)
-                    if __class__.UNBLOCKED in sched[block_start + 1 :]
+                    sched.index(
+                        ParentalControlActionType.UNBLOCKED.value, block_start + 1
+                    )
+                    if ParentalControlActionType.UNBLOCKED.value
+                    in sched[block_start + 1 :]
                     else None
                 )
                 start_time = datetime.time(
@@ -89,9 +99,9 @@ class ParentalControl:
 
     # region #-- public methods --#
     @staticmethod
-    def backup_to_binary(schedule: str) -> Dict[str, str]:
+    def backup_to_binary(schedule: str) -> dict[str, str]:
         """Decode the schedule for restoring to the device."""
-        ret: Dict[str, str] = {}
+        ret: dict[str, str] = {}
         decoded = schedule and base64.b64decode(schedule)
         sorted_schedule: str = ""
         for chunk in decoded:
@@ -106,14 +116,14 @@ class ParentalControl:
         return ret
 
     @staticmethod
-    def encode_for_backup(schedule: Dict[str, str]) -> str:
+    def encode_for_backup(schedule: dict[str, str]) -> str:
         """Encode the schedule for storage in a property."""
         ret: str = ""
         chunk_length: int = 8
         sorted_schedule: str = "".join(
             [schedule[day.name] for day in list(__class__.WEEKDAYS)]
         )
-        sorted_chunks: List[str] = [
+        sorted_chunks: list[str] = [
             (sorted_schedule[i : i + chunk_length])
             for i in range(0, len(sorted_schedule), chunk_length)
         ]
@@ -128,26 +138,28 @@ class ParentalControl:
     @staticmethod
     def create_rule(
         mac_address: str,
-        schedule: Dict[str, str],
-        blocked_urls: List[str] | None = None,
+        schedule: dict[str, str],
+        blocked_urls: list[str] | None = None,
         schedule_to_binary: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate a rule dictionary that can be passed to the API."""
-        ret: Dict[str, Any] = {
+        ret: dict[str, Any] = {
             "blockedURLs": blocked_urls if blocked_urls is not None else [],
             "description": __class__.DEFAULT_DESCRIPTION,
             "isEnabled": True,
             "macAddresses": [mac_address],
-            "wanSchedule": schedule
-            if not schedule_to_binary
-            else __class__.human_readable_to_binary(schedule),
+            "wanSchedule": (
+                schedule
+                if not schedule_to_binary
+                else __class__.human_readable_to_binary(schedule)
+            ),
         }
         return ret
 
     @staticmethod
     def human_readable_to_binary(
-        to_encode: str | Dict[str, str]
-    ) -> str | Dict[str, str]:
+        to_encode: str | dict[str, str]
+    ) -> str | dict[str, str]:
         """Encode the human readable information to somethings that can be stored."""
         fake_day = "sunday"
         if isinstance(to_encode, str):
@@ -160,14 +172,16 @@ class ParentalControl:
                 for idx in range(len(to_process), len(__class__.WEEKDAYS)):
                     to_process[__class__.WEEKDAYS(idx).name] = None
 
-        ret: str | Dict[str, str] = {}
+        ret: str | dict[str, str] = {}
         for day, schedule in to_process.items():
-            default_binary = [__class__.UNBLOCKED] * __class__.BINARY_LENGTH
+            default_binary = [
+                ParentalControlActionType.UNBLOCKED.value
+            ] * __class__.BINARY_LENGTH
             if schedule is not None:
-                time_schedules: List[str] = schedule.split(",")
+                time_schedules: list[str] = schedule.split(",")
                 TimeBlock = namedtuple("TimeBlock", ["start", "end"])
                 for schedule in time_schedules:
-                    times: List[str] = schedule.split("-")
+                    times: list[str] = schedule.split("-")
                     time_block: TimeBlock = TimeBlock(
                         datetime.datetime.strptime(times[0].strip(), "%H:%M"),
                         datetime.datetime.strptime(times[1].strip(), "%H:%M"),
@@ -197,10 +211,11 @@ class ParentalControl:
                         ) * 2 + (1 if time_block.end.minute >= 30 else 0)
 
                     for idx in range(offset_start, offset_end):
-                        default_binary[idx] = __class__.BLOCKED
+                        default_binary[idx] = ParentalControlActionType.BLOCKED.value
 
                     if all(  # break out early if all blocked
-                        val == __class__.BLOCKED for val in default_binary
+                        val == ParentalControlActionType.BLOCKED.value
+                        for val in default_binary
                     ):
                         break
 
@@ -213,8 +228,8 @@ class ParentalControl:
 
     @staticmethod
     def binary_to_human_readable(
-        to_decode: str | Dict[str, str]
-    ) -> str | Dict[str, List[str]]:
+        to_decode: str | dict[str, str]
+    ) -> str | dict[str, list[str]]:
         """Decode the binary format string to humand readble form."""
         if isinstance(to_decode, str):
             fake_day = "sunday"
@@ -230,7 +245,7 @@ class ParentalControl:
 
     # region #-- properties --#
     @property
-    def blocked_urls(self) -> List[str]:
+    def blocked_urls(self) -> list[str]:
         """Return blocked URLs."""
         return self._rule.get("blockedURLs", [])
 
@@ -240,7 +255,7 @@ class ParentalControl:
         return self._rule.get("description", __class__.DEFAULT_DESCRIPTION)
 
     @property
-    def human_readable(self) -> Dict[str, List[str]]:
+    def human_readable(self) -> dict[str, list[str]]:
         """Return the schedule in human readable form."""
         return self._human_readable(schedule=self.schedule)
 
@@ -255,13 +270,13 @@ class ParentalControl:
         return self.schedule == __class__.ALL_PAUSED_SCHEDULE()
 
     @property
-    def mac_addresses(self) -> List[str]:
+    def mac_addresses(self) -> list[str]:
         """Return the MAC addresses the rule is for."""
         return self._rule.get("macAddresses", [])
 
     @final
     @property
-    def rule(self) -> Dict[str, Any]:
+    def rule(self) -> dict[str, Any]:
         """Return the rule."""
         return {
             "blockedURLs": self.blocked_urls,
@@ -272,7 +287,7 @@ class ParentalControl:
         }
 
     @property
-    def schedule(self) -> Dict[str, str]:
+    def schedule(self) -> dict[str, str]:
         """Return the current internet access schedule used in the rule."""
         return self._rule.get("wanSchedule", {})
 
@@ -322,7 +337,7 @@ class Device(MeshDevice):
         ).get("operatingSystem", None)
 
     @property
-    def parental_control_schedule(self) -> Dict[str, Any]:
+    def parental_control_schedule(self) -> dict[str, Any]:
         """Return the schedule of the parental controls for the device.
 
         An empty dictionary means that there are no parental controls in place
