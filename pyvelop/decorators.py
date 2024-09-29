@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import functools
 
-from pyvelop.exceptions import MeshNeedsGatherDetails
+from .exceptions import MeshNeedsGatherDetails
 
 # endregion
 

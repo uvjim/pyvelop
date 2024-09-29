@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Tuple
 
 import aiohttp
 
-from . import camel_to_snake, const
+from . import __version__, camel_to_snake
 from . import jnap as api
 from .decorators import needs_gather_details
 from .device import Device, ParentalControl
@@ -223,9 +223,7 @@ class Mesh:
         self._timeout: int = request_timeout or 10
 
         # flag used to denote that a full gather has been executed
-        self.__gather_details_executed: bool = (
-            False  # pylint: disable=unused-private-member
-        )
+        self.__gather_details_executed: bool = False
 
         self.__username: str = username
         self.__password: str = password
@@ -243,7 +241,7 @@ class Mesh:
         _LOGGER.debug(
             self._log_formatter.format("%s version: %s"),
             __package__,
-            const._PACKAGE_VERSION,
+            __version__,
         )
         _LOGGER.debug(self._log_formatter.format("Initialised mesh for %s"), self._node)
         _LOGGER.debug(self._log_formatter.format("exited"))
