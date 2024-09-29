@@ -12,9 +12,8 @@ from typing import Any, Dict, List, Set, Tuple
 import aiohttp
 import asyncclick as click
 
-from pyvelop.const import _PACKAGE_NAME, _PACKAGE_VERSION
-from pyvelop.device import Device, ParentalControl
-from pyvelop.exceptions import (
+from .device import Device, ParentalControl
+from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
     MeshException,
@@ -23,8 +22,8 @@ from pyvelop.exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from pyvelop.mesh import Mesh
-from pyvelop.node import Node
+from .mesh import Mesh
+from .node import Node
 
 # endregion
 
@@ -53,27 +52,27 @@ class StandardCommand(click.Command):
                     _LOGGER.setLevel(logging.DEBUG)
                     _LOGGER.debug("Setting up logging")
                     if value > 1:
-                        logging.getLogger(_PACKAGE_NAME).setLevel(logging.DEBUG)
-                        logging.getLogger(f"{_PACKAGE_NAME}.jnap").setLevel(
+                        logging.getLogger(__package__).setLevel(logging.DEBUG)
+                        logging.getLogger(f"{__package__}.jnap").setLevel(
                             logging.WARNING
                         )
-                        logging.getLogger(f"{_PACKAGE_NAME}.jnap.verbose").setLevel(
+                        logging.getLogger(f"{__package__}.jnap.verbose").setLevel(
                             logging.WARNING
                         )
-                        logging.getLogger(f"{_PACKAGE_NAME}.mesh.verbose").setLevel(
+                        logging.getLogger(f"{__package__}.mesh.verbose").setLevel(
                             logging.WARNING
                         )
                         if value > 2:
-                            logging.getLogger(f"{_PACKAGE_NAME}.mesh.verbose").setLevel(
+                            logging.getLogger(f"{__package__}.mesh.verbose").setLevel(
                                 logging.DEBUG
                             )
                             if value > 3:
-                                logging.getLogger(f"{_PACKAGE_NAME}.jnap").setLevel(
+                                logging.getLogger(f"{__package__}.jnap").setLevel(
                                     logging.DEBUG
                                 )
                                 if value > 4:
                                     logging.getLogger(
-                                        f"{_PACKAGE_NAME}.jnap.verbose"
+                                        f"{__package__}.jnap.verbose"
                                     ).setLevel(logging.DEBUG)
 
         standard_options: List[click.Option] = [
@@ -141,11 +140,11 @@ MESH_ALLOWED_ACTIONS: Set = (
 DEF_INDENT: int = 2
 
 click.anyio_backend = "aysncio"
-_LOGGER = logging.getLogger(f"{_PACKAGE_NAME}.cli")
+_LOGGER = logging.getLogger(f"{__package__}.cli")
 
 
 @click.group()
-@click.version_option(version=_PACKAGE_VERSION, message="%(version)s")
+@click.version_option(package_name=__package__)
 def cli() -> None:
     """CLI for interacting with the pyvelop module."""
 

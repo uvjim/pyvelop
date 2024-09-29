@@ -7,12 +7,12 @@ import sphinx_rtd_theme
 
 sys.path.insert(0, os.path.abspath("../.."))
 
-from pyvelop.const import _PACKAGE_AUTHOR, _PACKAGE_NAME
+PACKAGE_AUTHOR = "uvjim"
 
 # -- Project information -----------------------------------------------------
-project = _PACKAGE_NAME
-copyright = f"2024, {_PACKAGE_AUTHOR}"
-author = _PACKAGE_AUTHOR
+project = __package__
+copyright = f"2024, {PACKAGE_AUTHOR}"
+author = PACKAGE_AUTHOR
 
 
 # -- General configuration ---------------------------------------------------
