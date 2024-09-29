@@ -20,9 +20,10 @@ setup(
     url="https://github.com/uvjim/pyvelop",
     packages=find_packages(),
     classifiers=[
-        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.11",
     ],
     install_requires=[
         "aiohttp",
     ],
+    python_requires=">=3.11",
 )
