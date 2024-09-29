@@ -14,20 +14,26 @@ env:
   PACKAGE_NAME: pyvelop
 
 jobs:
+  init:
+    name: Initialise
+    outputs:
+      beta_release: ${{ steps.variables.outputs.beta_release }}
+      
+    runs-on: ubuntu-latest
+    steps:
+      - name: Variables
+        id: variables
+        run: |
+          echo "beta_release=${{ env.BETA_RELEASE }}" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build
+    needs:
+      - init
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # - name: Verify version
-      #   run: |
-      #     CONST_VERSION=$(grep -oP '^_PACKAGE_VERSION:.*$' ${{env.PACKAGE_NAME}}/const.py | grep -oP '[0-9]{4}\.[1-9]+[1-2]*\.[0-9]+(b[0-9]+)*')
-      #     if [ "$GITHUB_REF_NAME" != "$CONST_VERSION" ]; then
-      #       echo "Version in code ($CONST_VERSION) doesn't match git version tag ($GITHUB_REF_NAME)!"
-      #       exit 1
-      #     fi
           
       - name: Install prereqs
         run: |
@@ -56,6 +62,7 @@ jobs:
   release:
     name: Release
     needs: 
+      - init
       - build
     runs-on: ubuntu-latest
     
@@ -71,13 +78,14 @@ jobs:
             ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
             ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/docs/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
           generate_release_notes: true
-          prerelease: ${{ env.BETA_RELEASE }}
+          prerelease: ${{ needs.init.outputs.beta_release }}
 
   publish:
-    if: ${{ env.BETA_RELEASE != 'true' }}
+    if: ${{ needs.init.outputs.beta_release != 'true' }}
 
     name: Publish
     needs: 
+      - init
       - build
       - release
 
