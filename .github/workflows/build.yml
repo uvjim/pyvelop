@@ -74,6 +74,8 @@ jobs:
           prerelease: ${{ env.BETA_RELEASE }}
 
   publish:
+    if: ${{ env.BETA_RELEASE != 'true' }}
+
     name: Publish
     needs: 
       - build
