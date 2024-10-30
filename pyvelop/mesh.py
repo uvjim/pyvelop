@@ -808,6 +808,20 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
+    async def async_get_upnp_state(self) -> dict[str, bool]:
+        """"""
+
+        _LOGGER.debug(self._log_formatter.format("entered"))
+
+        resp = await self._async_gather_details(
+            props=JNAPActionMappings.GET_UPNP_SETTINGS
+        )
+
+        ret = resp.get(JNAPActionMappings.GET_UPNP_SETTINGS.value, {})
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+        return ret
+
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
         """Reboot the given node.
 
@@ -1320,21 +1334,6 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
-
-    async def async_set_upnp_settings(self, enabled: bool, allow_change_settings: bool, allow_disable_internet: bool) -> None:
-        """Set the UPnP settings.
-
-        :param enabled: True to enable UPnP, False to disable
-        :param allow_change_settings: Whether users can change settings when UPnP is enabled.
-        :param allow_disable_internet Whether users can disable the Internet when UPnP is enabled.
-        :return: None
-        """
-        _LOGGER.debug(self._log_formatter.format("entered, enabled: %s, allow_change_settings: %s, allow_disable_internet: %s"), enabled, allow_change_settings, allow_disable_internet)
-        payload = {"isUPnPEnabled": enabled,"canUsersConfigure": allow_change_settings, "canUsersDisableWANAccess": allow_disable_internet}
-        await self._async_make_request(
-            action=api.Actions.SET_UPNP_SETTINGS, payload=payload
-        )
-        _LOGGER.debug(self._log_formatter.format("exited"))
 
     # endregion
 
