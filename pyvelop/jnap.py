@@ -90,6 +90,7 @@ class Actions(str, Enum):
     SET_PARENTAL_CONTROL_INFO: str = (
         f"{ROOT}/parentalcontrol/SetParentalControlSettings"
     )
+    SET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/SetUPnPSettings"
     SET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/SetWPSServerSettings"
     START_CHANNEL_SCAN: str = f"{ROOT}/nodes/setup/StartAutoChannelSelection"
     START_SPEEDTEST: str = f"{ROOT}/healthcheck/RunHealthCheck"

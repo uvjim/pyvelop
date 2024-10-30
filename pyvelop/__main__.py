@@ -134,6 +134,8 @@ MESH_ALLOWED_ACTIONS: Set = (
     "speedtest_start",
     "speedtest_state",
     "update_check_start",
+    "upnp_off",
+    "upnp_on",
     "wps_off",
     "wps_on",
 )
@@ -480,6 +482,26 @@ async def mesh_action(
             ret = await mesh_obj.async_get_speedtest_state()
         elif action == "update_check_start":
             ret = await mesh_obj.async_check_for_updates()
+        elif action == "upnp_off":
+            cur_settings: dict[str, bool] = await mesh_obj.async_get_upnp_state()
+            new_settings: dict[str, bool] = {
+                "enabled": False,
+                "allow_change_settings": cur_settings.get("canUsersConfigure", False),
+                "allow_disable_internet": cur_settings.get(
+                    "canUsersDisableWANAccess", False
+                ),
+            }
+            ret = await mesh_obj.async_set_upnp_settings(**new_settings)
+        elif action == "upnp_on":
+            cur_settings: dict[str, bool] = await mesh_obj.async_get_upnp_state()
+            new_settings: dict[str, bool] = {
+                "enabled": True,
+                "allow_change_settings": cur_settings.get("canUsersConfigure", False),
+                "allow_disable_internet": cur_settings.get(
+                    "canUsersDisableWANAccess", False
+                ),
+            }
+            ret = await mesh_obj.async_set_upnp_settings(**new_settings)
         elif action == "wps_off":
             ret = await mesh_obj.async_set_wps_state(state=False)
         elif action == "wps_on":
