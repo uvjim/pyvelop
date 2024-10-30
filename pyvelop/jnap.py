@@ -103,6 +103,7 @@ class Actions(str, Enum):
         return action in {
             "GET_HOMEKIT_SETTINGS",
             "GET_NETWORK_CONNECTIONS",
+            "GET_SPEEDTEST_RESULTS",
             "GET_STORAGE_SMB_SERVER",
             "GET_STORAGE_PARTITIONS",
         }
