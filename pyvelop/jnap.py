@@ -81,7 +81,6 @@ class Actions(str, Enum):
     )
     GET_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
     GET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/GetUPnPSettings"
-    SET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/SetUPnPSettings"
     GET_WAN_INFO: str = f"{ROOT}/router/GetWANStatus3"
     GET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/GetWPSServerSettings"
     REBOOT: str = f"{ROOT}/core/Reboot"
@@ -91,6 +90,7 @@ class Actions(str, Enum):
     SET_PARENTAL_CONTROL_INFO: str = (
         f"{ROOT}/parentalcontrol/SetParentalControlSettings"
     )
+    SET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/SetUPnPSettings"
     SET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/SetWPSServerSettings"
     START_CHANNEL_SCAN: str = f"{ROOT}/nodes/setup/StartAutoChannelSelection"
     START_SPEEDTEST: str = f"{ROOT}/healthcheck/RunHealthCheck"
