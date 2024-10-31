@@ -85,8 +85,8 @@ class MeshInvalidOutput(MeshException):
     """Invalid information would be returned from the API."""
 
 
-class MeshNeedsGatherDetails(MeshException):
-    """Must run the async_gather_details method first."""
+class MeshNeedsInitialise(MeshException):
+    """Must run the async_initialise method first."""
 
 
 class MeshNodeNotPrimary(MeshException):

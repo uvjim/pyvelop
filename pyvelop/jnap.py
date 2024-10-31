@@ -9,8 +9,8 @@ import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Dict, List
+from enum import StrEnum
+from typing import Any
 
 import aiohttp
 
@@ -44,69 +44,64 @@ def jnap_url(target) -> str:
     return f"http://{target}/JNAP/"
 
 
-class Actions(str, Enum):
+class Actions(StrEnum):
     """Represents the available actions."""
 
-    ROOT: str = "http://linksys.com/jnap"
-
-    CHECK_PASSWORD: str = f"{ROOT}/core/CheckAdminPassword"
-    DELETE_DEVICE: str = f"{ROOT}/devicelist/DeleteDevice"
-    GET_ALG_SETTINGS: str = f"{ROOT}/firewall/GetALGSettings"
-    GET_BACKHAUL: str = f"{ROOT}/nodes/diagnostics/GetBackhaulInfo"
-    GET_CHANNEL_SCAN_STATUS: str = f"{ROOT}/nodes/setup/GetSelectedChannels"
-    GET_DEVICES: str = f"{ROOT}/devicelist/GetDevices3"
-    GET_EXPRESS_FORWARDING: str = f"{ROOT}/router/GetExpressForwardingSettings"
-    GET_FIRMWARE_UPDATE_SETTINGS: str = (
-        f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
+    CHECK_PASSWORD = f"http://linksys.com/jnap/core/CheckAdminPassword"
+    DELETE_DEVICE = f"http://linksys.com/jnap/devicelist/DeleteDevice"
+    GET_ALG_SETTINGS = f"http://linksys.com/jnap/firewall/GetALGSettings"
+    GET_BACKHAUL = f"http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo"
+    GET_CHANNEL_SCAN_STATUS = f"http://linksys.com/jnap/nodes/setup/GetSelectedChannels"
+    GET_DEVICES = f"http://linksys.com/jnap/devicelist/GetDevices3"
+    GET_EXPRESS_FORWARDING = (
+        f"http://linksys.com/jnap/router/GetExpressForwardingSettings"
     )
-    GET_GUEST_NETWORK_INFO: str = f"{ROOT}/guestnetwork/GetGuestRadioSettings2"
-    GET_HOMEKIT_SETTINGS: str = f"{ROOT}/homekit/GetHomeKitSettings"
-    GET_LAN_SETTINGS: str = f"{ROOT}/router/GetLANSettings"
-    GET_MAC_FILTERING_SETTINGS: str = f"{ROOT}/macfilter/GetMACFilterSettings"
-    GET_NETWORK_CONNECTIONS: str = (
-        f"{ROOT}/nodes/networkconnections/GetNodesWirelessNetworkConnections"
+    GET_FIRMWARE_UPDATE_SETTINGS = (
+        f"http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
     )
-    GET_PARENTAL_CONTROL_INFO: str = (
-        f"{ROOT}/parentalcontrol/GetParentalControlSettings"
+    GET_GUEST_NETWORK_INFO = (
+        f"http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2"
     )
-    GET_SPEEDTEST_RESULTS: str = f"{ROOT}/healthcheck/GetHealthCheckResults"
-    GET_SPEEDTEST_STATUS: str = f"{ROOT}/healthcheck/GetHealthCheckStatus"
-    GET_STORAGE_PARTITIONS: str = f"{ROOT}/nodes/storage/GetNodesPartitions"
-    GET_STORAGE_SMB_SERVER: str = f"{ROOT}/nodes/storage/GetSMBServerSettings"
-    GET_TOPOLOGY_OPTIMISATION_SETTINGS: str = (
-        f"{ROOT}/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
+    GET_HOMEKIT_SETTINGS = f"http://linksys.com/jnap/homekit/GetHomeKitSettings"
+    GET_LAN_SETTINGS = f"http://linksys.com/jnap/router/GetLANSettings"
+    GET_MAC_FILTERING_SETTINGS = (
+        f"http://linksys.com/jnap/macfilter/GetMACFilterSettings"
     )
-    GET_UPDATE_FIRMWARE_STATE: str = (
-        f"{ROOT}/nodes/firmwareupdate/GetFirmwareUpdateStatus"
+    GET_NETWORK_CONNECTIONS = f"http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
+    GET_PARENTAL_CONTROL_INFO = (
+        f"http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
     )
-    GET_UPDATE_SETTINGS: str = f"{ROOT}/firmwareupdate/GetFirmwareUpdateSettings"
-    GET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/GetUPnPSettings"
-    GET_WAN_INFO: str = f"{ROOT}/router/GetWANStatus3"
-    GET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/GetWPSServerSettings"
-    REBOOT: str = f"{ROOT}/core/Reboot"
-    SET_DEVICE_PROPERTY: str = f"{ROOT}/devicelist/SetDeviceProperties"
-    SET_GUEST_NETWORK: str = f"{ROOT}/guestnetwork/SetGuestRadioSettings2"
-    SET_HOMEKIT_SETTINGS: str = f"{ROOT}/homekit/SetHomeKitSettings"
-    SET_PARENTAL_CONTROL_INFO: str = (
-        f"{ROOT}/parentalcontrol/SetParentalControlSettings"
+    GET_SPEEDTEST_RESULTS = f"http://linksys.com/jnap/healthcheck/GetHealthCheckResults"
+    GET_SPEEDTEST_STATUS = f"http://linksys.com/jnap/healthcheck/GetHealthCheckStatus"
+    GET_STORAGE_PARTITIONS = f"http://linksys.com/jnap/nodes/storage/GetNodesPartitions"
+    GET_STORAGE_SMB_SERVER = (
+        f"http://linksys.com/jnap/nodes/storage/GetSMBServerSettings"
     )
-    SET_UPNP_SETTINGS: str = f"{ROOT}/routerupnp/SetUPnPSettings"
-    SET_WPS_SERVER_SETTINGS: str = f"{ROOT}/wirelessap/SetWPSServerSettings"
-    START_CHANNEL_SCAN: str = f"{ROOT}/nodes/setup/StartAutoChannelSelection"
-    START_SPEEDTEST: str = f"{ROOT}/healthcheck/RunHealthCheck"
-    TRANSACTION: str = f"{ROOT}/core/Transaction"
-    UPDATE_FIRMWARE: str = f"{ROOT}/nodes/firmwareupdate/UpdateFirmwareNow"
-
-    @classmethod
-    def is_unsafe(cls, action: str) -> bool:
-        """Return if the action is unsafe."""
-        return action in {
-            "GET_HOMEKIT_SETTINGS",
-            "GET_NETWORK_CONNECTIONS",
-            "GET_SPEEDTEST_RESULTS",
-            "GET_STORAGE_SMB_SERVER",
-            "GET_STORAGE_PARTITIONS",
-        }
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS = f"http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
+    GET_UPDATE_FIRMWARE_STATE = (
+        f"http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus"
+    )
+    GET_UPDATE_SETTINGS = (
+        f"http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
+    )
+    GET_UPNP_SETTINGS = f"http://linksys.com/jnap/routerupnp/GetUPnPSettings"
+    GET_WAN_INFO = f"http://linksys.com/jnap/router/GetWANStatus3"
+    GET_WPS_SERVER_SETTINGS = f"http://linksys.com/jnap/wirelessap/GetWPSServerSettings"
+    REBOOT = f"http://linksys.com/jnap/core/Reboot"
+    SET_DEVICE_PROPERTY = f"http://linksys.com/jnap/devicelist/SetDeviceProperties"
+    SET_GUEST_NETWORK = f"http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2"
+    SET_HOMEKIT_SETTINGS = f"http://linksys.com/jnap/homekit/SetHomeKitSettings"
+    SET_PARENTAL_CONTROL_INFO = (
+        f"http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
+    )
+    SET_UPNP_SETTINGS = f"http://linksys.com/jnap/routerupnp/SetUPnPSettings"
+    SET_WPS_SERVER_SETTINGS = f"http://linksys.com/jnap/wirelessap/SetWPSServerSettings"
+    START_CHANNEL_SCAN = (
+        f"http://linksys.com/jnap/nodes/setup/StartAutoChannelSelection"
+    )
+    START_SPEEDTEST = f"http://linksys.com/jnap/healthcheck/RunHealthCheck"
+    TRANSACTION = f"http://linksys.com/jnap/core/Transaction"
+    UPDATE_FIRMWARE = f"http://linksys.com/jnap/nodes/firmwareupdate/UpdateFirmwareNow"
 
 
 @dataclass
@@ -129,7 +124,7 @@ class Request:
         action: str,
         password: str,
         target: str,
-        payload: List[Dict] | Dict | None = None,
+        payload: list[dict] | dict | None = None,
         raise_on_error: bool = True,
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
@@ -149,7 +144,7 @@ class Request:
             bytes(f"{username}:{password}", "utf-8")
         ).decode("ascii")
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
-        self._payload: List[Dict] | Dict | None = payload
+        self._payload: list[dict] | dict | None = payload
         self._raise_on_error: bool = raise_on_error
         self._session: aiohttp.ClientSession | None = session or aiohttp.ClientSession(
             raise_for_status=True
@@ -165,7 +160,7 @@ class Request:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        headers: Dict[str, str] = {
+        headers: dict[str, str] = {
             "X-JNAP-Authorization": f"Basic {self._creds}",
             "Content-Type": "application/json; charset=UTF-8",
             "X-JNAP-Action": self._action,
@@ -231,10 +226,10 @@ class Request:
         return self._action
 
     @property
-    def payload(self) -> List[Dict] | Dict | None:
+    def payload(self) -> list[dict] | dict | None:
         """Return the payload used for the request.
 
-        :return: Optional[List[Dict] | Dict] containing the payload
+        :return: list[dict] | dict | None containing the payload
         """
         return self._payload
 
@@ -249,7 +244,7 @@ class Response:
     RESULT_KEY: str = "result"
 
     def __init__(
-        self, action: str, data: Dict[str, Any], raise_on_error: bool = True
+        self, action: str, data: dict[str, Any], raise_on_error: bool = True
     ) -> None:
         """Initialise the response.
 
@@ -257,7 +252,7 @@ class Response:
         :param data: The JSON response received in response to the API call
         """
         self._action: str = action
-        self._data: Dict[str, Any] = data
+        self._data: dict[str, Any] = data
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._raise_on_error: bool = raise_on_error
 
@@ -330,7 +325,7 @@ class Response:
         return self._action
 
     @property
-    def data(self) -> Dict[str, Any]:
+    def data(self) -> dict[str, Any]:
         """Return the response data."""
         ret = (
             self._data.get(self.DATA_KEY_TRANSACTION)

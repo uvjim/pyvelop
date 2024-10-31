@@ -124,6 +124,7 @@ class StandardCommand(click.Command):
 MESH_ALLOWED_ACTIONS: Set = (
     "channel_scan_info",
     "channel_scan_start",
+    "detect_capabilities",
     "guest_wifi_off",
     "guest_wifi_on",
     "homekit_off",
@@ -189,7 +190,7 @@ async def device_details(
     **_,
 ) -> None:
     """Display details about a device on the Mesh."""
-    devices: List[Device] | None = await _get_device_details(ctx=ctx, device=device)
+    devices: list[Device] | None = await _get_device_details(ctx=ctx, device=device)
 
     if devices is not None:
         for found_device in devices:
@@ -334,10 +335,15 @@ async def mesh_details(
     prefix: str = f"\n{indent * ' '}"
     if mesh_obj := await mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_gather_details()
+            await mesh_obj.async_initialise()
             _display_data(
                 _build_display_data(
                     mappings=[
+                        (
+                            "capabilities",
+                            "Capabilities",
+                            prefix + prefix.join(mesh_obj.capabilities),
+                        ),
                         ("wan_status", "Internet Connected"),
                         ("wan_ip", "Public IP"),
                         ("wan_dns", "DNS Servers", ", ".join(mesh_obj.wan_dns)),
@@ -462,6 +468,8 @@ async def mesh_action(
             ret = await mesh_obj.async_get_channel_scan_info()
         elif action == "channel_scan_start":
             ret = await mesh_obj.async_start_channel_scan()
+        elif action == "detect_capabilities":
+            ret = await mesh_obj._async_detect_capabilities()
         elif action == "guest_wifi_off":
             ret = await mesh_obj.async_set_guest_wifi_state(state=False)
         elif action == "guest_wifi_on":
@@ -529,7 +537,7 @@ async def node_details(
     prefix: str = f"\n{indent * ' '}"
     if mesh_obj := await mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_gather_details()
+            await mesh_obj.async_initialise()
             nodes: List[Node] = mesh_obj.nodes
             if not nodes:
                 print("No nodes found")
