@@ -170,7 +170,7 @@ async def device_delete(
     devices: List[Device] | None = await _get_device_details(ctx=ctx, device=device)
 
     if devices is not None:
-        if mesh_obj := await mesh_connect(ctx):
+        if mesh_obj := await _async_mesh_connect(ctx):
             async with mesh_obj:
                 for found_device in devices:
                     try:
@@ -194,38 +194,37 @@ async def device_details(
 
     if devices is not None:
         for found_device in devices:
-            _display_data(
-                _build_display_data(
-                    mappings=[
-                        ("results_time", "Queried at"),
-                        ("unique_id", "Device ID"),
-                        ("ui_type", "Icon Type"),
-                        ("manufacturer", "Manufacturer"),
-                        ("model", "Model"),
-                        ("description", "Description"),
-                        ("operating_system", "Operating System"),
-                        ("serial", "Serial #"),
-                        ("status", "Online"),
-                        ("parent_name", "Parent"),
-                        (
-                            "connected_adapters",
-                            "Connections",
-                            _connected_details(
-                                adapters=found_device.connected_adapters
-                            ),
+            try:
+                title: str = found_device.name
+                click.echo(title)
+                click.echo("-" * len(title))
+                _display_value("Queried at", found_device.results_time)
+                _display_value("Device ID", found_device.unique_id)
+                _display_value("Status", found_device.status)
+                _display_value("Parent", found_device.parent_name)
+                _display_value("Manufacturer", found_device.manufacturer)
+                _display_value("Model", found_device.model)
+                _display_value("Description", found_device.description)
+                _display_value("Operating system", found_device.operating_system)
+                _display_value("Serial #", found_device.serial)
+                _display_value("Icon type", found_device.ui_type)
+                _display_value("Connections", found_device.connected_adapters)
+                _display_value(
+                    "Parental Control",
+                    {
+                        "Blocked sites": found_device.parental_control_schedule.get(
+                            "blocked_sites"
                         ),
-                        (
-                            "parental_control_schedule",
-                            "Parental Control",
-                            _parental_control_schedule_details(
-                                schedule=found_device.parental_control_schedule
-                            ),
-                        ),
-                    ],
-                    obj=found_device,
-                    title=found_device.name,
+                        "Schedule": [
+                            f"{day.title()}\t{','.join(sched)}"
+                            for day, sched in found_device.parental_control_schedule.get(
+                                "blocked_internet_access", {}
+                            ).items()
+                        ],
+                    },
                 )
-            )
+            except Exception as exc:
+                click.echo(click.style(exc, fg="red"))
 
 
 @device_group.command(cls=StandardCommand, name="internet_access")
@@ -239,7 +238,7 @@ async def device_internet_access(
     **_,
 ) -> None:
     """Block/Unblock access to the internet."""
-    if mesh_obj := await mesh_connect(ctx):
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_gather_details()
             try:
@@ -272,7 +271,7 @@ async def device_internet_access(
 @click.argument("new_name")
 async def device_rename(ctx: click.Context, device_id: str, new_name: str, **_) -> None:
     """Rename the given device."""
-    if mesh_obj := await mesh_connect(ctx):
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_rename_device(device_id=device_id, name=new_name)
 
@@ -293,7 +292,7 @@ async def device_pc_set_rules(
         )
     )
 
-    if mesh_obj := await mesh_connect(ctx):
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_gather_details()
             await mesh_obj.async_set_parental_control_rules(
@@ -310,7 +309,7 @@ async def device_pc_set_urls(
     ctx: click.Context, device_id: str, merge: bool, urls: Tuple[str, ...], **_
 ) -> None:
     """Set the parental control URLs."""
-    if mesh_obj := await mesh_connect(ctx):
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_gather_details()
             await mesh_obj.async_set_parental_control_urls(
@@ -331,125 +330,115 @@ async def mesh_details(
     **_,
 ) -> None:
     """Get details about the Mesh."""
-    indent: int = DEF_INDENT
-    prefix: str = f"\n{indent * ' '}"
-    if mesh_obj := await mesh_connect(ctx):
+
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_initialise()
-            _display_data(
-                _build_display_data(
-                    mappings=[
-                        (
-                            "capabilities",
-                            "Capabilities",
-                            prefix + prefix.join(mesh_obj.capabilities),
-                        ),
-                        ("wan_status", "Internet Connected"),
-                        ("wan_ip", "Public IP"),
-                        ("wan_dns", "DNS Servers", ", ".join(mesh_obj.wan_dns)),
-                        ("wan_mac", "MAC"),
-                        (
-                            "nodes",
-                            "Nodes",
-                            prefix
-                            + prefix.join([node.name for node in mesh_obj.nodes]),
-                        ),
-                        (
-                            "latest_speedtest_result",
-                            "Latest Speedtest Result",
-                            _speedtest_results(
-                                speedtest_results=mesh_obj.latest_speedtest_result
-                            ),
-                        ),
-                        ("dhcp_enabled", "DHCP Enabled"),
-                        (
-                            "dhcp_reservations",
-                            "DHCP Reservations",
-                            (
-                                prefix
-                                + prefix.join(
-                                    [
-                                        f"{reservation.get('description')},"
-                                        f"{reservation.get('mac_address')},"
-                                        f"{reservation.get('ip_address')}"
-                                        for reservation in mesh_obj.dhcp_reservations
-                                    ]
-                                )
-                                if len(mesh_obj.dhcp_reservations)
-                                else "None"
-                            ),
-                        ),
-                        ("parental_control_enabled", "Parental Control Enabled"),
-                        ("wps_state", "WPS Enabled"),
-                        ("is_channel_scan_running", "Channel Scan Running"),
-                        ("homekit_enabled", "HomeKit Integration Enabled"),
-                        ("homekit_paired", "HomeKit Integration Paired"),
-                        ("client_steering_enabled", "Client Steering Enabled"),
-                        ("node_steering_enabled", "Node Steering Enabled"),
-                        ("upnp_enabled", "UPnP Enabled"),
-                        ("upnp_allow_change_settings", "UPnP Allow Change Settings"),
-                        ("upnp_allow_disable_internet", "UPnP Allow Disable Internet"),
-                        ("sip_enabled", "SIP Enabled"),
-                        (
-                            "express_forwarding_supported",
-                            "Express Forwarding Supported",
-                        ),
-                        ("express_forwarding_enabled", "Express Forwarding Enabled"),
-                        (
-                            "mac_filtering",
-                            "MAC Filtering",
-                            _mac_filtering_details(
-                                addresses=mesh_obj.mac_filtering_addresses,
-                                mode=mesh_obj.mac_filtering_mode,
-                                state=mesh_obj.mac_filtering_enabled,
-                            ),
-                        ),
-                        (
-                            "guest_wifi_details",
-                            "Guest Wi-Fi Details",
-                            _guest_wifi_details(
-                                state=mesh_obj.guest_wifi_enabled,
-                                networks=mesh_obj.guest_wifi_details,
-                            ),
-                        ),
-                        (
-                            "storage_details",
-                            "Storage Details",
-                            _storage_details(
-                                available_shares=mesh_obj.storage_available,
-                                server_details=mesh_obj.storage_settings,
-                            ),
-                        ),
-                        (
-                            "devices",
-                            f"Online Devices ({len([device for device in mesh_obj.devices if device.status])})",
-                            prefix
-                            + prefix.join(
-                                [
-                                    f"{device.name} ({device.connected_adapters[0].get('ip')})"
-                                    for device in mesh_obj.devices
-                                    if device.status
-                                ]
-                            ),
-                        ),
-                        (
-                            "devices",
-                            "Offline Devices "
-                            f"({len([device for device in mesh_obj.devices if not device.status])})",
-                            prefix
-                            + prefix.join(
-                                [
-                                    device.name
-                                    for device in mesh_obj.devices
-                                    if not device.status
-                                ]
-                            ),
-                        ),
-                    ],
-                    obj=mesh_obj,
-                    title="Mesh Overview",
-                )
-            )
+            try:
+                await mesh_obj.async_initialise()
+            except Exception as exc:
+                click.echo(click.style(exc, fg="red"), err=True)
+                return
+
+            try:
+                title: str = "Mesh Details"
+                click.echo(title)
+                click.echo("-" * len(title))
+                _display_value("Capabilities", mesh_obj.capabilities)
+                if "wan_info" in mesh_obj.capabilities:
+                    _display_value("Internet connected", mesh_obj.wan_status)
+                    _display_value("Public IP", mesh_obj.wan_ip)
+                    _display_value("WAN MAC", mesh_obj.wan_mac)
+                if "lan_setting" in mesh_obj.capabilities:
+                    _display_value("DHCP enabled", mesh_obj.dhcp_enabled)
+                    _display_value(
+                        "DHCP reservations",
+                        [
+                            f"{r.get('description')}\t{r.get('mac_address')}\t{r.get('ip_address')}"
+                            for r in mesh_obj.dhcp_reservations
+                        ],
+                    )
+                if "topology_optimisation_settings" in mesh_obj.capabilities:
+                    _display_value(
+                        "Client steering enabled", mesh_obj.client_steering_enabled
+                    )
+                    _display_value(
+                        "Node steering enabled", mesh_obj.node_steering_enabled
+                    )
+                if "express_forwarding" in mesh_obj.capabilities:
+                    _display_value(
+                        "Express Forwarding",
+                        {
+                            "Supported": mesh_obj.express_forwarding_supported,
+                            "Enabled": mesh_obj.express_forwarding_enabled,
+                        },
+                    )
+                if "parental_control_info" in mesh_obj.capabilities:
+                    _display_value(
+                        "Parental Control enabled", mesh_obj.parental_control_enabled
+                    )
+                if "mac_filtering_settings" in mesh_obj.capabilities:
+                    _display_value(
+                        "MAC filtering",
+                        {
+                            "Enabled": mesh_obj.mac_filtering_enabled,
+                            "Mode": mesh_obj.mac_filtering_mode,
+                            "Filters": mesh_obj.mac_filtering_addresses,
+                        },
+                    )
+                if "wps_server_settings" in mesh_obj.capabilities:
+                    _display_value("WPS enabled", mesh_obj.wps_state)
+                if "alg_settings" in mesh_obj.capabilities:
+                    _display_value("SIP enabled", mesh_obj.sip_enabled)
+                if "homekit_settings" in mesh_obj.capabilities:
+                    _display_value(
+                        "HomeKit",
+                        {
+                            "Enabled": mesh_obj.homekit_enabled,
+                            "Paired": mesh_obj.homekit_paired,
+                        },
+                    )
+                if "upnp_settings" in mesh_obj.capabilities:
+                    _display_value(
+                        "UPnP",
+                        {
+                            "Enabled": mesh_obj.upnp_enabled,
+                            "allow_change_settings": mesh_obj.upnp_allow_change_settings,
+                            "allow_disable_Internet": mesh_obj.upnp_allow_disable_internet,
+                        },
+                    )
+                if "devices" in mesh_obj.capabilities:
+                    _display_value("Nodes", [n.name for n in mesh_obj.nodes])
+                if "speedtest_results" in mesh_obj.capabilities:
+                    _display_value(
+                        "Latest Speedtest result", mesh_obj.latest_speedtest_result
+                    )
+                if "guest_network_info" in mesh_obj.capabilities:
+                    _display_value(
+                        "Guest network",
+                        {
+                            "Enabled": mesh_obj.guest_wifi_enabled,
+                            "Networks": mesh_obj.guest_wifi_details,
+                        },
+                    )
+                if "storage_partitions" in mesh_obj.capabilities:
+                    _display_value(
+                        "Storage details", {"Shares": mesh_obj.storage_available}
+                    )
+                if "devices" in mesh_obj.capabilities:
+                    _display_value(
+                        "Online devices",
+                        [
+                            f"{d.name}\t{d.connected_adapters[0].get('ip')}"
+                            for d in mesh_obj.devices
+                            if d.status
+                        ],
+                    )
+                    _display_value(
+                        "Offline devices",
+                        [d.name for d in mesh_obj.devices if not d.status],
+                    )
+            except Exception as exc:
+                click.echo(click.style(exc, fg="red"))
 
 
 @mesh_group.command(cls=StandardCommand, name="action")
@@ -463,7 +452,7 @@ async def mesh_action(
     """Carry out a specified action on the mesh."""
 
     ret: Any = None
-    if (mesh_obj := await mesh_connect(ctx)) is not None:
+    if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
         if action == "channel_scan_info":
             ret = await mesh_obj.async_get_channel_scan_info()
         elif action == "channel_scan_start":
@@ -533,105 +522,69 @@ async def node_details(
     **_,
 ) -> None:
     """Get details about a node on the Mesh."""
-    indent: int = DEF_INDENT
-    prefix: str = f"\n{indent * ' '}"
-    if mesh_obj := await mesh_connect(ctx):
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_initialise()
-            nodes: List[Node] = mesh_obj.nodes
+            nodes: list[Node] = mesh_obj.nodes
             if not nodes:
-                print("No nodes found")
+                click.echo("No nodes found")
             else:
                 found_node: Node
                 for found_node in nodes:
                     if found_node.name == node_name:
-                        _display_data(
-                            _build_display_data(
-                                mappings=[
-                                    ("results_time", "Queried at"),
-                                    ("unique_id", "Device ID"),
-                                    ("type", "Node type", found_node.type.title()),
-                                    ("manufacturer", "Manufacturer"),
-                                    ("model", "Model"),
-                                    ("hardware_version", "Hardware version"),
-                                    ("serial", "Serial #"),
-                                    ("ui_type", "Icon type"),
-                                    (
-                                        "firmware",
-                                        "Firmware",
-                                        found_node.firmware.get("version"),
-                                    ),
-                                    (
-                                        "firmware",
-                                        "Latest firmware",
-                                        found_node.firmware.get("latest_version"),
-                                    ),
-                                    ("last_update_check", "Last update check"),
-                                    ("status", "Online"),
-                                    (
-                                        "connected_adapters",
-                                        "Connections",
-                                        _connected_details(
-                                            adapters=found_node.connected_adapters
-                                        ),
-                                    ),
-                                    (
-                                        "backhaul",
-                                        "Backhaul",
-                                        "\n"
-                                        + _build_display_data(
-                                            indent=indent,
-                                            mappings=[
-                                                ("parent_name", "Parent"),
-                                                ("connection", "Connection type"),
-                                                (
-                                                    "speed_mbps",
-                                                    "Speed",
-                                                    (
-                                                        f"{found_node.backhaul.get('speed_mbps')}mbps"
-                                                        if found_node.backhaul.get(
-                                                            "speed_mbps"
-                                                        )
-                                                        else None
-                                                    ),
-                                                ),
-                                                ("signal_strength", "Signal strength"),
-                                                (
-                                                    "rssi_dbm",
-                                                    "RSSI",
-                                                    (
-                                                        f"{found_node.backhaul.get('rssi_dbm')}dBm"
-                                                        if found_node.backhaul.get(
-                                                            "rssi_dbm"
-                                                        )
-                                                        else None
-                                                    ),
-                                                ),
-                                                ("last_checked", "Last checked"),
-                                            ],
-                                            obj=dict(
-                                                **found_node.backhaul,
-                                                parent_name=found_node.parent_name,
-                                            ),
-                                        ),
-                                    ),
-                                    (
-                                        "connected_devices",
-                                        f"Connected devices ({len(found_node.connected_devices)})",
-                                        prefix
-                                        + prefix.join(
-                                            [
-                                                device.get("name")
-                                                for device in found_node.connected_devices
-                                            ]
-                                        ),
-                                    ),
-                                ],
-                                obj=found_node,
-                                title=node_name,
+                        try:
+                            title: str = node_name
+                            click.echo(title)
+                            click.echo("-" * len(title))
+                            _display_value("Queried at", found_node.results_time)
+                            _display_value("Device ID", found_node.unique_id)
+                            _display_value("Online", found_node.status),
+                            _display_value("Node type", found_node.type.title())
+                            _display_value("Manufacturer", found_node.manufacturer)
+                            _display_value("Model", found_node.model)
+                            _display_value(
+                                "Hardware version", found_node.hardware_version
                             )
-                        )
-                        break
+                            _display_value("Serial #", found_node.serial)
+                            _display_value("Icon type", found_node.ui_type)
+                            _display_value(
+                                "Firmware details",
+                                {
+                                    "Versions": found_node.firmware,
+                                    "last_checked": found_node.last_update_check,
+                                },
+                            )
+                            _display_value("Connections", found_node.connected_adapters)
+                            if found_node.type == "secondary":
+                                _display_value(
+                                    "Backhaul",
+                                    {
+                                        "details": [found_node.backhaul],
+                                        "parent": f"{found_node.parent_name}\t{found_node.parent_ip}",
+                                    },
+                                    include_count_on_list=False,
+                                )
+                            _display_value(
+                                "Connected Devices",
+                                [
+                                    d.get("name", "")
+                                    for d in found_node.connected_devices
+                                ],
+                            )
+                            break
+                        except Exception as exc:
+                            click.echo(click.style(exc, fg="red"))
+                            #             (
+                            #                 "connected_devices",
+                            #                 f"Connected devices ({len(found_node.connected_devices)})",
+                            #                 prefix
+                            #                 + prefix.join(
+                            #                     [
+                            #                         device.get("name")
+                            #                         for device in found_node.connected_devices
+                            #                     ]
+                            #                 ),
+                            #             ),
 
 
 @node_group.command(cls=StandardCommand, name="restart")
@@ -643,7 +596,7 @@ async def node_restart(
     **_,
 ) -> None:
     """Restart a node on the Mesh."""
-    if mesh_obj := await mesh_connect(ctx):
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             try:
                 await mesh_obj.async_gather_details()
@@ -666,7 +619,9 @@ async def ps_decode(to_decode: Tuple[str, ...]) -> None:
     if len(to_decode) > len(ParentalControl.WEEKDAYS):
         _LOGGER.error("Too many arguments specified")
     elif len(to_decode) == 1:
-        _display_data(ParentalControl.binary_to_human_readable(to_decode=to_decode[0]))
+        _display_value(
+            "", ParentalControl.binary_to_human_readable(to_decode=to_decode[0])
+        )
     else:
         dict_to_decode = dict(
             map(
@@ -675,8 +630,8 @@ async def ps_decode(to_decode: Tuple[str, ...]) -> None:
                 to_decode,
             )
         )
-        _display_data(
-            ParentalControl.binary_to_human_readable(to_decode=dict_to_decode)
+        _display_value(
+            "", ParentalControl.binary_to_human_readable(to_decode=dict_to_decode)
         )
 
 
@@ -687,7 +642,9 @@ async def ps_encode(to_encode: Tuple[str, ...]) -> None:
     if len(to_encode) > len(ParentalControl.WEEKDAYS):
         _LOGGER.error("Too many arguments specified")
     elif len(to_encode) == 1:
-        _display_data(ParentalControl.human_readable_to_binary(to_encode=to_encode[0]))
+        _display_value(
+            "", ParentalControl.human_readable_to_binary(to_encode=to_encode[0])
+        )
     else:
         dict_to_encode = dict(
             map(
@@ -699,13 +656,15 @@ async def ps_encode(to_encode: Tuple[str, ...]) -> None:
                 to_encode,
             )
         )
-        _display_data(
-            ParentalControl.human_readable_to_binary(to_encode=dict_to_encode)
+        _display_value(
+            "", ParentalControl.human_readable_to_binary(to_encode=dict_to_encode)
         )
 
 
-async def mesh_connect(ctx: click.Context = None) -> Mesh | None:
+async def _async_mesh_connect(ctx: click.Context = None) -> Mesh | None:
     """Return the Mesh object."""
+
+    msg: str = ""
     if ctx is not None:
         mesh_object: Mesh = Mesh(
             node=ctx.params.get("primary_node"),
@@ -719,20 +678,79 @@ async def mesh_connect(ctx: click.Context = None) -> Mesh | None:
                 if not await mesh_object.async_test_credentials():
                     raise MeshInvalidCredentials
         except MeshConnectionError:
-            _LOGGER.error("Unable to connect to %s", ctx.params.get("primary_node"))
+            msg = f"Unable to connect to {ctx.params.get('primary_node')}"
         except MeshInvalidCredentials:
-            _LOGGER.error(
-                "Unable to authenticate with %s using provided credentials",
-                ctx.params.get("primary_node"),
-            )
+            msg = f"Unable to authenticate with {ctx.params.get('primary_node')} using provided credentials"
         except MeshNodeNotPrimary:
-            _LOGGER.error("%s is not the primary node", ctx.params.get("primary_node"))
+            msg = f"{ctx.params.get('primary_node')} is not the primary node"
         except MeshTimeoutError:
-            _LOGGER.error("Timed out connecting to %s", ctx.params.get("primary_node"))
+            msg = f"Timed out connecting to {ctx.params.get('primary_node')}"
         else:
             return mesh_object
 
+        if msg != "":
+            click.echo(click.style(msg, fg="red"))
+
     return None
+
+
+def _display_value(
+    label: str,
+    value: Any,
+    display_bool_false: str = "No",
+    display_bool_true: str = "Yes",
+    display_none: str = "N/A",
+    indent_level: int = 0,
+    include_count_on_list: bool = True,
+) -> None:
+    """"""
+
+    def _titlecase(s) -> str:
+        arr: list[str] = s.split("_")
+        arr[0] = arr[0].title()
+        return " ".join(arr)
+
+    row_label: str = ""
+    prefix_len: int = 4
+    prefix_char: str = " "
+
+    try:
+        prefix = prefix_len * indent_level * prefix_char
+        if type(value) in (dict, list):
+            if type(value) == list:
+                row_label = f"{prefix}{label}"
+                if include_count_on_list:
+                    row_label += f" (count: {len(value)})"
+                row_label += ": "
+                click.echo(row_label)
+                prefix += prefix_len * prefix_char
+                if len(value) == 0:
+                    click.echo(f"{prefix}No details to show")
+                else:
+                    for val in value:
+                        click.echo(f"{prefix}{val}")
+            else:
+                row_label = f"{prefix}{label}: "
+                click.echo(row_label)
+                prefix += prefix_len * prefix_char
+                for l, v in value.items():
+                    _display_value(
+                        _titlecase(l).replace("_", " "),
+                        v,
+                        indent_level=1,
+                        include_count_on_list=include_count_on_list,
+                    )
+        else:
+            row_label = f"{prefix}{label}: "
+            click.echo(row_label, nl=False)
+            if type(value) == bool:
+                click.echo(display_bool_true if value else display_bool_false)
+            elif value is None:
+                click.echo(display_none)
+            else:
+                click.echo(value)
+    except Exception as exc:
+        click.echo(click.style(exc, fg="red"))
 
 
 async def _get_device_details(
@@ -740,7 +758,7 @@ async def _get_device_details(
 ) -> List[Device] | None:
     """Retreive device details from the mesh."""
     ret: List[Device | Node] | None
-    if mesh_obj := await mesh_connect(ctx):
+    if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             for dev in device:
                 try:  # match a GUID?
@@ -775,240 +793,6 @@ async def _get_device_details(
                             _LOGGER.error("Device not found (%s)", dev)
                             return
     return ret
-
-
-def _build_display_data(
-    mappings: List[Tuple],
-    obj: Device | Dict | Mesh | Node,
-    indent: int = 0,
-    title: str = "",
-):
-    """Build the string to display the given data."""
-    ret: str = ""
-    if title:
-        ret = f"{title}\n"
-        ret += f"{len(title) * '-'}\n"
-
-    for properties in mappings:
-        try:
-            property_name, display_name, display_value = properties
-        except ValueError:
-            display_value = None
-            property_name, display_name = properties
-
-        if display_value is None:
-            if isinstance(obj, Dict):
-                display_value = obj.get(property_name)
-            else:
-                display_value = getattr(obj, property_name, None)
-
-        ret += f"{indent * ' '}{display_name}: {display_value}\n"
-
-    return ret.rstrip()
-
-
-def _connected_details(adapters: List[Dict]) -> str:
-    """Format the connected adapter details for display."""
-    ret: str = ""
-    indent: int = DEF_INDENT
-    if not adapters:
-        return "N/A"
-
-    adapter = adapters[0]
-
-    ret = _build_display_data(
-        indent=indent,
-        mappings=[
-            ("mac", "MAC"),
-            ("ip", "IPv4"),
-            ("ipv6", "IPv6"),
-            ("primary", "Primary Adapter"),
-            ("reservation", "Reservation"),
-            ("reservation_description", "Reserved Name"),
-            ("guest_network", "Guest"),
-            (
-                "signal_strength",
-                "Signal Strength",
-                (
-                    f"{adapter.get('signal_strength', None)} ({adapter.get('rssi', None)}dBm)"
-                    if adapter.get("signal_strength", None)
-                    else "N/A"
-                ),
-            ),
-        ],
-        obj=adapter,
-    )
-
-    return "\n" + ret.rstrip()
-
-
-def _display_data(message: str = "") -> None:
-    """Display the given data on screen."""
-    click.echo(message)
-
-
-def _guest_wifi_details(state: bool, networks: List[Dict]) -> str:
-    """Format the Guest Wi-Fi details for display."""
-    ret: str = ""
-    indent: int = DEF_INDENT
-    ret = _build_display_data(
-        indent=indent,
-        mappings=[
-            ("state", "Enabled"),
-            (
-                "networks",
-                "Networks",
-                "\n"
-                + "\n".join(
-                    [
-                        f"{indent * 2 * ' '}{idx}: {network.get('ssid')} ({network.get('band')})"
-                        for idx, network in enumerate(networks)
-                    ]
-                ),
-            ),
-        ],
-        obj={
-            "state": state,
-            "networks": networks,
-        },
-    )
-
-    return "\n" + ret.rstrip()
-
-
-def _mac_filtering_details(addresses: List[str], mode: str | None, state: bool) -> str:
-    """Format the MAC filtering details for display."""
-    indent: int = DEF_INDENT
-
-    ret = _build_display_data(
-        indent=indent,
-        mappings=[
-            ("state", "Enabled"),
-            ("mode", "Mode", str(mode).title()),
-            (
-                "addresses",
-                "Addresses",
-                "\n"
-                + "\n".join(
-                    [
-                        f"{indent * 2 * ' '}{idx}: {addr}"
-                        for idx, addr in enumerate(addresses)
-                    ]
-                ),
-            ),
-        ],
-        obj={
-            "addresses": addresses,
-            "mode": mode,
-            "state": state,
-        },
-    )
-
-    return "\n" + ret.rstrip()
-
-
-def _parental_control_schedule_details(schedule: Dict) -> str:
-    """Format the parental control schedule for display."""
-    indent: int = DEF_INDENT
-    prefix: str = f"\n{indent * 2 * ' '}"
-    ret: str = _build_display_data(
-        indent=indent,
-        mappings=[
-            (
-                "blocked_internet_access",
-                "Blocked Access",
-                (
-                    prefix
-                    + prefix.join(
-                        [
-                            f"{day.title()}: {', '.join(times) if times else 'N/A'}"
-                            for day, times in schedule.get(
-                                "blocked_internet_access", {}
-                            ).items()
-                        ]
-                    )
-                    if schedule.get("blocked_internet_access", {})
-                    else "N/A"
-                ),
-            ),
-            (
-                "blocked_sites",
-                "Prohibited Sites",
-                (
-                    prefix + prefix.join(schedule.get("blocked_sites", []))
-                    if schedule.get("blocked_sites", [])
-                    else "N/A"
-                ),
-            ),
-        ],
-        obj=schedule,
-    )
-
-    return "\n" + ret.rstrip()
-
-
-def _speedtest_results(speedtest_results: Dict) -> str:
-    """Format the Speedtest results for display."""
-    indent: int = DEF_INDENT
-    ret: str = _build_display_data(
-        indent=indent,
-        mappings=[
-            ("timestamp", "Executed at"),
-            (
-                "download_bandwidth",
-                "Download",
-                f"{round(speedtest_results.get('download_bandwidth', 0) / 1000, 2)} Mbps",
-            ),
-            (
-                "upload_bandwidth",
-                "Upload",
-                f"{round(speedtest_results.get('upload_bandwidth', 0) / 1000, 2)} Mbps",
-            ),
-            ("latency", "Latency", f"{speedtest_results.get('latency')}ms"),
-            ("exit_code", "Status"),
-        ],
-        obj=speedtest_results,
-    )
-
-    return "\n" + ret.rstrip()
-
-
-def _storage_details(available_shares: List[Dict], server_details: Dict) -> str:
-    """Format the storage details for display."""
-    ret: str = ""
-    indent: int = DEF_INDENT
-
-    def _build_share_data(share_details: Dict) -> str:
-        """Format the share details for display."""
-        return _build_display_data(
-            indent=(indent * 3),
-            mappings=[
-                ("ip", "IP"),
-                ("used_percent", "Used", f"{share_details.get('used_percent')}%"),
-            ],
-            obj=share_details,
-        )
-
-    ret = _build_display_data(
-        indent=indent,
-        mappings=[
-            ("anonymous_access", "Anonymous Access"),
-            (
-                "available_shares",
-                "Available Shares",
-                f"\n{indent * 2 * ' '}"
-                + f"\n{indent * 2 * ' '}".join(
-                    [
-                        f"{share.get('label')}:\n{_build_share_data(share_details=share)}"
-                        for share in available_shares
-                    ]
-                ),
-            ),
-        ],
-        obj=dict(server_details, available_shares=available_shares),
-    )
-
-    return "\n" + ret.rstrip()
 
 
 if __name__ == "__main__":
