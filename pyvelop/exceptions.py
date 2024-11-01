@@ -88,6 +88,10 @@ class MeshInvalidOutput(MeshException):
 class MeshNeedsInitialise(MeshException):
     """Must run the async_initialise method first."""
 
+    def __init__(self) -> None:
+        """Initialise and default message."""
+        super().__init__("You must call the initialise method first")
+
 
 class MeshNodeNotPrimary(MeshException):
     """API call being used on a node that isn't the primary."""
