@@ -62,14 +62,6 @@ class MeshCapability(StrEnum):
     GET_WPS_SERVER_SETTINGS = "wps_server_settings"
 
 
-MESH_CAPABILITY_DEVICE_DETAILS: list[MeshCapability] = [
-    MeshCapability.GET_DEVICES,
-    MeshCapability.GET_LAN_SETTINGS,
-    MeshCapability.GET_NETWORK_CONNECTIONS,
-    MeshCapability.GET_PARENTAL_CONTROL_INFO,
-]
-
-
 def _get_speedtest_state(speedtest_results=None) -> str:
     """Process the Speedtest results to get a textual state."""
     if speedtest_results is None:
@@ -197,6 +189,7 @@ class Mesh:
         self._node: str = node
         self._mesh_attributes: dict = {}
         self._mesh_capabilities: list[MeshCapability] = []
+        self._mesh_capabilities_device_details: list[MeshCapability] = []
         self._session: aiohttp.ClientSession = session
         self._timeout: int = request_timeout or 10
 
@@ -599,6 +592,7 @@ class Mesh:
         )
         return resp.get(MeshCapability.GET_CHANNEL_SCAN_STATUS.value)
 
+    @needs_initialise
     async def async_get_device_from_id(
         self,
         device_id: Iterable[str],
@@ -625,7 +619,9 @@ class Mesh:
         if not force_refresh:
             all_devices = self.devices + self.nodes
         else:
-            resp = await self._async_gather_details(MESH_CAPABILITY_DEVICE_DETAILS)
+            resp = await self._async_gather_details(
+                self._mesh_capabilities_device_details
+            )
             all_devices = resp.get(_ATTR_PROCESSED_DEVICES)
 
         if not all_devices:
@@ -641,6 +637,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
+    @needs_initialise
     async def async_get_device_from_mac_address(
         self,
         mac_address: Iterable[str],
@@ -672,7 +669,9 @@ class Mesh:
         if not force_refresh:
             all_devices = self.nodes + self.devices
         else:
-            resp = await self._async_gather_details(MESH_CAPABILITY_DEVICE_DETAILS)
+            resp = await self._async_gather_details(
+                self._mesh_capabilities_device_details
+            )
             all_devices = resp.get(_ATTR_PROCESSED_DEVICES)
 
         for device in all_devices:
@@ -691,6 +690,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
+    @needs_initialise
     async def async_get_devices(self) -> list[Device]:
         """Get the devices from the API.
 
@@ -701,7 +701,9 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        all_devices = await self._async_gather_details(MESH_CAPABILITY_DEVICE_DETAILS)
+        all_devices = await self._async_gather_details(
+            self._mesh_capabilities_device_details
+        )
         ret: list[Device] = [
             device
             for device in all_devices.get(_ATTR_PROCESSED_DEVICES, [])
@@ -798,6 +800,17 @@ class Mesh:
         self.__initialise_executed = (
             True  # flag here so that async_gather_details will run
         )
+        self._mesh_capabilities_device_details = [
+            capability
+            for capability in [
+                MeshCapability.GET_DEVICES,
+                MeshCapability.GET_LAN_SETTINGS,
+                MeshCapability.GET_NETWORK_CONNECTIONS,
+                MeshCapability.GET_PARENTAL_CONTROL_INFO,
+            ]
+            if capability in self._mesh_capabilities
+        ]
+
         await self.async_gather_details()
 
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
