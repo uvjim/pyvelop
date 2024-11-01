@@ -574,17 +574,6 @@ async def node_details(
                             break
                         except Exception as exc:
                             click.echo(click.style(exc, fg="red"))
-                            #             (
-                            #                 "connected_devices",
-                            #                 f"Connected devices ({len(found_node.connected_devices)})",
-                            #                 prefix
-                            #                 + prefix.join(
-                            #                     [
-                            #                         device.get("name")
-                            #                         for device in found_node.connected_devices
-                            #                     ]
-                            #                 ),
-                            #             ),
 
 
 @node_group.command(cls=StandardCommand, name="restart")
@@ -755,11 +744,12 @@ def _display_value(
 
 async def _get_device_details(
     ctx: click.Context, device: Tuple[str]
-) -> List[Device] | None:
+) -> list[Device] | None:
     """Retreive device details from the mesh."""
-    ret: List[Device | Node] | None
+    ret: list[Device | Node] | None
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
+            await mesh_obj.async_initialise()
             for dev in device:
                 try:  # match a GUID?
                     _ = uuid.UUID(device[0])
@@ -767,8 +757,11 @@ async def _get_device_details(
                         device_id=dev,
                         force_refresh=True,
                     )
-                except MeshDeviceNotFoundResponse as err:
-                    _LOGGER.error("%s (%s)", err, ", ".join(err.devices))
+                except MeshDeviceNotFoundResponse as exc:
+                    click.echo(
+                        click.style(f"{exc}, {', '.join(exc.devices)}", fg="red"),
+                        err=True,
+                    )
                     return
                 except ValueError:  # not a GUID
                     regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
@@ -780,18 +773,33 @@ async def _get_device_details(
                             ret = await mesh_obj.async_get_device_from_mac_address(
                                 dev, force_refresh=True
                             )
-                        except MeshDeviceNotFoundResponse as err:
-                            _LOGGER.error("%s (%s)", err, ", ".join(err.devices))
+                        except MeshDeviceNotFoundResponse as exc:
+                            click.echo(
+                                click.style(
+                                    f"{exc}, {', '.join(exc.devices)}", fg="red"
+                                ),
+                                err=True,
+                            )
                             return
                     else:
-                        ret = [
-                            found_device
-                            for found_device in await mesh_obj.async_get_devices()
-                            if found_device.name == dev
-                        ]
-                        if not ret:
-                            _LOGGER.error("Device not found (%s)", dev)
+                        try:
+                            ret = [
+                                found_device
+                                for found_device in await mesh_obj.async_get_devices()
+                                if found_device.name == dev
+                            ]
+                            if not ret:
+                                click.echo(
+                                    click.style(f"Device not found ({dev})", fg="red")
+                                )
+                                return
+                        except Exception as exc:
+                            click.echo(click.style(exc, fg="red"), err=True)
                             return
+                except Exception as exc:
+                    click.echo(click.style(exc, fg="red"), err=True)
+                    return
+
     return ret
 
 
