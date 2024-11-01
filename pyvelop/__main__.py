@@ -200,7 +200,7 @@ async def device_details(
                 click.echo("-" * len(title))
                 _display_value("Queried at", found_device.results_time)
                 _display_value("Device ID", found_device.unique_id)
-                _display_value("Status", found_device.status)
+                _display_value("Online", found_device.status)
                 _display_value("Parent", found_device.parent_name)
                 _display_value("Manufacturer", found_device.manufacturer)
                 _display_value("Model", found_device.model)
