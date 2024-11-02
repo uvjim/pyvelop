@@ -1323,9 +1323,9 @@ class Mesh:
     # region #-- properties --#
     @property
     @needs_initialise
-    def capabilities(self) -> list[str]:
+    def capabilities(self) -> list[MeshCapability]:
         """Get the list of capabilities that the Mesh supports."""
-        return list(map(str, self._mesh_capabilities))
+        return self._mesh_capabilities
 
     @property
     @needs_initialise
