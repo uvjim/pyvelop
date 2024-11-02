@@ -544,7 +544,7 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
-    async def async_detect_capabilities(self) -> list[str]:
+    async def async_detect_capabilities(self) -> list[MeshCapability]:
         """Attempt to detect the capabilities of the Mesh."""
         ret: list[str] = []
         requests: list[Coroutine] = []
@@ -568,7 +568,7 @@ class Mesh:
             ret.append(list(MeshCapability)[idx])
 
         self._mesh_capabilities = ret
-        return list(map(str, self._mesh_capabilities))
+        return self._mesh_capabilities
 
     @needs_initialise
     async def async_gather_details(self) -> None:
@@ -1323,9 +1323,9 @@ class Mesh:
     # region #-- properties --#
     @property
     @needs_initialise
-    def capabilities(self) -> list[str]:
+    def capabilities(self) -> list[MeshCapability]:
         """Get the list of capabilities that the Mesh supports."""
-        return list(map(str, self._mesh_capabilities))
+        return self._mesh_capabilities
 
     @property
     @needs_initialise
