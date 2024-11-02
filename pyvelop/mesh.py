@@ -750,7 +750,7 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        resp = await self._async_gather_details(MeshCapability.GET_SPEEDTEST_STATUS)
+        resp = await self._async_gather_details([MeshCapability.GET_SPEEDTEST_STATUS])
         ret = _get_speedtest_state(
             speedtest_results=resp[MeshCapability.GET_SPEEDTEST_STATUS.value].get(
                 "speedTestResult", {}
@@ -768,7 +768,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         resp = await self._async_gather_details(
-            MeshCapability.GET_UPDATE_FIRMWARE_STATE
+            [MeshCapability.GET_UPDATE_FIRMWARE_STATE]
         )
 
         node_results = resp.get(MeshCapability.GET_UPDATE_FIRMWARE_STATE.value, {}).get(
@@ -786,7 +786,7 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        resp = await self._async_gather_details(MeshCapability.GET_UPNP_SETTINGS)
+        resp = await self._async_gather_details([MeshCapability.GET_UPNP_SETTINGS])
 
         ret = resp.get(MeshCapability.GET_UPNP_SETTINGS.value, {})
 
@@ -884,7 +884,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
 
         # get the current radio settings from the API; they may have changed
-        resp = await self._async_gather_details(MeshCapability.GET_GUEST_NETWORK_INFO)
+        resp = await self._async_gather_details([MeshCapability.GET_GUEST_NETWORK_INFO])
         radios = resp.get("radios", [])
 
         payload = {
@@ -938,7 +938,7 @@ class Mesh:
 
         # -- get the current rules as they may have changed --#
         current_parental_control_info: dict[int | str, Any] = (
-            await self._async_gather_details(MeshCapability.GET_PARENTAL_CONTROL_INFO)
+            await self._async_gather_details([MeshCapability.GET_PARENTAL_CONTROL_INFO])
         )
         current_parental_control_info = current_parental_control_info.get(
             MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {}
@@ -1100,7 +1100,7 @@ class Mesh:
 
         # -- get the current rules as they may have changed --#
         current_parental_control_info: dict[int | str, Any] = (
-            await self._async_gather_details(MeshCapability.GET_PARENTAL_CONTROL_INFO)
+            await self._async_gather_details([MeshCapability.GET_PARENTAL_CONTROL_INFO])
         )
         current_parental_control_info = current_parental_control_info.get(
             MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {}
@@ -1203,7 +1203,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
         # get the current rules from the API because they may be different
         resp = await self._async_gather_details(
-            MeshCapability.GET_PARENTAL_CONTROL_INFO
+            [MeshCapability.GET_PARENTAL_CONTROL_INFO]
         )
         rules = resp.get("rules", [])
 
