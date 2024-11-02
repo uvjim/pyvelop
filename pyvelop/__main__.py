@@ -3,7 +3,6 @@
 # region #-- imports --#
 from __future__ import annotations
 
-import json
 import logging
 import re
 import uuid
@@ -22,7 +21,7 @@ from .exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from .mesh import Mesh
+from .mesh import Mesh, MeshCapability
 from .node import Node
 
 # endregion
@@ -344,11 +343,11 @@ async def mesh_details(
                 click.echo(title)
                 click.echo("-" * len(title))
                 _display_value("Capabilities", mesh_obj.capabilities)
-                if "wan_info" in mesh_obj.capabilities:
+                if MeshCapability.GET_WAN_INFO in mesh_obj.capabilities:
                     _display_value("Internet connected", mesh_obj.wan_status)
                     _display_value("Public IP", mesh_obj.wan_ip)
                     _display_value("WAN MAC", mesh_obj.wan_mac)
-                if "lan_setting" in mesh_obj.capabilities:
+                if MeshCapability.GET_LAN_SETTINGS in mesh_obj.capabilities:
                     _display_value("DHCP enabled", mesh_obj.dhcp_enabled)
                     _display_value(
                         "DHCP reservations",
@@ -357,14 +356,17 @@ async def mesh_details(
                             for r in mesh_obj.dhcp_reservations
                         ],
                     )
-                if "topology_optimisation_settings" in mesh_obj.capabilities:
+                if (
+                    MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS
+                    in mesh_obj.capabilities
+                ):
                     _display_value(
                         "Client steering enabled", mesh_obj.client_steering_enabled
                     )
                     _display_value(
                         "Node steering enabled", mesh_obj.node_steering_enabled
                     )
-                if "express_forwarding" in mesh_obj.capabilities:
+                if MeshCapability.GET_EXPRESS_FORWARDING in mesh_obj.capabilities:
                     _display_value(
                         "Express Forwarding",
                         {
@@ -372,11 +374,11 @@ async def mesh_details(
                             "Enabled": mesh_obj.express_forwarding_enabled,
                         },
                     )
-                if "parental_control_info" in mesh_obj.capabilities:
+                if MeshCapability.GET_PARENTAL_CONTROL_INFO in mesh_obj.capabilities:
                     _display_value(
                         "Parental Control enabled", mesh_obj.parental_control_enabled
                     )
-                if "mac_filtering_settings" in mesh_obj.capabilities:
+                if MeshCapability.GET_MAC_FILTERING_SETTINGS in mesh_obj.capabilities:
                     _display_value(
                         "MAC filtering",
                         {
@@ -385,11 +387,11 @@ async def mesh_details(
                             "Filters": mesh_obj.mac_filtering_addresses,
                         },
                     )
-                if "wps_server_settings" in mesh_obj.capabilities:
+                if MeshCapability.GET_WPS_SERVER_SETTINGS in mesh_obj.capabilities:
                     _display_value("WPS enabled", mesh_obj.wps_state)
-                if "alg_settings" in mesh_obj.capabilities:
+                if MeshCapability.GET_ALG_SETTINGS in mesh_obj.capabilities:
                     _display_value("SIP enabled", mesh_obj.sip_enabled)
-                if "homekit_settings" in mesh_obj.capabilities:
+                if MeshCapability.GET_HOMEKIT_SETTINGS in mesh_obj.capabilities:
                     _display_value(
                         "HomeKit",
                         {
@@ -397,7 +399,7 @@ async def mesh_details(
                             "Paired": mesh_obj.homekit_paired,
                         },
                     )
-                if "upnp_settings" in mesh_obj.capabilities:
+                if MeshCapability.GET_UPNP_SETTINGS in mesh_obj.capabilities:
                     _display_value(
                         "UPnP",
                         {
@@ -406,13 +408,13 @@ async def mesh_details(
                             "allow_disable_Internet": mesh_obj.upnp_allow_disable_internet,
                         },
                     )
-                if "devices" in mesh_obj.capabilities:
+                if MeshCapability.GET_DEVICES in mesh_obj.capabilities:
                     _display_value("Nodes", [n.name for n in mesh_obj.nodes])
-                if "speedtest_results" in mesh_obj.capabilities:
+                if MeshCapability.GET_SPEEDTEST_RESULTS in mesh_obj.capabilities:
                     _display_value(
                         "Latest Speedtest result", mesh_obj.latest_speedtest_result
                     )
-                if "guest_network_info" in mesh_obj.capabilities:
+                if MeshCapability.GET_GUEST_NETWORK_INFO in mesh_obj.capabilities:
                     _display_value(
                         "Guest network",
                         {
@@ -420,11 +422,11 @@ async def mesh_details(
                             "Networks": mesh_obj.guest_wifi_details,
                         },
                     )
-                if "storage_partitions" in mesh_obj.capabilities:
+                if MeshCapability.GET_STORAGE_PARTITIONS in mesh_obj.capabilities:
                     _display_value(
                         "Storage details", {"Shares": mesh_obj.storage_available}
                     )
-                if "devices" in mesh_obj.capabilities:
+                if MeshCapability.GET_DEVICES in mesh_obj.capabilities:
                     _display_value(
                         "Online devices",
                         [
@@ -452,59 +454,71 @@ async def mesh_action(
     """Carry out a specified action on the mesh."""
 
     ret: Any = None
-    if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
-        if action == "channel_scan_info":
-            ret = await mesh_obj.async_get_channel_scan_info()
-        elif action == "channel_scan_start":
-            ret = await mesh_obj.async_start_channel_scan()
-        elif action == "detect_capabilities":
-            ret = await mesh_obj._async_detect_capabilities()
-        elif action == "guest_wifi_off":
-            ret = await mesh_obj.async_set_guest_wifi_state(state=False)
-        elif action == "guest_wifi_on":
-            ret = await mesh_obj.async_set_guest_wifi_state(state=True)
-        elif action == "homekit_off":
-            ret = await mesh_obj.async_set_homekit_state(state=False)
-        elif action == "homekit_on":
-            ret = await mesh_obj.async_set_homekit_state(state=True)
-        elif action == "parental_control_off":
-            ret = await mesh_obj.async_set_parental_control_state(state=False)
-        elif action == "parental_control_on":
-            ret = await mesh_obj.async_set_parental_control_state(state=True)
-        elif action == "speedtest_results":
-            ret = await mesh_obj.async_get_speedtest_results()
-        elif action == "speedtest_start":
-            ret = await mesh_obj.async_start_speedtest()
-        elif action == "speedtest_state":
-            ret = await mesh_obj.async_get_speedtest_state()
-        elif action == "update_check_start":
-            ret = await mesh_obj.async_check_for_updates()
-        elif action == "upnp_off":
-            cur_settings: dict[str, bool] = await mesh_obj.async_get_upnp_state()
-            new_settings: dict[str, bool] = {
-                "enabled": False,
-                "allow_change_settings": cur_settings.get("canUsersConfigure", False),
-                "allow_disable_internet": cur_settings.get(
-                    "canUsersDisableWANAccess", False
-                ),
-            }
-            ret = await mesh_obj.async_set_upnp_settings(**new_settings)
-        elif action == "upnp_on":
-            cur_settings: dict[str, bool] = await mesh_obj.async_get_upnp_state()
-            new_settings: dict[str, bool] = {
-                "enabled": True,
-                "allow_change_settings": cur_settings.get("canUsersConfigure", False),
-                "allow_disable_internet": cur_settings.get(
-                    "canUsersDisableWANAccess", False
-                ),
-            }
-            ret = await mesh_obj.async_set_upnp_settings(**new_settings)
-        elif action == "wps_off":
-            ret = await mesh_obj.async_set_wps_state(state=False)
-        elif action == "wps_on":
-            ret = await mesh_obj.async_set_wps_state(state=True)
-        print(ret)
-        print(json.dumps(ret))
+    try:
+        if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
+            async with mesh_obj:
+                if action == "channel_scan_info":
+                    ret = await mesh_obj.async_get_channel_scan_info()
+                elif action == "channel_scan_start":
+                    ret = await mesh_obj.async_start_channel_scan()
+                elif action == "detect_capabilities":
+                    ret = await mesh_obj.async_detect_capabilities()
+                elif action == "guest_wifi_off":
+                    ret = await mesh_obj.async_set_guest_wifi_state(state=False)
+                elif action == "guest_wifi_on":
+                    ret = await mesh_obj.async_set_guest_wifi_state(state=True)
+                elif action == "homekit_off":
+                    ret = await mesh_obj.async_set_homekit_state(state=False)
+                elif action == "homekit_on":
+                    ret = await mesh_obj.async_set_homekit_state(state=True)
+                elif action == "parental_control_off":
+                    ret = await mesh_obj.async_set_parental_control_state(state=False)
+                elif action == "parental_control_on":
+                    ret = await mesh_obj.async_set_parental_control_state(state=True)
+                elif action == "speedtest_results":
+                    ret = await mesh_obj.async_get_speedtest_results()
+                elif action == "speedtest_start":
+                    ret = await mesh_obj.async_start_speedtest()
+                elif action == "speedtest_state":
+                    ret = await mesh_obj.async_get_speedtest_state()
+                elif action == "update_check_start":
+                    ret = await mesh_obj.async_check_for_updates()
+                elif action == "upnp_off":
+                    cur_settings: dict[str, bool] = (
+                        await mesh_obj.async_get_upnp_state()
+                    )
+                    new_settings: dict[str, bool] = {
+                        "enabled": False,
+                        "allow_change_settings": cur_settings.get(
+                            "canUsersConfigure", False
+                        ),
+                        "allow_disable_internet": cur_settings.get(
+                            "canUsersDisableWANAccess", False
+                        ),
+                    }
+                    ret = await mesh_obj.async_set_upnp_settings(**new_settings)
+                elif action == "upnp_on":
+                    cur_settings: dict[str, bool] = (
+                        await mesh_obj.async_get_upnp_state()
+                    )
+                    new_settings: dict[str, bool] = {
+                        "enabled": True,
+                        "allow_change_settings": cur_settings.get(
+                            "canUsersConfigure", False
+                        ),
+                        "allow_disable_internet": cur_settings.get(
+                            "canUsersDisableWANAccess", False
+                        ),
+                    }
+                    ret = await mesh_obj.async_set_upnp_settings(**new_settings)
+                elif action == "wps_off":
+                    ret = await mesh_obj.async_set_wps_state(state=False)
+                elif action == "wps_on":
+                    ret = await mesh_obj.async_set_wps_state(state=True)
+    except Exception as exc:
+        click.echo(click.style(exc, fg="red"), err=True)
+    else:
+        click.echo(ret)
 
 
 @cli.group(name="node")
