@@ -1,15 +1,19 @@
-.. image:: https://img.shields.io/pypi/dm/pyvelop?style=for-the-badge
+.. |pypi_downloads| image:: https://img.shields.io/pypi/dm/pyvelop?style=for-the-badge
    :alt: PyPI - Downloads
 
-.. image:: https://img.shields.io/pypi/v/pyvelop?style=for-the-badge
+.. |pypi_version| image:: https://img.shields.io/pypi/v/pyvelop?style=for-the-badge
    :alt: PyPI - Version
 
-.. image:: https://img.shields.io/github/v/release/uvjim/pyvelop?style=for-the-badge
+.. |github_release| image:: https://img.shields.io/github/v/release/uvjim/pyvelop?style=for-the-badge
    :alt: GitHub Release
 
-.. image:: https://img.shields.io/github/downloads/uvjim/pyvelop/total?style=for-the-badge
+.. |github_downloads| image:: https://img.shields.io/github/downloads/uvjim/pyvelop/total?style=for-the-badge
    :alt: GitHub Downloads (all assets, all releases)
 
+
+|pypi_version| |pypi_downloads|
+
+|github_release| |github_downloads|
 
 pyvelop
 =======
