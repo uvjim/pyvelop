@@ -1,3 +1,20 @@
+.. |pypi_downloads| image:: https://img.shields.io/pypi/dm/pyvelop?style=for-the-badge&label=PyPI%20Downloads
+   :alt: PyPI - Downloads
+
+.. |pypi_version| image:: https://img.shields.io/pypi/v/pyvelop?style=for-the-badge
+   :alt: PyPI - Version
+
+.. |github_release| image:: https://img.shields.io/github/v/release/uvjim/pyvelop?style=for-the-badge
+   :alt: GitHub Release
+
+.. |github_downloads| image:: https://img.shields.io/github/downloads/uvjim/pyvelop/total?style=for-the-badge&label=GitHub%20Downloads
+   :alt: GitHub Downloads (all assets, all releases)
+
+
+|pypi_version| |pypi_downloads|
+
+|github_release| |github_downloads|
+
 pyvelop
 =======
 
@@ -28,7 +45,7 @@ To get started you can use the following as a skeleton.
 
     async def main():
         async with Mesh(node="192.168.1.1", password="my_password") as mesh:
-            await mesh.async_gather_details()
+            await mesh.async_initialise()
             print(mesh.nodes)
 
 
@@ -41,11 +58,9 @@ CLI
 
 The library also has a CLI which can be used like so...
 
-``pyvelop mesh -a PRIMARY_NODE -p PASSWORD`` - *Lists all known details about the mesh.*
+``pyvelop mesh details -a PRIMARY_NODE -p PASSWORD`` - *Lists all known details about the mesh.*
 
-``pyvelop mesh -a PRIMARY_NODE -p PASSWORD --get-wan`` - *Lists only the WAN details.*
-
-``pyvelop nodes bedroom -a PRIMARY_NODE -p PASSWORD`` - *Lists all known details about the given node.*
+``pyvelop node details bedroom -a PRIMARY_NODE -p PASSWORD`` - *Lists all known details about the given node.*
 
 ``pyvelop --help`` - *show all available options*
 
