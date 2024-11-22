@@ -1,5 +1,11 @@
-.. image:: https://img.shields.io/pypi/dm/pyvelop
+.. image:: https://img.shields.io/pypi/dm/pyvelop?style=for-the-badge
    :alt: PyPI - Downloads
+
+.. image:: https://img.shields.io/pypi/v/pyvelop?style=for-the-badge
+   :alt: PyPI - Version
+
+.. image:: https://img.shields.io/github/v/release/uvjim/pyvelop?style=for-the-badge
+   :alt: GitHub Release
 
 
 pyvelop
