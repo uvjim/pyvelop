@@ -7,7 +7,7 @@
 .. image:: https://img.shields.io/github/v/release/uvjim/pyvelop?style=for-the-badge
    :alt: GitHub Release
 
-.. image:: https://img.shields.io/github/downloads/uvjim/pyvelop/total
+.. image:: https://img.shields.io/github/downloads/uvjim/pyvelop/total?style=for-the-badge
    :alt: GitHub Downloads (all assets, all releases)
 
 
