@@ -1353,7 +1353,6 @@ class Mesh:
         ).get("isClientSteeringEnabled")
 
     @property
-    @needs_initialise
     def connected_node(self) -> str:
         """Get the node in the mesh that we are connected to.
 
