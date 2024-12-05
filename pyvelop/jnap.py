@@ -3,7 +3,6 @@
 # region #-- imports --#
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import logging
@@ -47,61 +46,59 @@ def jnap_url(target) -> str:
 class Actions(StrEnum):
     """Represents the available actions."""
 
-    CHECK_PASSWORD = f"http://linksys.com/jnap/core/CheckAdminPassword"
-    DELETE_DEVICE = f"http://linksys.com/jnap/devicelist/DeleteDevice"
-    GET_ALG_SETTINGS = f"http://linksys.com/jnap/firewall/GetALGSettings"
-    GET_BACKHAUL = f"http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo"
-    GET_CHANNEL_SCAN_STATUS = f"http://linksys.com/jnap/nodes/setup/GetSelectedChannels"
-    GET_DEVICES = f"http://linksys.com/jnap/devicelist/GetDevices3"
+    CHECK_PASSWORD = "http://linksys.com/jnap/core/CheckAdminPassword"
+    DELETE_DEVICE = "http://linksys.com/jnap/devicelist/DeleteDevice"
+    GET_ALG_SETTINGS = "http://linksys.com/jnap/firewall/GetALGSettings"
+    GET_BACKHAUL = "http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo"
+    GET_CHANNEL_SCAN_STATUS = "http://linksys.com/jnap/nodes/setup/GetSelectedChannels"
+    GET_DEVICES = "http://linksys.com/jnap/devicelist/GetDevices3"
     GET_EXPRESS_FORWARDING = (
-        f"http://linksys.com/jnap/router/GetExpressForwardingSettings"
+        "http://linksys.com/jnap/router/GetExpressForwardingSettings"
     )
     GET_FIRMWARE_UPDATE_SETTINGS = (
-        f"http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
+        "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
     )
     GET_GUEST_NETWORK_INFO = (
-        f"http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2"
+        "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2"
     )
-    GET_HOMEKIT_SETTINGS = f"http://linksys.com/jnap/homekit/GetHomeKitSettings"
-    GET_LAN_SETTINGS = f"http://linksys.com/jnap/router/GetLANSettings"
+    GET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/GetHomeKitSettings"
+    GET_LAN_SETTINGS = "http://linksys.com/jnap/router/GetLANSettings"
     GET_MAC_FILTERING_SETTINGS = (
-        f"http://linksys.com/jnap/macfilter/GetMACFilterSettings"
+        "http://linksys.com/jnap/macfilter/GetMACFilterSettings"
     )
-    GET_NETWORK_CONNECTIONS = f"http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
+    GET_NETWORK_CONNECTIONS = "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
     GET_PARENTAL_CONTROL_INFO = (
-        f"http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
+        "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
     )
-    GET_SPEEDTEST_RESULTS = f"http://linksys.com/jnap/healthcheck/GetHealthCheckResults"
-    GET_SPEEDTEST_STATUS = f"http://linksys.com/jnap/healthcheck/GetHealthCheckStatus"
-    GET_STORAGE_PARTITIONS = f"http://linksys.com/jnap/nodes/storage/GetNodesPartitions"
+    GET_SPEEDTEST_RESULTS = "http://linksys.com/jnap/healthcheck/GetHealthCheckResults"
+    GET_SPEEDTEST_STATUS = "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus"
+    GET_STORAGE_PARTITIONS = "http://linksys.com/jnap/nodes/storage/GetNodesPartitions"
     GET_STORAGE_SMB_SERVER = (
-        f"http://linksys.com/jnap/nodes/storage/GetSMBServerSettings"
+        "http://linksys.com/jnap/nodes/storage/GetSMBServerSettings"
     )
-    GET_TOPOLOGY_OPTIMISATION_SETTINGS = f"http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
     GET_UPDATE_FIRMWARE_STATE = (
-        f"http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus"
+        "http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus"
     )
     GET_UPDATE_SETTINGS = (
-        f"http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
+        "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
     )
-    GET_UPNP_SETTINGS = f"http://linksys.com/jnap/routerupnp/GetUPnPSettings"
-    GET_WAN_INFO = f"http://linksys.com/jnap/router/GetWANStatus3"
-    GET_WPS_SERVER_SETTINGS = f"http://linksys.com/jnap/wirelessap/GetWPSServerSettings"
-    REBOOT = f"http://linksys.com/jnap/core/Reboot"
-    SET_DEVICE_PROPERTY = f"http://linksys.com/jnap/devicelist/SetDeviceProperties"
-    SET_GUEST_NETWORK = f"http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2"
-    SET_HOMEKIT_SETTINGS = f"http://linksys.com/jnap/homekit/SetHomeKitSettings"
+    GET_UPNP_SETTINGS = "http://linksys.com/jnap/routerupnp/GetUPnPSettings"
+    GET_WAN_INFO = "http://linksys.com/jnap/router/GetWANStatus3"
+    GET_WPS_SERVER_SETTINGS = "http://linksys.com/jnap/wirelessap/GetWPSServerSettings"
+    REBOOT = "http://linksys.com/jnap/core/Reboot"
+    SET_DEVICE_PROPERTY = "http://linksys.com/jnap/devicelist/SetDeviceProperties"
+    SET_GUEST_NETWORK = "http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2"
+    SET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/SetHomeKitSettings"
     SET_PARENTAL_CONTROL_INFO = (
-        f"http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
+        "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
     )
-    SET_UPNP_SETTINGS = f"http://linksys.com/jnap/routerupnp/SetUPnPSettings"
-    SET_WPS_SERVER_SETTINGS = f"http://linksys.com/jnap/wirelessap/SetWPSServerSettings"
-    START_CHANNEL_SCAN = (
-        f"http://linksys.com/jnap/nodes/setup/StartAutoChannelSelection"
-    )
-    START_SPEEDTEST = f"http://linksys.com/jnap/healthcheck/RunHealthCheck"
-    TRANSACTION = f"http://linksys.com/jnap/core/Transaction"
-    UPDATE_FIRMWARE = f"http://linksys.com/jnap/nodes/firmwareupdate/UpdateFirmwareNow"
+    SET_UPNP_SETTINGS = "http://linksys.com/jnap/routerupnp/SetUPnPSettings"
+    SET_WPS_SERVER_SETTINGS = "http://linksys.com/jnap/wirelessap/SetWPSServerSettings"
+    START_CHANNEL_SCAN = "http://linksys.com/jnap/nodes/setup/StartAutoChannelSelection"
+    START_SPEEDTEST = "http://linksys.com/jnap/healthcheck/RunHealthCheck"
+    TRANSACTION = "http://linksys.com/jnap/core/Transaction"
+    UPDATE_FIRMWARE = "http://linksys.com/jnap/nodes/firmwareupdate/UpdateFirmwareNow"
 
 
 @dataclass
@@ -188,7 +185,7 @@ class Request:
                 timeout=timeout,
             )
             resp_json = await resp.json()
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise MeshTimeoutError from err
         except (
             aiohttp.ClientConnectionError,

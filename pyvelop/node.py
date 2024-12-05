@@ -3,8 +3,9 @@
 # region #-- imports --#
 from __future__ import annotations
 
+import contextlib
 from enum import Enum
-from typing import Any, List
+from typing import Any
 
 from . import signal_strength_to_text
 from .base import MeshDevice
@@ -30,7 +31,7 @@ class Node(MeshDevice):
         :param kwargs: keyword arguments
         """
         super().__init__(**kwargs)
-        self.__connected_devices: List | None = None
+        self.__connected_devices: list | None = None
         self.__parent_name: str | None = None
 
     @property
@@ -39,10 +40,9 @@ class Node(MeshDevice):
         ret = {}
         backhaul = self._attribs.get("backhaul", {})
         speed_mbps: float | None = None
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             speed_mbps = float(backhaul.get("speedMbps"))
-        except (TypeError, ValueError):
-            pass
+
         if backhaul:
             signal_strength_raw: int = backhaul.get("wirelessConnectionInfo", {}).get(
                 "stationRSSI"
@@ -58,14 +58,14 @@ class Node(MeshDevice):
         return ret
 
     @property
-    def connected_adapters(self) -> List[dict[str, Any]]:
+    def connected_adapters(self) -> list[dict[str, Any]]:
         """Get the network adapters that are connected to the mesh.
 
         :return: a list of dictionaries that contain the MAC, IP and Guest Network status of the adapter
         """
 
-        ret: List[dict[str, Any]] = []
-        super_adapters: List[dict] = super().connected_adapters
+        ret: list[dict[str, Any]] = []
+        super_adapters: list[dict] = super().connected_adapters
         backhaul = self._attribs.get("backhaul", {})
         if self.type == NodeType.PRIMARY:
             for adapter in super_adapters:
@@ -80,7 +80,7 @@ class Node(MeshDevice):
         return ret
 
     @property
-    def connected_devices(self) -> List:
+    def connected_devices(self) -> list:
         """List of the devices that are connected to the node.
 
         :return: List of connected devices in alphabetical order sorted by device name
@@ -108,8 +108,8 @@ class Node(MeshDevice):
                 ret["latest_version"] = available_updates["firmwareVersion"]
                 ret["latest_date"] = available_updates["firmwareDate"]
             else:
-                ret["latest_version"] = ret["version"] if "version" in ret else None
-                ret["latest_date"] = ret["date"] if "date" in ret else None
+                ret["latest_version"] = ret.get("version", None)
+                ret["latest_date"] = ret.get("date", None)
         return ret
 
     @property

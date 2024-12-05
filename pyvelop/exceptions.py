@@ -3,8 +3,6 @@
 # region #-- imports --#
 from __future__ import annotations
 
-from typing import List
-
 # endregion
 
 
@@ -55,7 +53,7 @@ class MeshDeviceHasPCRules(MeshException):
 class MeshDeviceNotFoundResponse(MeshException):
     """Device is not found in the mesh."""
 
-    def __init__(self, devices: List[str] | None = None) -> None:
+    def __init__(self, devices: list[str] | None = None) -> None:
         """Initialise and default message."""
         self.devices = devices or []
         super().__init__("Device(s) not found")

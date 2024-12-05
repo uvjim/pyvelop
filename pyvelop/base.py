@@ -3,10 +3,11 @@
 # region #-- imports --#
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from . import signal_strength_to_text
 from .const import DEF_EMPTY_NAME
+
 # endregion
 
 
@@ -34,9 +35,9 @@ class MeshDevice:
 
     def _get_connected_adapter_details(
         self, mac: str, include_parent: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Return details about the connected adapter."""
-        ret: Dict[str, Any] = {}
+        ret: dict[str, Any] = {}
 
         adapter_details = [
             details
@@ -60,8 +61,8 @@ class MeshDevice:
         """Get the given property from the user properties."""
         ret = None
 
-        user_properties: List[dict] = self._attribs.get("properties", [])
-        user_prop: List[dict] | str = [
+        user_properties: list[dict] = self._attribs.get("properties", [])
+        user_prop: list[dict] | str = [
             prop for prop in user_properties if prop.get("name") == name
         ]
         if user_prop:
@@ -69,9 +70,9 @@ class MeshDevice:
 
         return ret
 
-    def _get_reservation_details(self, mac: str) -> Dict[str, Any]:
+    def _get_reservation_details(self, mac: str) -> dict[str, Any]:
         """Get DHCP reservation details for the given MAC."""
-        ret: Dict[str, Any] = {}
+        ret: dict[str, Any] = {}
 
         ret["reservation"] = False
         if (
@@ -85,9 +86,9 @@ class MeshDevice:
 
         return ret
 
-    def _get_signal_details(self, mac: str) -> Dict[str, Any]:
+    def _get_signal_details(self, mac: str) -> dict[str, Any]:
         """Get the signal details for the given MAC."""
-        ret: Dict[str, Any] = {}
+        ret: dict[str, Any] = {}
 
         if (conn_details := self._attribs.get("connection_details")) is not None:
             if conn_details.get("macAddress", "").lower() == mac.lower():
@@ -97,23 +98,23 @@ class MeshDevice:
         return ret
 
     @property
-    def connected_adapters(self) -> List[dict[str, Any]]:
+    def connected_adapters(self) -> list[dict[str, Any]]:
         """Get the network adapters that are connected to the mesh.
 
         :return: a list of dictionaries that contain the MAC, IP and Guest Network status of the adapter
         """
-        ret: List[Dict[str, Any]] = []
+        ret: list[dict[str, Any]] = []
 
         for adapter in self._attribs.get("connections", []):
-            adapter_details: Dict[str, Any] = self._get_connected_adapter_details(
+            adapter_details: dict[str, Any] = self._get_connected_adapter_details(
                 mac=adapter.get("macAddress", "")
             )
 
-            signal_details: Dict[str, Any] = self._get_signal_details(
+            signal_details: dict[str, Any] = self._get_signal_details(
                 mac=adapter.get("macAddress", "")
             )
 
-            reservation_details: Dict[str, Any] = self._get_reservation_details(
+            reservation_details: dict[str, Any] = self._get_reservation_details(
                 mac=adapter.get("macAddress", "")
             )
 
@@ -140,7 +141,7 @@ class MeshDevice:
         )
 
     @property
-    def network(self) -> List[dict]:
+    def network(self) -> list[dict]:
         """Get all the adapters the device has installed.
 
         :return: List of dictionaries containing details of adapaters.
@@ -160,14 +161,14 @@ class MeshDevice:
                 ret.append(props)
         # -- get the IP addresses, parentId and additional connection details if relevant --#
         for idx, adapter in enumerate(ret):
-            adapter_details: Dict[str, Any] = self._get_connected_adapter_details(
+            adapter_details: dict[str, Any] = self._get_connected_adapter_details(
                 mac=adapter.get("mac"), include_parent=True
             )
 
-            signal_details: Dict[str, Any] = self._get_signal_details(
+            signal_details: dict[str, Any] = self._get_signal_details(
                 mac=adapter.get("mac")
             )
-            reservation_details: Dict[str, Any] = self._get_reservation_details(
+            reservation_details: dict[str, Any] = self._get_reservation_details(
                 mac=adapter.get("mac", "")
             )
 
@@ -203,4 +204,5 @@ class MeshDevice:
     @property
     def unique_id(self) -> str:
         """Return the device_id as unique_id."""
+        return self.__device_id
         return self.__device_id

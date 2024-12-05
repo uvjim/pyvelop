@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Coroutine, Iterable
 from enum import StrEnum
-from typing import Any, Coroutine
+from typing import Any
 
 import aiohttp
 
@@ -250,6 +251,7 @@ class Mesh:
         :param node_address: The node to send the request to (only valid for a subset of actions)
         :param payload: The relevant payload for the action
         :param raise_on_error: Raise an error if one is found
+
         :return: tuple containing the request and response objects or raises an error if need be
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
@@ -413,14 +415,12 @@ class Mesh:
                 parent: str | None = None
                 for conn in attrib_connections:
                     if conn.get("parentDeviceID", ""):
-                        try:
+                        with contextlib.suppress(IndexError):
                             parent = [
                                 device.name
                                 for device in devices
                                 if device.unique_id == conn.get("parentDeviceID")
                             ][0]
-                        except IndexError:
-                            pass
                 getattr(node, "_attribs", {})["parent_name"] = parent
                 # endregion
 
@@ -513,6 +513,7 @@ class Mesh:
         """Delete a device from the device list on the mesh by its ID.
 
         :param device: the unique id of the device to delete
+
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered, device: %s"), device)
@@ -528,12 +529,12 @@ class Mesh:
         device is found.
 
         :param device: the name of the device to delete
+
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered, name: %s"), device)
 
-        dev: Device
-        device = [
+        device: list[Device] = [
             dev
             for dev in self._mesh_attributes[_ATTR_PROCESSED_DEVICES]
             if dev.name == device
@@ -549,7 +550,10 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_detect_capabilities(self) -> list[MeshCapability]:
-        """Attempt to detect the capabilities of the Mesh."""
+        """Attempt to detect the capabilities of the Mesh.
+
+        :return: list of capabilities for the mesh.
+        """
         ret: list[str] = []
         requests: list[Coroutine] = []
         for qry in MeshCapability:
@@ -590,7 +594,10 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_get_channel_scan_info(self) -> dict[str, Any]:
-        """Get the current state of the channel scan."""
+        """Get the current state of the channel scan.
+
+        :return: dictionary containing the channel scan results
+        """
         resp = await self._async_gather_details(
             [MeshCapability.GET_CHANNEL_SCAN_STATUS]
         )
@@ -611,6 +618,7 @@ class Mesh:
         :param device_id: Iterable of device IDs to get details about
         :param force_refresh: True to re-query the API for the latest details
         :param raise_for_missing: True to raise an error when a device is not found
+
         :return: List of Device or Node objects whichever is applicable
         """
         _LOGGER.debug(
@@ -657,6 +665,7 @@ class Mesh:
         :param mac_address: An iterable containing MAC address to search for
         :param force_refresh: True to re-query the details from the API
         :param raise_for_missing: True to raise exception when a device is not found
+
         :return:  Device or Node object whichever is applicable
         """
         _LOGGER.debug(
@@ -726,6 +735,7 @@ class Mesh:
         :param count: the number of results to return; defaults to 1
         :param only_latest: True to only return the latest result
         :param only_completed: True to only return results that are not currently running
+
         :return: List of dictionaries containing the result details
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
@@ -786,7 +796,10 @@ class Mesh:
         return ret
 
     async def async_get_upnp_state(self) -> dict[str, bool]:
-        """"""
+        """Retrieve the current state of UPnP.
+
+        :return: dictionary containing information about the state of UPnP functionality
+        """
 
         _LOGGER.debug(self._log_formatter.format("entered"))
 
@@ -798,7 +811,12 @@ class Mesh:
         return ret
 
     async def async_initialise(self) -> None:
-        """Initialise the connection to the Mesh."""
+        """Initialise the connection to the Mesh.
+
+        Probes for capabilities and retrieves details for the discovered capabilities.
+
+        :return: None
+        """
 
         await self.async_detect_capabilities()
         self.__initialise_executed = (
@@ -820,11 +838,12 @@ class Mesh:
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
         """Reboot the given node.
 
-        N.B. Rebooting the primary node will cause all nodes to reboot. If you're sure you want to
+        Rebooting the primary node will cause all nodes to reboot. If you're sure you want to
         reboot the primary node, set the `force` parameter to `True`
 
         :param node_name: the name of the node to restart
         :param force: True to acknowledge the primary node, ignored for everything else
+
         :return: None
         """
         _LOGGER.debug(
@@ -858,7 +877,10 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_rename_device(self, device_id: str, name: str) -> None:
-        """Rename the given device."""
+        """Rename the given device.
+
+        :return: None
+        """
         _LOGGER.debug(self._log_formatter.format("entered"))
         try:
             await self._async_make_request(
@@ -883,6 +905,7 @@ class Mesh:
         a guest network has been created in the official UI.
 
         :param state: True to enable, False to disable
+
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
@@ -905,6 +928,7 @@ class Mesh:
         """Set the state of the HomeKit feature.
 
         :param state: True to enable, False to disable
+
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
@@ -921,6 +945,7 @@ class Mesh:
         :param device_id: The unique identifier for the device
         :param rules: A dictionary of time string pairs in the form: `"monday": "00:00-02:00,17:30:18:00"`
         :param force_enable: True to enable Parental Control, False to leave in current state
+
         :return: None
         """
         _LOGGER.debug(
@@ -1081,6 +1106,7 @@ class Mesh:
         :param urls: List of the URLs to add
         :param force_enable: True to enable the rule if it isn't enabled
         :param merge: True to merge with existing URLs, False to replace
+
         :return: None
         """
         _LOGGER.debug(
@@ -1196,12 +1222,10 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_set_parental_control_state(self, state: bool) -> None:
-        """Set the state of the Parental Control feature.
-
-        The rules are a required parameter for the API call but are not handled in this method.
-        Instead, a call is made to retrieve the existing rules and those are relayed back.
+        """Set the state of the Parental Control feature. Rules are left intact.
 
         :param state: True to enabled, False to disable
+
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
@@ -1229,6 +1253,7 @@ class Mesh:
         :param enabled: True to enable UPnP, False to disable
         :param allow_change_settings: Whether users can change settings when UPnP is enabled.
         :param allow_disable_internet Whether users can disable the Internet when UPnP is enabled.
+
         :return: None
         """
         _LOGGER.debug(
@@ -1253,6 +1278,7 @@ class Mesh:
         """Set the state of the WPS feature.
 
         :param state: True to enable, False to disable
+
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
@@ -1262,7 +1288,10 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_start_channel_scan(self) -> None:
-        """Start a channel scan on the mesh."""
+        """Start a channel scan on the mesh.
+
+        :return: None
+        """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         try:
@@ -1310,12 +1339,12 @@ class Mesh:
         try:
             await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
             ret = True
-        except MeshInvalidCredentials as err:
+        except MeshInvalidCredentials:
             pass
         except MeshException as err:
             _LOGGER.error(err)
             raise
-        except Exception as err:  # pylint: disable=broad-except
+        except Exception as err:
             _LOGGER.error(err)
             raise
 
@@ -1328,7 +1357,10 @@ class Mesh:
     @property
     @needs_initialise
     def capabilities(self) -> list[MeshCapability]:
-        """Get the list of capabilities that the Mesh supports."""
+        """Get the list of capabilities that the Mesh supports.
+
+        :return: list of mesh capabilities
+        """
         return self._mesh_capabilities
 
     @property
@@ -1351,7 +1383,10 @@ class Mesh:
     @property
     @needs_initialise
     def client_steering_enabled(self) -> bool | None:
-        """Return if client steering is enabled."""
+        """Return if client steering is enabled.
+
+        :return: True if enabled, False otherwise.
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}
         ).get("isClientSteeringEnabled")
@@ -1385,7 +1420,10 @@ class Mesh:
     @property
     @needs_initialise
     def dhcp_enabled(self) -> bool | None:
-        """Return if DHCP is enabled."""
+        """Return if DHCP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(MeshCapability.GET_LAN_SETTINGS.value, {}).get(
             "isDHCPEnabled"
         )
@@ -1393,7 +1431,10 @@ class Mesh:
     @property
     @needs_initialise
     def dhcp_reservations(self) -> list[dict[str, str]]:
-        """Return the DHCP reservations."""
+        """Return the DHCP reservations.
+
+        :return: list of DHCP reservation details
+        """
         ret: list[dict[str, str]] = []
         temp_dict: dict[str, str] = {}
 
@@ -1412,7 +1453,10 @@ class Mesh:
     @property
     @needs_initialise
     def express_forwarding_enabled(self) -> bool | None:
-        """Return whether Express Forwarding is enabled."""
+        """Return whether Express Forwarding is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_EXPRESS_FORWARDING.value, {}
         ).get("isExpressForwardingEnabled")
@@ -1420,7 +1464,10 @@ class Mesh:
     @property
     @needs_initialise
     def express_forwarding_supported(self) -> bool | None:
-        """Return whether Express Forwarding is supported."""
+        """Return whether Express Forwarding is supported.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_EXPRESS_FORWARDING.value, {}
         ).get("isExpressForwardingSupported")
@@ -1475,7 +1522,10 @@ class Mesh:
     @property
     @needs_initialise
     def homekit_enabled(self) -> bool | None:
-        """Return if the HomeKit integration is enabled."""
+        """Return if the HomeKit integration is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_HOMEKIT_SETTINGS.value, {}
         ).get("isEnabled")
@@ -1483,7 +1533,10 @@ class Mesh:
     @property
     @needs_initialise
     def homekit_paired(self) -> bool | None:
-        """Return if the HomeKit integration is paired."""
+        """Return if the HomeKit integration is paired.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_HOMEKIT_SETTINGS.value, {}
         ).get("isPaired")
@@ -1491,7 +1544,10 @@ class Mesh:
     @property
     @needs_initialise
     def is_channel_scan_running(self) -> bool | None:
-        """Get the current state of channel scanning."""
+        """Get the current state of channel scanning.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_CHANNEL_SCAN_STATUS.value, {}
         ).get("isRunning")
@@ -1520,7 +1576,10 @@ class Mesh:
     @property
     @needs_initialise
     def mac_filtering_addresses(self) -> list[str]:
-        """Return address that are configured for MAC filtering."""
+        """Get addresses that are configured for MAC filtering.
+
+        :return: list of MAC addresses
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
         ).get("macAddresses", [])
@@ -1528,7 +1587,10 @@ class Mesh:
     @property
     @needs_initialise
     def mac_filtering_enabled(self) -> bool:
-        """Return if MAC filtering is enabled."""
+        """Return if MAC filtering is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return (
             self._mesh_attributes.get(
                 MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
@@ -1541,7 +1603,10 @@ class Mesh:
     @property
     @needs_initialise
     def mac_filtering_mode(self) -> str | None:
-        """Return the MAC filtering mode."""
+        """Return the MAC filtering mode.
+
+        :return: string containing the filtering mode
+        """
         if self.mac_filtering_enabled:
             return (
                 self._mesh_attributes.get(
@@ -1556,7 +1621,10 @@ class Mesh:
     @property
     @needs_initialise
     def node_steering_enabled(self) -> bool | None:
-        """Return if node steering is enabled."""
+        """Return if node steering is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}
         ).get("isNodeSteeringEnabled")
@@ -1584,7 +1652,7 @@ class Mesh:
     def parental_control_enabled(self) -> bool | None:
         """Get the state of the Parental Control feature.
 
-        :return: True if enabled
+        :return: True if enabled, False otherwise
         """
         return self._mesh_attributes.get(
             MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {}
@@ -1593,7 +1661,10 @@ class Mesh:
     @property
     @needs_initialise
     def sip_enabled(self) -> bool | None:
-        """Return whether SIP is enabled."""
+        """Return whether SIP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(MeshCapability.GET_ALG_SETTINGS.value, {}).get(
             "isSIPEnabled"
         )
@@ -1641,14 +1712,12 @@ class Mesh:
                             if adapter.get("ip")
                         ]
                         used_percent: int | None = None
-                        try:
+                        with contextlib.suppress(ZeroDivisionError):
                             used_percent = round(
                                 (partition.get("usedKB") / partition.get("availableKB"))
                                 * 100,
                                 2,
                             )
-                        except ZeroDivisionError:
-                            pass
                         ret.append(
                             {
                                 "available_kb": partition.get("availableKB"),
@@ -1689,6 +1758,7 @@ class Mesh:
         """Set the timeout for API requests.
 
         :param value: value to set for the timeout
+
         :return: None
         """
 
@@ -1700,7 +1770,10 @@ class Mesh:
     @property
     @needs_initialise
     def upnp_enabled(self) -> bool | None:
-        """Return whether UPnP is enabled."""
+        """Return whether UPnP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_UPNP_SETTINGS.value, {}
         ).get("isUPnPEnabled")
@@ -1708,7 +1781,10 @@ class Mesh:
     @property
     @needs_initialise
     def upnp_allow_change_settings(self) -> bool | None:
-        """Return whether users can change settings when UPnP is enabled."""
+        """Return whether users can change settings when UPnP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_UPNP_SETTINGS.value, {}
         ).get("canUsersConfigure")
@@ -1716,7 +1792,10 @@ class Mesh:
     @property
     @needs_initialise
     def upnp_allow_disable_internet(self) -> bool | None:
-        """Return whether users can change disable the Internet when UPnP is enabled."""
+        """Return whether users can change disable the Internet when UPnP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_UPNP_SETTINGS.value, {}
         ).get("canUsersDisableWANAccess")
@@ -1781,7 +1860,10 @@ class Mesh:
     @property
     @needs_initialise
     def wps_state(self) -> bool:
-        """Return if WPS is enabled or not."""
+        """Return if WPS is enabled or not.
+
+        :return: True if enabled, False otherwise
+        """
         return self._mesh_attributes.get(
             MeshCapability.GET_WPS_SERVER_SETTINGS.value, {}
         ).get("enabled", False)
