@@ -214,7 +214,11 @@ class Mesh:
             __package__,
             __version__,
         )
-        _LOGGER.debug(self._log_formatter.format("Initialised mesh for %s"), self._node)
+        _LOGGER.debug(
+            self._log_formatter.format("Initialised mesh for %s with timeout %s"),
+            self._node,
+            self._timeout,
+        )
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def __aenter__(self):
@@ -1670,6 +1674,28 @@ class Mesh:
             ret = {"anonymous_access": ret.get("isAnonymousAccessEnabled")}
 
         return ret
+
+    @property
+    def timeout(self) -> float:
+        """Get the timeout for API requests.
+
+        :return: the current timeout applied to requests
+        """
+
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value: float) -> None:
+        """Set the timeout for API requests.
+
+        :param value: value to set for the timeout
+        :return: None
+        """
+
+        _LOGGER.debug(
+            self._log_formatter.format("setting request timeout to: %s"), value
+        )
+        self._timeout = value
 
     @property
     @needs_initialise
