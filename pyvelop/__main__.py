@@ -3,10 +3,11 @@
 # region #-- imports --#
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import uuid
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 import aiohttp
 import asyncclick as click
@@ -74,7 +75,7 @@ class StandardCommand(click.Command):
                                         f"{__package__}.jnap.verbose"
                                     ).setLevel(logging.DEBUG)
 
-        standard_options: List[click.Option] = [
+        standard_options: list[click.Option] = [
             click.Option(
                 ("-a", "--primary-node"),
                 help="The primary node to direct all queries to.",
@@ -120,7 +121,7 @@ class StandardCommand(click.Command):
             self.params.insert(0, opt)
 
 
-MESH_ALLOWED_ACTIONS: Set = (
+MESH_ALLOWED_ACTIONS: set[str] = (
     "channel_scan_info",
     "channel_scan_start",
     "detect_capabilities",
@@ -166,7 +167,7 @@ async def device_delete(
     **_,
 ) -> None:
     """Delete a device on the Mesh."""
-    devices: List[Device] | None = await _get_device_details(ctx=ctx, device=device)
+    devices: list[Device] | None = await _get_device_details(ctx=ctx, device=device)
 
     if devices is not None:
         if mesh_obj := await _async_mesh_connect(ctx):
@@ -185,7 +186,7 @@ async def device_delete(
 @click.argument("device", nargs=-1)
 async def device_details(
     ctx: click.Context,
-    device: Tuple[str, ...],
+    device: tuple[str, ...],
     **_,
 ) -> None:
     """Display details about a device on the Mesh."""
@@ -242,9 +243,9 @@ async def device_internet_access(
             await mesh_obj.async_gather_details()
             try:
                 if not block:
-                    rules_to_apply: Dict[str, str] = {}
+                    rules_to_apply: dict[str, str] = {}
                 else:
-                    rules_to_apply: Dict[str, str] = dict(
+                    rules_to_apply: dict[str, str] = dict(
                         map(
                             lambda weekday, readable_schedule: (
                                 weekday.name,
@@ -280,10 +281,10 @@ async def device_rename(ctx: click.Context, device_id: str, new_name: str, **_) 
 @click.argument("device_id")
 @click.argument("rules", nargs=-1)
 async def device_pc_set_rules(
-    ctx: click.Context, device_id: str, rules: Tuple[str, ...], **_
+    ctx: click.Context, device_id: str, rules: tuple[str, ...], **_
 ) -> None:
     """Set the parental control rules."""
-    rules_to_apply: Dict[str, str] = dict(
+    rules_to_apply: dict[str, str] = dict(
         map(
             lambda weekday, readable_schedule: (weekday.name, readable_schedule),
             ParentalControl.WEEKDAYS,
@@ -305,7 +306,7 @@ async def device_pc_set_rules(
 @click.argument("urls", nargs=-1)
 @click.option("--merge/--no-merge", default=True)
 async def device_pc_set_urls(
-    ctx: click.Context, device_id: str, merge: bool, urls: Tuple[str, ...], **_
+    ctx: click.Context, device_id: str, merge: bool, urls: tuple[str, ...], **_
 ) -> None:
     """Set the parental control URLs."""
     if mesh_obj := await _async_mesh_connect(ctx):
@@ -617,7 +618,7 @@ async def parental_schedule_group() -> None:
 
 @parental_schedule_group.command(name="decode")
 @click.argument("to_decode", nargs=-1, required=True)
-async def ps_decode(to_decode: Tuple[str, ...]) -> None:
+async def ps_decode(to_decode: tuple[str, ...]) -> None:
     """Decode the given binary schedule forms to a human readable form."""
     if len(to_decode) > len(ParentalControl.WEEKDAYS):
         _LOGGER.error("Too many arguments specified")
@@ -640,7 +641,7 @@ async def ps_decode(to_decode: Tuple[str, ...]) -> None:
 
 @parental_schedule_group.command(name="encode")
 @click.argument("to_encode", nargs=-1, required=True)
-async def ps_encode(to_encode: Tuple[str, ...]) -> None:
+async def ps_encode(to_encode: tuple[str, ...]) -> None:
     """Encode the given human readable form schedules to binary form."""
     if len(to_encode) > len(ParentalControl.WEEKDAYS):
         _LOGGER.error("Too many arguments specified")
@@ -706,7 +707,7 @@ def _display_value(
     indent_level: int = 0,
     include_count_on_list: bool = True,
 ) -> None:
-    """"""
+    """Format and display."""
 
     def _titlecase(s) -> str:
         arr: list[str] = s.split("_")
@@ -720,7 +721,7 @@ def _display_value(
     try:
         prefix = prefix_len * indent_level * prefix_char
         if type(value) in (dict, list):
-            if type(value) == list:
+            if type(value) is list:
                 row_label = f"{prefix}{label}"
                 if include_count_on_list:
                     row_label += f" (count: {len(value)})"
@@ -736,17 +737,17 @@ def _display_value(
                 row_label = f"{prefix}{label}: "
                 click.echo(row_label)
                 prefix += prefix_len * prefix_char
-                for l, v in value.items():
+                for item_label, item_value in value.items():
                     _display_value(
-                        _titlecase(l).replace("_", " "),
-                        v,
+                        _titlecase(item_label).replace("_", " "),
+                        item_value,
                         indent_level=1,
                         include_count_on_list=include_count_on_list,
                     )
         else:
             row_label = f"{prefix}{label}: "
             click.echo(row_label, nl=False)
-            if type(value) == bool:
+            if type(value) is bool:
                 click.echo(display_bool_true if value else display_bool_false)
             elif value is None:
                 click.echo(display_none)
@@ -757,7 +758,7 @@ def _display_value(
 
 
 async def _get_device_details(
-    ctx: click.Context, device: Tuple[str]
+    ctx: click.Context, device: tuple[str]
 ) -> list[Device] | None:
     """Retreive device details from the mesh."""
     ret: list[Device | Node] | None
@@ -818,7 +819,5 @@ async def _get_device_details(
 
 
 if __name__ == "__main__":
-    try:
+    with contextlib.suppress(Exception):
         cli()
-    except:
-        pass
