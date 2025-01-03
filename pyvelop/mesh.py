@@ -15,6 +15,7 @@ import aiohttp
 
 from . import __version__, camel_to_snake
 from . import jnap as api
+from .const import DeviceProperty
 from .decorators import needs_initialise
 from .device import Device, ParentalControl
 from .exceptions import (
@@ -474,6 +475,43 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
+    async def _async_set_device_property(
+        self, device_id: str, name: DeviceProperty | str, value: str
+    ) -> None:
+        """Set the given device property to the given value.
+
+        :param device_id: the unique id of the device.
+        :param name: the name of the property to set the value for.
+        :param value: the value to set the property to.
+
+        :return: None
+        """
+        _LOGGER.debug(
+            self._log_formatter.format("entered, name: %s, value: %s"), name, value
+        )
+
+        try:
+            await self._async_make_request(
+                action=api.Actions.SET_DEVICE_PROPERTY,
+                payload={
+                    "deviceID": device_id,
+                    "propertiesToModify": [
+                        {
+                            "name": (
+                                name.value if isinstance(name, DeviceProperty) else name
+                            ),
+                            "value": value,
+                        }
+                    ],
+                },
+            )
+        except MeshException as err:
+            _LOGGER.error(err)
+        except Exception as err:
+            _LOGGER.error(err)
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
     def __create_session(self) -> None:
         """Initialise a session and ensure that errors are raised based on the HTTP status codes.
 
@@ -882,18 +920,10 @@ class Mesh:
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
-        try:
-            await self._async_make_request(
-                action=api.Actions.SET_DEVICE_PROPERTY,
-                payload={
-                    "deviceID": device_id,
-                    "propertiesToModify": [{"name": "userDeviceName", "value": name}],
-                },
-            )
-        except MeshException as err:
-            _LOGGER.error(err)
-        except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.error(err)
+
+        await self._async_set_device_property(
+            device_id, DeviceProperty.DEVICE_NAME, name
+        )
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
@@ -1250,9 +1280,9 @@ class Mesh:
     ) -> None:
         """Set the UPnP settings.
 
-        :param enabled: True to enable UPnP, False to disable
+        :param enabled: True to enable UPnP, False to disable.
         :param allow_change_settings: Whether users can change settings when UPnP is enabled.
-        :param allow_disable_internet Whether users can disable the Internet when UPnP is enabled.
+        :param allow_disable_internet: Whether users can disable the Internet when UPnP is enabled.
 
         :return: None
         """
