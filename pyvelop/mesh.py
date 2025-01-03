@@ -15,7 +15,7 @@ import aiohttp
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .const import DeviceProperty
+from .const import DeviceProperty, UiType
 from .decorators import needs_initialise
 from .device import Device, ParentalControl
 from .exceptions import (
@@ -917,12 +917,43 @@ class Mesh:
     async def async_rename_device(self, device_id: str, name: str) -> None:
         """Rename the given device.
 
+        :param device_id: The unique id of the device to rename.
+        :param name: The new name to set for the device.
+
         :return: None
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         await self._async_set_device_property(
             device_id, DeviceProperty.DEVICE_NAME, name
+        )
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
+    async def async_set_device_icon(self, device_id: str, icon: UiType | str) -> None:
+        """Set the icon of the device.
+
+        :param device_id: The unique id of the device to set the icon for.
+        :param icon: The icon slug to set for the device.
+
+        :return: None
+        """
+
+        _LOGGER.debug(self._log_formatter.format("entered"))
+
+        _icon: UiType
+        if not isinstance(icon, UiType):
+            if icon not in UiType:
+                raise ValueError("Invalid icon specified")
+
+            _icon = UiType(icon)
+        else:
+            _icon = icon
+
+        await self._async_set_device_property(
+            device_id,
+            DeviceProperty.UI_TYPE,
+            _icon.value.replace("_", "-"),
         )
 
         _LOGGER.debug(self._log_formatter.format("exited"))

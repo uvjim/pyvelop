@@ -276,6 +276,22 @@ async def device_rename(ctx: click.Context, device_id: str, new_name: str, **_) 
             await mesh_obj.async_rename_device(device_id=device_id, name=new_name)
 
 
+@device_group.command(cls=StandardCommand, name="set_icon")
+@click.pass_context
+@click.argument("device_id")
+@click.argument("icon")
+async def device_set_icon(ctx: click.Context, device_id: str, icon: str, **_) -> None:
+    """Set the icon for the given device."""
+
+    try:
+        if mesh_obj := await _async_mesh_connect(ctx):
+            async with mesh_obj:
+                await mesh_obj.async_set_device_icon(device_id, icon.lower())
+    except Exception as exc:
+        _LOGGER.error(exc)
+        click.echo(click.style(exc, fg="red"), err=True)
+
+
 @device_group.command(cls=StandardCommand, name="set_rules")
 @click.pass_context
 @click.argument("device_id")
