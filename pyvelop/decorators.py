@@ -4,10 +4,39 @@
 from __future__ import annotations
 
 import functools
+import logging
 
 from .exceptions import MeshNeedsInitialise
 
 # endregion
+
+
+def deprecated(solution: str):
+    """Mark a method as deprecated."""
+
+    def deprecated_decorator(func):
+        """Decorate the function."""
+
+        @functools.wraps(func)
+        def deprecated_wrapper(self, *args, **kwargs):
+            """Wrap for the original function."""
+            logger: logging.Logger = logging.getLogger(func.__module__)
+            log_formatter = getattr(self, "_log_formatter", None)
+            if log_formatter is not None:
+                logger.warning(
+                    log_formatter.format(
+                        "The %s method has been deprecated. %s",
+                        include_caller=False,
+                    ),
+                    func.__name__,
+                    solution,
+                )
+
+            return func(self, *args, **kwargs)
+
+        return deprecated_wrapper
+
+    return deprecated_decorator
 
 
 def needs_initialise(func):

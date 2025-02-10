@@ -13,9 +13,9 @@ Node Object
     :inherited-members:
     :show-inheritance:
 
-Device Object
--------------
-.. automodule:: pyvelop.device
+DeviceEntity Object
+-------------------
+.. automodule:: pyvelop.mesh_entity
     :members:
     :inherited-members:
     :show-inheritance:

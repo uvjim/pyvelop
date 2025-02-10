@@ -8,16 +8,14 @@ import contextlib
 import logging
 import time
 from collections.abc import Coroutine, Iterable
-from enum import StrEnum
 from typing import Any
 
-import aiohttp
+from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .const import DeviceProperty, UiType
-from .decorators import needs_initialise
-from .device import Device, ParentalControl
+from .const import DeviceProperty, MeshCapability, UiType
+from .decorators import deprecated, needs_initialise
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
@@ -29,39 +27,15 @@ from .exceptions import (
     MeshTooManyMatches,
 )
 from .logger import Logger
+from .mesh_entity import DeviceEntity, ParentalControl
 from .node import Node, NodeType
+from .types import MeshDetails
 
 # endregion
 
 _ATTR_PROCESSED_DEVICES: str = "devices"
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
-
-
-class MeshCapability(StrEnum):
-    """The possible capabilities available to the Mesh."""
-
-    GET_ALG_SETTINGS = "alg_settings"
-    GET_BACKHAUL = "backhaul"
-    GET_CHANNEL_SCAN_STATUS = "channel_scan_status"
-    GET_DEVICES = "devices"
-    GET_EXPRESS_FORWARDING = "express_forwarding"
-    GET_FIRMWARE_UPDATE_SETTINGS = "firmware_update_settings"
-    GET_GUEST_NETWORK_INFO = "guest_network_info"
-    GET_HOMEKIT_SETTINGS = "homekit_settings"
-    GET_LAN_SETTINGS = "lan_setting"
-    GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
-    GET_NETWORK_CONNECTIONS = "network_connections"
-    GET_PARENTAL_CONTROL_INFO = "parental_control_info"
-    GET_SPEEDTEST_RESULTS = "speedtest_results"
-    GET_SPEEDTEST_STATUS = "speedtest_status"
-    GET_STORAGE_PARTITIONS = "storage_partitions"
-    GET_STORAGE_SMB_SERVER = "storage_smb_server"
-    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "topology_optimisation_settings"
-    GET_UPDATE_FIRMWARE_STATE = "update_firmware_state"
-    GET_UPNP_SETTINGS = "upnp_settings"
-    GET_WAN_INFO = "wan_info"
-    GET_WPS_SERVER_SETTINGS = "wps_server_settings"
 
 
 def _get_speedtest_state(speedtest_results=None) -> str:
@@ -140,9 +114,9 @@ def _get_parental_control_device_attributes(
     if schedule == ParentalControl.ALL_ALLOWED_SCHEDULE() and not urls:
         ret["remove"].extend(
             [
-                "actualWanSchedule",
-                "blockAllManually",
-                "showInPCList",
+                DeviceProperty.ACTUAL_WAN_SCHEDULE.value,
+                DeviceProperty.BLOCK_ALL_MANUALLY.value,
+                DeviceProperty.SHOW_IN_PC_LIST.value,
             ]
         )
 
@@ -151,11 +125,15 @@ def _get_parental_control_device_attributes(
         or schedule == ParentalControl.ALL_ALLOWED_SCHEDULE()
         and urls
     ):
-        ret["modify"].append({"name": "showInPCList", "value": "true"})
+        ret["modify"].append(
+            {"name": DeviceProperty.SHOW_IN_PC_LIST.value, "value": "true"}
+        )
         if schedule == ParentalControl.ALL_PAUSED_SCHEDULE():
-            ret["modify"].append({"name": "blockAllManually", "value": "true"})
+            ret["modify"].append(
+                {"name": DeviceProperty.BLOCK_ALL_MANUALLY.value, "value": "true"}
+            )
         else:
-            ret["remove"].append("blockAllManually")
+            ret["remove"].append(DeviceProperty.BLOCK_ALL_MANUALLY.value)
 
     return ret
 
@@ -173,7 +151,7 @@ class Mesh:
         node: str,
         password: str,
         request_timeout: int = 10,
-        session: aiohttp.ClientSession | None = None,
+        session: ClientSession | None = None,
         username: str = "admin",
     ) -> None:
         """Initialise the Mesh.
@@ -188,28 +166,28 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        self._node: str = node
         self._mesh_attributes: dict = {}
+        _session: ClientSession = (
+            session if session is not None else self.__create_session()
+        )
+        self._mesh_details: MeshDetails = MeshDetails(
+            host=node,
+            password=password,
+            request_timeout=request_timeout,
+            session=_session,
+            user=username,
+        )
         self._mesh_capabilities: list[MeshCapability] = []
         self._mesh_capabilities_device_details: list[MeshCapability] = []
-        self._session: aiohttp.ClientSession = session
-        self._timeout: int = request_timeout or 10
 
         # flag used to denote that initialise has been executed
         self.__initialise_executed: bool = False
-
-        self.__username: str = username
-        self.__password: str = password
-        self.__passed_session: bool = False
+        self.__passed_session: bool = isinstance(session, ClientSession)
 
         _LOGGER.debug(
             self._log_formatter.format("Session was passed in: %s"),
-            "Yes" if self._session is not None else "No",
+            "Yes" if self.__passed_session else "No",
         )
-        if self._session:
-            self.__passed_session = True
-        else:
-            self.__create_session()
 
         _LOGGER.debug(
             self._log_formatter.format("%s version: %s"),
@@ -217,9 +195,11 @@ class Mesh:
             __version__,
         )
         _LOGGER.debug(
-            self._log_formatter.format("Initialised mesh for %s with timeout %s"),
-            self._node,
-            self._timeout,
+            self._log_formatter.format(
+                "Initialised mesh for %s with request timeout %ss"
+            ),
+            self._mesh_details.host,
+            self._mesh_details.request_timeout,
         )
         _LOGGER.debug(self._log_formatter.format("exited"))
 
@@ -239,6 +219,16 @@ class Mesh:
         return f"{self.__class__.__name__}: {self._node}"
 
     # region #-- private methods --#
+    def __create_session(self) -> ClientSession:
+        """Initialise a session and ensure that errors are raised based on the HTTP status codes.
+
+        :return: None
+        """
+        _LOGGER_VERBOSE.debug(self._log_formatter.format("entered"))
+        session = ClientSession(raise_for_status=True)
+        _LOGGER_VERBOSE.debug(self._log_formatter.format("exited"))
+        return session
+
     async def _async_make_request(
         self,
         action: str,
@@ -264,24 +254,24 @@ class Mesh:
             payload = []
 
         if (
-            not self.__passed_session and self._session.closed
+            not self.__passed_session and self._mesh_details.session.closed
         ):  # session closed so recreate it
             _LOGGER_VERBOSE.debug(
                 self._log_formatter.format("session was closed, reopening")
             )
-            self.__create_session()
+            self._mesh_details.session = self.__create_session()
 
         req = api.Request(
             action=action if not isinstance(action, api.Actions) else action.value,
-            password=self.__password,
+            password=self._mesh_details.password,
             payload=payload,
             raise_on_error=raise_on_error,
-            session=self._session,
-            target=node_address or self._node,
-            username=self.__username,
+            session=self._mesh_details.session,
+            target=node_address or self._mesh_details.host,
+            username=self._mesh_details.user,
         )
         try:
-            req_resp = await req.execute(timeout=self._timeout)
+            req_resp = await req.execute(timeout=self._mesh_details.request_timeout)
         except Exception as err:
             raise err from None
 
@@ -341,13 +331,69 @@ class Mesh:
                 _set_raw_value(action=req.action, data=getattr(resp, "_data", {}))
         # endregion
 
-        # region #-- handle devices --#
-        devices: list[Device | Node] = []
-        # region #-- build the properties for the device types --#
-        for device in ret.get(MeshCapability.GET_DEVICES.value, {}).get("devices", []):
-            device["results_time"] = int(time.time())
-            if "nodeType" not in device:
-                devices.append(Device(**device))
+        # region #-- handle mesh entities --#
+        devices: list[Node] = []
+        mesh_entities: list[DeviceEntity] = []
+        discovered_mesh_entities: list[dict[str, Any]] = ret.get(
+            MeshCapability.GET_DEVICES.value, {}
+        ).get("devices", [])
+        # region #-- build the properties for the mesh entity types --#
+        for entity in discovered_mesh_entities:
+            entity_data: dict[str, Any] = {}
+            entity_data["results_time"] = int(time.time())
+            if "nodeType" not in entity:
+                entity_data.update(entity)
+                # region #-- get the device parent --#
+                dev_parent: str | None = None
+                dev_connections: list[dict[str, Any]] = []
+                for dev_connections in entity_data.get("connections", []):
+                    if (
+                        dev_parent_id := dev_connections.get("parentDeviceID")
+                    ) is not None:
+                        dev_parent = [
+                            DeviceEntity(dev, self._mesh_details).name
+                            for dev in discovered_mesh_entities
+                            if dev.get("deviceID") == dev_parent_id
+                        ]
+                entity_data["parent_name"] = dev_parent[0] if dev_parent else dev_parent
+                # endregion
+                # region #-- process MAC based information --#
+                dev_pc_schedule: list = []
+                dev_adapter_macs: list[str] = [
+                    dev_adapter.get("macAddress")
+                    for dev_adapter in entity.get("knownInterfaces", [])
+                ]
+                for dev_mac in dev_adapter_macs:
+                    # region #-- get parental control details --#
+                    for rule in ret.get(
+                        MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {}
+                    ).get("rules", []):
+                        if dev_mac in rule.get("macAddresses", []):
+                            dev_pc_schedule.append(rule)
+                            break
+                    entity_data["parental_controls"] = dev_pc_schedule
+                    # endregion
+                    # region #-- get reservation info --#
+                    for reservation in (
+                        ret.get(MeshCapability.GET_LAN_SETTINGS.value, {})
+                        .get("dhcpSettings", {})
+                        .get("reservations", [])
+                    ):
+                        if reservation.get("macAddress", "").lower() == dev_mac.lower():
+                            entity_data["reservation_details"] = reservation
+                            break
+                    # endregion
+                    # region #-- additional connection details --#
+                    for conn_details in ret.get(
+                        MeshCapability.GET_NETWORK_CONNECTIONS.value, {}
+                    ).get("nodeWirelessConnections", []):
+                        for connection in conn_details.get("connections", {}):
+                            if dev_mac == connection.get("macAddress"):
+                                entity_data["connection_details"] = connection
+                                break
+                    # endregion
+                # endregion
+                mesh_entities.append(DeviceEntity(entity_data, self._mesh_details))
             else:
                 # region #-- determine the backhaul information --#
                 device_backhaul = [
@@ -355,7 +401,7 @@ class Mesh:
                     for bi in ret.get(MeshCapability.GET_BACKHAUL.value, {}).get(
                         "backhaulDevices", []
                     )
-                    if bi.get("deviceUUID") == device.get("deviceID")
+                    if bi.get("deviceUUID") == entity.get("deviceID")
                 ]
                 # endregion
 
@@ -367,13 +413,13 @@ class Mesh:
                         for firmware_details in ret[
                             MeshCapability.GET_UPDATE_FIRMWARE_STATE.value
                         ].get("firmwareUpdateStatus", [])
-                        if firmware_details.get("deviceUUID") == device.get("deviceID")
+                        if firmware_details.get("deviceUUID") == entity.get("deviceID")
                     ]
                 # endregion
 
                 devices.append(
                     Node(
-                        **device,
+                        **entity,
                         **{
                             "backhaul": device_backhaul[0] if device_backhaul else {},
                             "updates": node_firmware[0] if node_firmware else {},
@@ -382,93 +428,34 @@ class Mesh:
                 )
         # endregion
 
-        # region #-- post processing devices and nodes --#
+        # region #-- post processing nodes --#
         for node in devices:
-            if isinstance(node, Node):
-                # region #-- calculate the connected devices for nodes --#
-                connected_devices: list = []
-                parent_name: str | None = None
-                for device in devices:
-                    for adapter in device.network:
-                        if adapter.get("parent_id") == node.unique_id:
-                            connected_devices.append(
-                                {
-                                    "name": device.name,
-                                    "ip": adapter.get("ip"),
-                                    "type": adapter.get("type"),
-                                    "guest_network": adapter.get("guest_network"),
-                                }
-                            )
-                        if (
-                            node.parent_ip
-                            and not parent_name
-                            and node.parent_ip == adapter.get("ip")
-                        ):
-                            parent_name = device.name
-                setattr(node, "_Node__parent_name", parent_name)
-                setattr(node, "_Node__connected_devices", connected_devices)
-                # endregion
-            elif isinstance(node, Device):
-                # region #-- calculate parent name for devices --#
-                attrib_connections = getattr(node, "_attribs", {}).get(
-                    "connections", []
-                )
-                parent: str | None = None
-                for conn in attrib_connections:
-                    if conn.get("parentDeviceID", ""):
-                        with contextlib.suppress(IndexError):
-                            parent = [
-                                device.name
-                                for device in devices
-                                if device.unique_id == conn.get("parentDeviceID")
-                            ][0]
-                getattr(node, "_attribs", {})["parent_name"] = parent
-                # endregion
-
-                # region #-- process MAC based details --#
-                network_adapater_macs = [adapter.get("mac") for adapter in node.network]
-                pc_schedule: list = []
-                for mac in network_adapater_macs:
-                    # -- get the parental control details --#
-                    for rule in ret.get(
-                        MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {}
-                    ).get("rules", []):
-                        if mac in rule.get("macAddresses", []):
-                            pc_schedule.append(rule)
-                            break
-                    getattr(node, "_attribs", {})["parental_controls"] = pc_schedule
-
-                    # -- tag the interface with reservation info --#
-                    if (
-                        lan_settings := ret.get(MeshCapability.GET_LAN_SETTINGS.value)
-                    ) is not None:
-                        for reservation in lan_settings.get("dhcpSettings", {}).get(
-                            "reservations", []
-                        ):
-                            if reservation.get("macAddress", "").lower() == mac.lower():
-                                getattr(node, "_attribs", {})[
-                                    "reservation_details"
-                                ] = reservation
-                                break
-
-                    # -- get additional connection details --#
-                    if (
-                        network_connections := ret.get(
-                            MeshCapability.GET_NETWORK_CONNECTIONS.value
+            # region #-- calculate the connected devices for nodes --#
+            connected_devices: list = []
+            parent_name: str | None = None
+            for device in mesh_entities:
+                for adapter in device.adapter_info:
+                    if adapter.get("parent_id") == node.unique_id:
+                        connected_devices.append(
+                            {
+                                "name": device.name,
+                                "ip": adapter.get("ip"),
+                                "type": adapter.get("type"),
+                                "guest_network": adapter.get("guest_network"),
+                            }
                         )
-                    ) is not None:
-                        for conn_details in network_connections.get(
-                            "nodeWirelessConnections", []
-                        ):
-                            for connection in conn_details.get("connections", {}):
-                                if mac == connection.get("macAddress"):
-                                    getattr(node, "_attribs", {})[
-                                        "connection_details"
-                                    ] = connection
-                                    break
-                # endregion
+                    if (
+                        node.parent_ip
+                        and not parent_name
+                        and node.parent_ip == adapter.get("ip")
+                    ):
+                        parent_name = device.name
+            setattr(node, "_Node__parent_name", parent_name)
+            setattr(node, "_Node__connected_devices", connected_devices)
+            # endregion
         # endregion
 
+        devices.extend(mesh_entities)
         ret[_ATTR_PROCESSED_DEVICES] = devices or []
         # endregion
 
@@ -512,15 +499,6 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
-    def __create_session(self) -> None:
-        """Initialise a session and ensure that errors are raised based on the HTTP status codes.
-
-        :return: None
-        """
-        _LOGGER_VERBOSE.debug(self._log_formatter.format("entered"))
-        self._session = aiohttp.ClientSession(raise_for_status=True)
-        _LOGGER_VERBOSE.debug(self._log_formatter.format("exited"))
-
     # endregion
 
     # region #-- public methods --#
@@ -544,9 +522,10 @@ class Mesh:
         """
         if not self.__passed_session:
             _LOGGER.debug(self._log_formatter.format("entered"))
-            await self._session.close()
+            await self._mesh_details.session.close()
             _LOGGER.debug(self._log_formatter.format("exited"))
 
+    @deprecated(solution="Use the async_delete method on the Device object.")
     async def async_delete_device_by_id(self, device: str) -> None:
         """Delete a device from the device list on the mesh by its ID.
 
@@ -560,6 +539,7 @@ class Mesh:
             action=api.Actions.DELETE_DEVICE, payload={"deviceID": device}
         )
 
+    @deprecated(solution="Use the async_delete method on the Device object.")
     async def async_delete_device_by_name(self, device: str) -> None:
         """Delete a device from the device list on the mesh by name.
 
@@ -572,7 +552,7 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered, name: %s"), device)
 
-        device: list[Device] = [
+        device: list[DeviceEntity] = [
             dev
             for dev in self._mesh_attributes[_ATTR_PROCESSED_DEVICES]
             if dev.name == device
@@ -626,9 +606,9 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        self._mesh_attributes: dict[int | str, list[Device | Node] | dict[str, Any]] = (
-            await self._async_gather_details(self._mesh_capabilities)
-        )
+        self._mesh_attributes: dict[
+            int | str, list[DeviceEntity | Node] | dict[str, Any]
+        ] = await self._async_gather_details(self._mesh_capabilities)
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_get_channel_scan_info(self) -> dict[str, Any]:
@@ -647,7 +627,7 @@ class Mesh:
         device_id: Iterable[str],
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> list[Device | Node]:
+    ) -> list[DeviceEntity | Node]:
         """Get a Device or Node object based on the ID.
 
         By default, the stored information is used, but you can refresh it from the API.
@@ -665,7 +645,7 @@ class Mesh:
             force_refresh,
         )
 
-        all_devices: list[Device | Node]
+        all_devices: list[DeviceEntity | Node]
         if not force_refresh:
             all_devices = self.devices + self.nodes
         else:
@@ -693,7 +673,7 @@ class Mesh:
         mac_address: Iterable[str],
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> Device | Node:
+    ) -> DeviceEntity | Node:
         """To get a Device or Node object based on the MAC address.
 
         Searches through all known adapters on the device to find a match.
@@ -712,11 +692,11 @@ class Mesh:
             force_refresh,
         )
 
-        ret: list[Device | Node] = []
+        ret: list[DeviceEntity | Node] = []
         lower_macs: list[str] = list(map(str.lower, mac_address))
         found_macs: list[str] = []
 
-        all_devices: list[Device | Node]
+        all_devices: list[DeviceEntity | Node]
         if not force_refresh:
             all_devices = self.nodes + self.devices
         else:
@@ -742,7 +722,7 @@ class Mesh:
         return ret
 
     @needs_initialise
-    async def async_get_devices(self) -> list[Device]:
+    async def async_get_devices(self) -> list[DeviceEntity]:
         """Get the devices from the API.
 
         To be used only if needing to query devices and get the details returned.
@@ -755,10 +735,10 @@ class Mesh:
         all_devices = await self._async_gather_details(
             self._mesh_capabilities_device_details
         )
-        ret: list[Device] = [
+        ret: list[DeviceEntity] = [
             device
             for device in all_devices.get(_ATTR_PROCESSED_DEVICES, [])
-            if isinstance(device, Device)
+            if isinstance(device, DeviceEntity)
         ]
         ret = sorted(ret, key=lambda device: device.name)
 
@@ -914,6 +894,7 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    @deprecated(solution="Use the async_rename method on the Device object.")
     async def async_rename_device(self, device_id: str, name: str) -> None:
         """Rename the given device.
 
@@ -930,6 +911,7 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    @deprecated(solution="Use the async_set_icon method on the Device object.")
     async def async_set_device_icon(self, device_id: str, icon: UiType | str) -> None:
         """Set the icon of the device.
 
@@ -998,6 +980,9 @@ class Mesh:
         )
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    @deprecated(
+        solution="Use the async_set_parental_control_rules method on the Device object."
+    )
     async def async_set_parental_control_rules(
         self, device_id: str, rules: dict[str, str], force_enable: bool = False
     ) -> None:
@@ -1018,10 +1003,10 @@ class Mesh:
         current_schedule: dict[str, str] = {}
 
         # region #-- get the device details --#
-        device: list[Device | Node] = await self.async_get_device_from_id(
+        device: list[DeviceEntity | Node] = await self.async_get_device_from_id(
             device_id=[device_id],
         )
-        device_mac: str = device[0].network[0].get("mac", None)
+        device_mac: str = device[0].adapter_info[0].get("mac")
         if device_mac is None:
             raise MeshException("No MAC available")
         # endregion
@@ -1050,7 +1035,7 @@ class Mesh:
             current_schedule = this_device_rules[0]["wanSchedule"]
 
         cached_schedule: dict[str, str] = getattr(device[0], "_get_user_property")(
-            "actualWanSchedule"
+            DeviceProperty.ACTUAL_WAN_SCHEDULE
         )
 
         if new_rule != ParentalControl.ALL_ALLOWED_SCHEDULE():
@@ -1118,7 +1103,7 @@ class Mesh:
             if current_schedule:
                 device_properties["modify"].append(
                     {
-                        "name": "actualWanSchedule",
+                        "name": DeviceProperty.ACTUAL_WAN_SCHEDULE.value,
                         "value": ParentalControl.encode_for_backup(
                             schedule=current_schedule
                         ),
@@ -1126,7 +1111,9 @@ class Mesh:
                 )
         else:
             if cached_schedule:
-                device_properties["remove"].append("actualWanSchedule")
+                device_properties["remove"].append(
+                    DeviceProperty.ACTUAL_WAN_SCHEDULE.value
+                )
 
         if device_properties["modify"]:
             requests.append(
@@ -1154,6 +1141,9 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    @deprecated(
+        solution="Use the async_set_parental_control_urls method on the Device object."
+    )
     async def async_set_parental_control_urls(
         self,
         device_id: str,
@@ -1181,10 +1171,10 @@ class Mesh:
         )
 
         # region #-- get the device details --#
-        device: list[Device | Node] = await self.async_get_device_from_id(
+        device: list[DeviceEntity | Node] = await self.async_get_device_from_id(
             device_id=[device_id],
         )
-        device_mac: str = device[0].network[0].get("mac", None)
+        device_mac: str = device[0].adapter_info[0].get("mac")
         if device_mac is None:
             raise MeshException("No MAC available")
         # endregion
@@ -1248,7 +1238,8 @@ class Mesh:
                     "rules": keep_rules
                     + (
                         this_device_rules
-                        if "showInPCList" not in device_properties["remove"]
+                        if DeviceProperty.SHOW_IN_PC_LIST.value
+                        not in device_properties["remove"]
                         else []
                     ),
                 },
@@ -1458,11 +1449,11 @@ class Mesh:
 
         :return: A string containing the node IP address
         """
-        return self._node
+        return self._mesh_details.host
 
     @property
     @needs_initialise
-    def devices(self) -> list[Device]:
+    def devices(self) -> list[DeviceEntity]:
         """Get the devices in the mesh.
 
         The list will be returned in alphabetical order based on the device name.
@@ -1470,10 +1461,10 @@ class Mesh:
 
         :return: A list containing Device objects
         """
-        ret: list[Device] = [
+        ret: list[DeviceEntity] = [
             device
             for device in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, [])
-            if isinstance(device, Device)
+            if isinstance(device, DeviceEntity)
         ]
         ret = sorted(ret, key=lambda device: device.name)
         return ret
@@ -1812,7 +1803,7 @@ class Mesh:
         :return: the current timeout applied to requests
         """
 
-        return self._timeout
+        return self._mesh_details.request_timeout
 
     @timeout.setter
     def timeout(self, value: float) -> None:
@@ -1824,9 +1815,9 @@ class Mesh:
         """
 
         _LOGGER.debug(
-            self._log_formatter.format("setting request timeout to: %s"), value
+            self._log_formatter.format("setting request timeout to: %ss"), value
         )
-        self._timeout = value
+        self._mesh_details.request_timeout = value
 
     @property
     @needs_initialise
