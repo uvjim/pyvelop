@@ -12,7 +12,7 @@ from typing import Any
 import aiohttp
 import asyncclick as click
 
-from .device import Device, ParentalControl
+from .const import Weekdays
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -23,6 +23,7 @@ from .exceptions import (
     MeshTimeoutError,
 )
 from .mesh import Mesh, MeshCapability
+from .mesh_entity import DeviceEntity, ParentalControl
 from .node import Node
 
 # endregion
@@ -167,18 +168,31 @@ async def device_delete(
     **_,
 ) -> None:
     """Delete a device on the Mesh."""
-    devices: list[Device] | None = await _get_device_details(ctx=ctx, device=device)
+
+    dev = (device,)
+    devices: list[DeviceEntity] | None = await _get_device_details(ctx, dev)
 
     if devices is not None:
-        if mesh_obj := await _async_mesh_connect(ctx):
-            async with mesh_obj:
-                for found_device in devices:
-                    try:
-                        await mesh_obj.async_delete_device_by_id(
-                            device=found_device.unique_id
-                        )
-                    except MeshException as err:
-                        _LOGGER.error("%s (%s)", err, found_device.name)
+        for found_device in devices:
+            try:
+                await found_device.async_delete()
+            except Exception as exc:
+                click.echo(click.style(exc, fg="red"))
+
+    # devices: list[DeviceEntity] | None = await _get_device_details(
+    #     ctx=ctx, device=device
+    # )
+
+    # if devices is not None:
+    #     if mesh_obj := await _async_mesh_connect(ctx):
+    #         async with mesh_obj:
+    #             for found_device in devices:
+    #                 try:
+    #                     await mesh_obj.async_delete_device_by_id(
+    #                         device=found_device.unique_id
+    #                     )
+    #                 except MeshException as err:
+    #                     _LOGGER.error("%s (%s)", err, found_device.name)
 
 
 @device_group.command(cls=StandardCommand, name="details")
@@ -190,7 +204,9 @@ async def device_details(
     **_,
 ) -> None:
     """Display details about a device on the Mesh."""
-    devices: list[Device] | None = await _get_device_details(ctx=ctx, device=device)
+    devices: list[DeviceEntity] | None = await _get_device_details(
+        ctx=ctx, device=device
+    )
 
     if devices is not None:
         for found_device in devices:
@@ -208,7 +224,7 @@ async def device_details(
                 _display_value("Operating system", found_device.operating_system)
                 _display_value("Serial #", found_device.serial)
                 _display_value("Icon type", found_device.ui_type)
-                _display_value("Connections", found_device.connected_adapters)
+                _display_value("Connections", found_device.adapter_info)
                 _display_value(
                     "Parental Control",
                     {
@@ -271,9 +287,20 @@ async def device_internet_access(
 @click.argument("new_name")
 async def device_rename(ctx: click.Context, device_id: str, new_name: str, **_) -> None:
     """Rename the given device."""
-    if mesh_obj := await _async_mesh_connect(ctx):
-        async with mesh_obj:
-            await mesh_obj.async_rename_device(device_id=device_id, name=new_name)
+
+    # if mesh_obj := await _async_mesh_connect(ctx):
+    #     async with mesh_obj:
+    #         await mesh_obj.async_rename_device(device_id=device_id, name=new_name)
+
+    dev_id = (device_id,)
+    devices: list[DeviceEntity] | None = await _get_device_details(ctx, dev_id)
+
+    if devices is not None:
+        for found_device in devices:
+            try:
+                await found_device.rename(new_name)
+            except Exception as exc:
+                click.echo(click.style(exc, fg="red"))
 
 
 @device_group.command(cls=StandardCommand, name="set_icon")
@@ -300,20 +327,37 @@ async def device_pc_set_rules(
     ctx: click.Context, device_id: str, rules: tuple[str, ...], **_
 ) -> None:
     """Set the parental control rules."""
-    rules_to_apply: dict[str, str] = dict(
-        map(
-            lambda weekday, readable_schedule: (weekday.name, readable_schedule),
-            ParentalControl.WEEKDAYS,
-            rules,
-        )
-    )
 
-    if mesh_obj := await _async_mesh_connect(ctx):
-        async with mesh_obj:
-            await mesh_obj.async_gather_details()
-            await mesh_obj.async_set_parental_control_rules(
-                device_id=device_id, rules=rules_to_apply
+    try:
+        rules_to_apply: dict[str, str] = dict(
+            map(
+                lambda weekday, readable_schedule: (
+                    weekday.name.lower(),
+                    readable_schedule,
+                ),
+                Weekdays,
+                rules,
             )
+        )
+
+        dev_id = (device_id,)
+        devices: list[DeviceEntity] | None = await _get_device_details(ctx, dev_id)
+
+        if devices is not None:
+            for found_device in devices:
+                await found_device.async_set_parental_control_rules(
+                    rules_to_apply,
+                    force_enable=True,
+                )
+
+        # if mesh_obj := await _async_mesh_connect(ctx):
+        #     async with mesh_obj:
+        #         await mesh_obj.async_initialise()
+        #         await mesh_obj.async_set_parental_control_rules(
+        #             device_id=device_id, rules=rules_to_apply
+        #         )
+    except Exception as exc:
+        click.echo(click.style(exc, fg="red"))
 
 
 @device_group.command(cls=StandardCommand, name="set_urls")
@@ -325,12 +369,27 @@ async def device_pc_set_urls(
     ctx: click.Context, device_id: str, merge: bool, urls: tuple[str, ...], **_
 ) -> None:
     """Set the parental control URLs."""
-    if mesh_obj := await _async_mesh_connect(ctx):
-        async with mesh_obj:
-            await mesh_obj.async_gather_details()
-            await mesh_obj.async_set_parental_control_urls(
-                device_id=device_id, merge=merge, urls=list(urls)
-            )
+
+    dev_id = (device_id,)
+    devices: list[DeviceEntity] | None = await _get_device_details(ctx, dev_id)
+
+    if devices is not None:
+        for found_device in devices:
+            try:
+                await found_device.async_set_parental_control_urls(
+                    urls,
+                    force_enable=True,
+                    merge=merge,
+                )
+            except Exception as exc:
+                click.echo(click.style(exc, fg="red"))
+
+    # if mesh_obj := await _async_mesh_connect(ctx):
+    #     async with mesh_obj:
+    #         await mesh_obj.async_initialise()
+    #         await mesh_obj.async_set_parental_control_urls(
+    #             device_id=device_id, merge=merge, urls=list(urls)
+    #         )
 
 
 @cli.group(name="mesh")
@@ -447,7 +506,7 @@ async def mesh_details(
                     _display_value(
                         "Online devices",
                         [
-                            f"{d.name}\t{d.connected_adapters[0].get('ip')}"
+                            f"{d.name}\t{d.adapter_info[0].get('ip')}"
                             for d in mesh_obj.devices
                             if d.status
                         ],
@@ -774,18 +833,19 @@ def _display_value(
 
 
 async def _get_device_details(
-    ctx: click.Context, device: tuple[str]
-) -> list[Device] | None:
+    ctx: click.Context, device: tuple[str, ...]
+) -> list[DeviceEntity] | None:
     """Retreive device details from the mesh."""
-    ret: list[Device | Node] | None
+
+    ret: list[DeviceEntity | Node] | None
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_initialise()
             for dev in device:
                 try:  # match a GUID?
-                    _ = uuid.UUID(device[0])
+                    _ = uuid.UUID(dev)
                     ret = await mesh_obj.async_get_device_from_id(
-                        device_id=dev,
+                        device_id=(dev,),
                         force_refresh=True,
                     )
                 except MeshDeviceNotFoundResponse as exc:
@@ -817,7 +877,7 @@ async def _get_device_details(
                             ret = [
                                 found_device
                                 for found_device in await mesh_obj.async_get_devices()
-                                if found_device.name == dev
+                                if found_device.name.strip() == dev.strip()
                             ]
                             if not ret:
                                 click.echo(

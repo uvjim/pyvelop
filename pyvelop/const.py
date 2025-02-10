@@ -1,6 +1,6 @@
 """Constants for the pyvelop module."""
 
-from enum import StrEnum, auto
+from enum import IntEnum, StrEnum, auto
 
 DEF_REDACT: str = "**REDACTED**"
 DEF_EMPTY_NAME: str = "Network Device"
@@ -9,11 +9,21 @@ DEF_EMPTY_NAME: str = "Network Device"
 class DeviceProperty(StrEnum):
     """Property names for user device properties."""
 
+    ACTUAL_WAN_SCHEDULE = "actualWanSchedule"
+    BLOCK_ALL_MANUALLY = "blockAllManually"
     DEVICE_NAME = "userDeviceName"
     MANUFACTURER = "userDeviceManufacturer"
     MODEL = "userDeviceModelNumber"
     OPERATING_SYSTEM = "userDeviceOS"
+    SHOW_IN_PC_LIST = "showInPCList"
     UI_TYPE = "userDeviceType"
+
+
+class ParentalControlActionType(StrEnum):
+    """Representation of parental control time actions."""
+
+    BLOCKED = "0"
+    UNBLOCKED = "1"
 
 
 class UiType(StrEnum):
@@ -165,3 +175,41 @@ class UiType(StrEnum):
     WHW01 = auto()
     WHW01P = auto()
     WIRED_BRIDGE = auto()
+
+
+class Weekdays(IntEnum):
+    """Definition for weekdays."""
+
+    SUNDAY = 0
+    MONDAY = auto()
+    TUESDAY = auto()
+    WEDNESDAY = auto()
+    THURSDAY = auto()
+    FRIDAY = auto()
+    SATURDAY = auto()
+
+
+class MeshCapability(StrEnum):
+    """The possible capabilities available to the Mesh."""
+
+    GET_ALG_SETTINGS = "alg_settings"
+    GET_BACKHAUL = "backhaul"
+    GET_CHANNEL_SCAN_STATUS = "channel_scan_status"
+    GET_DEVICES = "devices"
+    GET_EXPRESS_FORWARDING = "express_forwarding"
+    GET_FIRMWARE_UPDATE_SETTINGS = "firmware_update_settings"
+    GET_GUEST_NETWORK_INFO = "guest_network_info"
+    GET_HOMEKIT_SETTINGS = "homekit_settings"
+    GET_LAN_SETTINGS = "lan_setting"
+    GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
+    GET_NETWORK_CONNECTIONS = "network_connections"
+    GET_PARENTAL_CONTROL_INFO = "parental_control_info"
+    GET_SPEEDTEST_RESULTS = "speedtest_results"
+    GET_SPEEDTEST_STATUS = "speedtest_status"
+    GET_STORAGE_PARTITIONS = "storage_partitions"
+    GET_STORAGE_SMB_SERVER = "storage_smb_server"
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "topology_optimisation_settings"
+    GET_UPDATE_FIRMWARE_STATE = "update_firmware_state"
+    GET_UPNP_SETTINGS = "upnp_settings"
+    GET_WAN_INFO = "wan_info"
+    GET_WPS_SERVER_SETTINGS = "wps_server_settings"

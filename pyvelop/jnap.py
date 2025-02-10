@@ -147,6 +147,8 @@ class Request:
             raise_for_status=True
         )
 
+        if self._payload is None:
+            self._payload = []
         self._jnap_url: str = jnap_url(target=target)
 
     async def execute(self, timeout: int = 10) -> Response:

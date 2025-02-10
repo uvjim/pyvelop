@@ -4,20 +4,13 @@
 from __future__ import annotations
 
 import contextlib
-from enum import Enum
 from typing import Any
 
 from . import signal_strength_to_text
 from .base import MeshDevice
+from .types import NodeType
 
 # endregion
-
-
-class NodeType(str, Enum):
-    """Enumeration for node types."""
-
-    PRIMARY = "primary"
-    SECONDARY = "secondary"
 
 
 class Node(MeshDevice):

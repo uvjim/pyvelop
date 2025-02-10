@@ -205,4 +205,3 @@ class MeshDevice:
     def unique_id(self) -> str:
         """Return the device_id as unique_id."""
         return self.__device_id
-        return self.__device_id
