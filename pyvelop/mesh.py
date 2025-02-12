@@ -541,6 +541,8 @@ class Mesh:
     async def async_delete_device_by_id(self, device: str) -> None:
         """Delete a device from the device list on the mesh by its ID.
 
+        **DEPRECATED** Use the async_delete method on the DeviceEntity object.
+
         :param device: the unique id of the device to delete
 
         :return: None
@@ -554,6 +556,8 @@ class Mesh:
     @deprecated(solution="Use the async_delete method on the DeviceEntity object.")
     async def async_delete_device_by_name(self, device: str) -> None:
         """Delete a device from the device list on the mesh by name.
+
+        **DEPRECATED** Use the async_delete method on the DeviceEntity object.
 
         Will error if multiple devices match the given name or no matching
         device is found.
@@ -885,6 +889,8 @@ class Mesh:
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
         """Reboot the given node.
 
+        **DEPRECATED** Use the async_reboot method on the NodeEntity object."
+
         Rebooting the primary node will cause all nodes to reboot. If you're sure you want to
         reboot the primary node, set the `force` parameter to `True`
 
@@ -914,6 +920,8 @@ class Mesh:
     async def async_rename_device(self, device_id: str, name: str) -> None:
         """Rename the given device.
 
+        **DEPRECATED** Use the async_rename method on the DeviceEntity object.
+
         :param device_id: The unique id of the device to rename.
         :param name: The new name to set for the device.
 
@@ -930,6 +938,8 @@ class Mesh:
     @deprecated(solution="Use the async_set_icon method on the DeviceEntity object.")
     async def async_set_device_icon(self, device_id: str, icon: UiType | str) -> None:
         """Set the icon of the device.
+
+        **DEPRECATED** Use the async_set_icon method on the DeviceEntity object.
 
         :param device_id: The unique id of the device to set the icon for.
         :param icon: The icon slug to set for the device.
@@ -1003,6 +1013,8 @@ class Mesh:
         self, device_id: str, rules: dict[str, str], force_enable: bool = False
     ) -> None:
         """Set the parental control schedule for the given device.
+
+        **DEPRECATED** Use the async_set_parental_control_rules method on the DeviceEntity object.
 
         :param device_id: The unique identifier for the device
         :param rules: A dictionary of time string pairs in the form: `"monday": "00:00-02:00,17:30:18:00"`
@@ -1168,6 +1180,8 @@ class Mesh:
         merge: bool = True,
     ) -> None:
         """Set the URLs for Parental Control.
+
+        **DEPRECATED** Use the async_set_parental_control_urls method on the DeviceEntity object.
 
         :param device_id: The unique identifier for the device
         :param urls: List of the URLs to add
