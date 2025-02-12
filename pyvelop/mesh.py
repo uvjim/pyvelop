@@ -1782,17 +1782,16 @@ class Mesh:
         for storage_node in storage_available.get("storageNodes", []):
             for device in storage_node.get("storageDevices", []):
                 for partition in device.get("partitions", []):
-                    node = [
-                        _n
-                        for _n in self.nodes
-                        if _n.unique_id == storage_node.get("deviceID")
-                    ]
-                    if node:
-                        ip_addr = [
-                            adapter.get("ip")
-                            for adapter in node[0].connected_adapters
-                            if adapter.get("ip")
-                        ]
+                    if (
+                        node := next(
+                            (
+                                _n
+                                for _n in self.nodes
+                                if _n.unique_id == storage_node.get("deviceID")
+                            ),
+                            None,
+                        )
+                    ) is not None:
                         used_percent: int | None = None
                         with contextlib.suppress(ZeroDivisionError):
                             used_percent = round(
@@ -1803,7 +1802,14 @@ class Mesh:
                         ret.append(
                             {
                                 "available_kb": partition.get("availableKB"),
-                                "ip": ip_addr[0],
+                                "ip": next(
+                                    (
+                                        adapter.get("ip")
+                                        for adapter in node.adapter_info
+                                        if adapter.get("ip")
+                                    ),
+                                    None,
+                                ),
                                 "label": partition.get("label"),
                                 "last_checked": storage_node.get("timestamp"),
                                 "used_kb": partition.get("usedKB"),
