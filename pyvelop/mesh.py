@@ -27,11 +27,11 @@ from .exceptions import (
     MeshTooManyMatches,
 )
 from .logger import Logger
-from .mesh_entity import DeviceEntity, ParentalControl
-from .node import Node, NodeType
-from .types import MeshDetails
+from .mesh_entity import DeviceEntity, NodeEntity, ParentalControl
+from .types import MeshDetails, NodeType
 
 # endregion
+
 
 _ATTR_PROCESSED_DEVICES: str = "devices"
 _LOGGER = logging.getLogger(__name__)
@@ -332,8 +332,7 @@ class Mesh:
         # endregion
 
         # region #-- handle mesh entities --#
-        devices: list[Node] = []
-        mesh_entities: list[DeviceEntity] = []
+        mesh_entities: list[DeviceEntity | NodeEntity] = []
         discovered_mesh_entities: list[dict[str, Any]] = ret.get(
             MeshCapability.GET_DEVICES.value, {}
         ).get("devices", [])
@@ -341,22 +340,8 @@ class Mesh:
         for entity in discovered_mesh_entities:
             entity_data: dict[str, Any] = {}
             entity_data["results_time"] = int(time.time())
+            entity_data.update(entity)
             if "nodeType" not in entity:
-                entity_data.update(entity)
-                # region #-- get the device parent --#
-                dev_parent: str | None = None
-                dev_connections: list[dict[str, Any]] = []
-                for dev_connections in entity_data.get("connections", []):
-                    if (
-                        dev_parent_id := dev_connections.get("parentDeviceID")
-                    ) is not None:
-                        dev_parent = [
-                            DeviceEntity(dev, self._mesh_details).name
-                            for dev in discovered_mesh_entities
-                            if dev.get("deviceID") == dev_parent_id
-                        ]
-                entity_data["parent_name"] = dev_parent[0] if dev_parent else dev_parent
-                # endregion
                 # region #-- process MAC based information --#
                 dev_pc_schedule: list = []
                 dev_adapter_macs: list[str] = [
@@ -393,70 +378,97 @@ class Mesh:
                                 break
                     # endregion
                 # endregion
-                mesh_entities.append(DeviceEntity(entity_data, self._mesh_details))
             else:
                 # region #-- determine the backhaul information --#
-                device_backhaul = [
-                    bi
-                    for bi in ret.get(MeshCapability.GET_BACKHAUL.value, {}).get(
-                        "backhaulDevices", []
-                    )
-                    if bi.get("deviceUUID") == entity.get("deviceID")
-                ]
-                # endregion
-
-                # region #-- calculate if there is a firmware update available --#
-                node_firmware: list | dict = {}
-                if MeshCapability.GET_UPDATE_FIRMWARE_STATE.value in ret:
-                    node_firmware = [
-                        firmware_details
-                        for firmware_details in ret[
-                            MeshCapability.GET_UPDATE_FIRMWARE_STATE.value
-                        ].get("firmwareUpdateStatus", [])
-                        if firmware_details.get("deviceUUID") == entity.get("deviceID")
-                    ]
-                # endregion
-
-                devices.append(
-                    Node(
-                        **entity,
-                        **{
-                            "backhaul": device_backhaul[0] if device_backhaul else {},
-                            "updates": node_firmware[0] if node_firmware else {},
-                        },
-                    )
-                )
-        # endregion
-
-        # region #-- post processing nodes --#
-        for node in devices:
-            # region #-- calculate the connected devices for nodes --#
-            connected_devices: list = []
-            parent_name: str | None = None
-            for device in mesh_entities:
-                for adapter in device.adapter_info:
-                    if adapter.get("parent_id") == node.unique_id:
-                        connected_devices.append(
-                            {
-                                "name": device.name,
-                                "ip": adapter.get("ip"),
-                                "type": adapter.get("type"),
-                                "guest_network": adapter.get("guest_network"),
-                            }
+                entity_data["backhaul"] = next(
+                    (
+                        bi
+                        for bi in ret.get(MeshCapability.GET_BACKHAUL.value, {}).get(
+                            "backhaulDevices", []
                         )
+                        if bi.get("deviceUUID") == entity.get("deviceID")
+                    ),
+                    {},
+                )
+                # endregion
+                # region #-- calculate if there is a firmware update available --#
+                if MeshCapability.GET_UPDATE_FIRMWARE_STATE.value in ret:
+                    entity_data["firmware_updates"] = next(
+                        (
+                            fds
+                            for fds in ret[
+                                MeshCapability.GET_UPDATE_FIRMWARE_STATE.value
+                            ].get("firmwareUpdateStatus", [])
+                            if fds.get("deviceUUID") == entity.get("deviceID")
+                        ),
+                        {},
+                    )
+                # endregion
+                # region #-- get the connected devices --#
+                connected_devices: list[dict[str, Any]] = []
+                for device in discovered_mesh_entities:
                     if (
-                        node.parent_ip
-                        and not parent_name
-                        and node.parent_ip == adapter.get("ip")
-                    ):
-                        parent_name = device.name
-            setattr(node, "_Node__parent_name", parent_name)
-            setattr(node, "_Node__connected_devices", connected_devices)
+                        "nodeType" not in device
+                    ):  # don't class nodes as connected devices
+                        dev: DeviceEntity = DeviceEntity(device, self._mesh_details)
+                        connected_details: dict[str, Any] | None = next(
+                            (
+                                {
+                                    "name": dev.name,
+                                    "ip": adapter.get("ip"),
+                                    "type": adapter.get("type"),
+                                    "guest_network": adapter.get("guest_network"),
+                                }
+                                for adapter in dev.adapter_info
+                                if adapter.get("parent_id") == entity.get("deviceID")
+                            ),
+                            None,
+                        )
+                        if connected_details:
+                            connected_devices.append(connected_details)
+                entity_data["connected_devices"] = connected_devices
+                # endregion
+
+            # region #-- get the parent name --#
+            parent_name: str | None = None
+            entity_connections: list[dict[str, Any]] = []
+            for entity_connections in entity_data.get("connections", []):
+                if (parent_id := entity_connections.get("parentDeviceID")) is not None:
+                    parent_name = next(
+                        (
+                            NodeEntity(e, self._mesh_details).name
+                            for e in discovered_mesh_entities
+                            if e.get("deviceID") == parent_id
+                        ),
+                        None,
+                    )
+                else:  # need to check based on IP address because parentDeviceID is missing
+                    if "nodeType" in entity:  # only a valid method for a node
+                        parent_name = next(
+                            (
+                                NodeEntity(e, self._mesh_details).name
+                                for e in discovered_mesh_entities
+                                if entity_data.get("backhaul", {}).get(
+                                    "parentIPAddress"
+                                )
+                                in [
+                                    a.get("ipAddress")
+                                    for a in e.get("connections")
+                                    if a.get("ipAddress")
+                                ]
+                            ),
+                            None,
+                        )
+            entity_data["parent_name"] = parent_name
             # endregion
+
+            if "nodeType" not in entity:
+                mesh_entities.append(DeviceEntity(entity_data, self._mesh_details))
+            else:
+                mesh_entities.append(NodeEntity(entity_data, self._mesh_details))
         # endregion
 
-        devices.extend(mesh_entities)
-        ret[_ATTR_PROCESSED_DEVICES] = devices or []
+        ret[_ATTR_PROCESSED_DEVICES] = mesh_entities or []
         # endregion
 
         _LOGGER.debug(self._log_formatter.format("exited"))
@@ -525,7 +537,7 @@ class Mesh:
             await self._mesh_details.session.close()
             _LOGGER.debug(self._log_formatter.format("exited"))
 
-    @deprecated(solution="Use the async_delete method on the Device object.")
+    @deprecated(solution="Use the async_delete method on the DeviceEntity object.")
     async def async_delete_device_by_id(self, device: str) -> None:
         """Delete a device from the device list on the mesh by its ID.
 
@@ -539,7 +551,7 @@ class Mesh:
             action=api.Actions.DELETE_DEVICE, payload={"deviceID": device}
         )
 
-    @deprecated(solution="Use the async_delete method on the Device object.")
+    @deprecated(solution="Use the async_delete method on the DeviceEntity object.")
     async def async_delete_device_by_name(self, device: str) -> None:
         """Delete a device from the device list on the mesh by name.
 
@@ -607,7 +619,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         self._mesh_attributes: dict[
-            int | str, list[DeviceEntity | Node] | dict[str, Any]
+            int | str, list[DeviceEntity | NodeEntity] | dict[str, Any]
         ] = await self._async_gather_details(self._mesh_capabilities)
         _LOGGER.debug(self._log_formatter.format("exited"))
 
@@ -627,7 +639,7 @@ class Mesh:
         device_id: Iterable[str],
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> list[DeviceEntity | Node]:
+    ) -> list[DeviceEntity | NodeEntity]:
         """Get a Device or Node object based on the ID.
 
         By default, the stored information is used, but you can refresh it from the API.
@@ -645,7 +657,7 @@ class Mesh:
             force_refresh,
         )
 
-        all_devices: list[DeviceEntity | Node]
+        all_devices: list[DeviceEntity | NodeEntity]
         if not force_refresh:
             all_devices = self.devices + self.nodes
         else:
@@ -673,7 +685,7 @@ class Mesh:
         mac_address: Iterable[str],
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> DeviceEntity | Node:
+    ) -> DeviceEntity | NodeEntity:
         """To get a Device or Node object based on the MAC address.
 
         Searches through all known adapters on the device to find a match.
@@ -692,11 +704,11 @@ class Mesh:
             force_refresh,
         )
 
-        ret: list[DeviceEntity | Node] = []
+        ret: list[DeviceEntity | NodeEntity] = []
         lower_macs: list[str] = list(map(str.lower, mac_address))
         found_macs: list[str] = []
 
-        all_devices: list[DeviceEntity | Node]
+        all_devices: list[DeviceEntity | NodeEntity]
         if not force_refresh:
             all_devices = self.nodes + self.devices
         else:
@@ -853,6 +865,7 @@ class Mesh:
 
         await self.async_gather_details()
 
+    @deprecated(solution="Use the async_reboot method on the NodeEntity object.")
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
         """Reboot the given node.
 
@@ -870,31 +883,18 @@ class Mesh:
             force,
         )
 
-        node_details: list[Node] = [
-            node for node in self.nodes if node.name.lower() == node_name.lower()
-        ]
-        if not node_details:
+        found_node: NodeEntity = next(
+            (node for node in self.nodes if node.name.lower() == node_name.lower()),
+            None,
+        )
+        if found_node is None:
             raise MeshDeviceNotFoundResponse
 
-        if node_details[0].type == NodeType.PRIMARY and not force:
-            raise MeshInvalidInput(f"{node_name} is a primary node. Use the force.")
-
-        node_ip: list[str] | None = [
-            adapter.get("ip")
-            for adapter in node_details[0].connected_adapters
-            if adapter.get("ip") and adapter.get("primary")
-        ]
-
-        if not node_ip:
-            raise MeshInvalidInput(f"{node_name}: no valid address found")
-
-        await self._async_make_request(
-            action=api.Actions.REBOOT, node_address=node_ip[0]
-        )
+        await found_node.async_reboot(force)
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
-    @deprecated(solution="Use the async_rename method on the Device object.")
+    @deprecated(solution="Use the async_rename method on the DeviceEntity object.")
     async def async_rename_device(self, device_id: str, name: str) -> None:
         """Rename the given device.
 
@@ -911,7 +911,7 @@ class Mesh:
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
-    @deprecated(solution="Use the async_set_icon method on the Device object.")
+    @deprecated(solution="Use the async_set_icon method on the DeviceEntity object.")
     async def async_set_device_icon(self, device_id: str, icon: UiType | str) -> None:
         """Set the icon of the device.
 
@@ -981,7 +981,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     @deprecated(
-        solution="Use the async_set_parental_control_rules method on the Device object."
+        solution="Use the async_set_parental_control_rules method on the DeviceEntity object."
     )
     async def async_set_parental_control_rules(
         self, device_id: str, rules: dict[str, str], force_enable: bool = False
@@ -1003,7 +1003,7 @@ class Mesh:
         current_schedule: dict[str, str] = {}
 
         # region #-- get the device details --#
-        device: list[DeviceEntity | Node] = await self.async_get_device_from_id(
+        device: list[DeviceEntity | NodeEntity] = await self.async_get_device_from_id(
             device_id=[device_id],
         )
         device_mac: str = device[0].adapter_info[0].get("mac")
@@ -1142,7 +1142,7 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     @deprecated(
-        solution="Use the async_set_parental_control_urls method on the Device object."
+        solution="Use the async_set_parental_control_urls method on the DeviceEntity object."
     )
     async def async_set_parental_control_urls(
         self,
@@ -1171,7 +1171,7 @@ class Mesh:
         )
 
         # region #-- get the device details --#
-        device: list[DeviceEntity | Node] = await self.async_get_device_from_id(
+        device: list[DeviceEntity | NodeEntity] = await self.async_get_device_from_id(
             device_id=[device_id],
         )
         device_mac: str = device[0].adapter_info[0].get("mac")
@@ -1683,17 +1683,17 @@ class Mesh:
 
     @property
     @needs_initialise
-    def nodes(self) -> list[Node]:
+    def nodes(self) -> list[NodeEntity]:
         """Get the nodes in the mesh.
 
         The return is sorted in alphabetical order based on node name.
 
-        :return: A list of Node objects
+        :return: A list of NodeEntity objects
         """
         ret: list = [
             node
             for node in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, [])
-            if isinstance(node, Node)
+            if isinstance(node, NodeEntity)
         ]
 
         ret = sorted(ret, key=lambda node: node.name)
@@ -1744,7 +1744,7 @@ class Mesh:
         :return: List of the available storage devices and their properties
         """
         ret: list = []
-        node: list[Node]
+        node: list[NodeEntity]
         device: dict
         storage_available = self._mesh_attributes.get(
             MeshCapability.GET_STORAGE_PARTITIONS.value, {}

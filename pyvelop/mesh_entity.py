@@ -3,6 +3,7 @@
 # region #-- imports --#
 import asyncio
 import base64
+import contextlib
 import datetime
 import logging
 from collections import namedtuple
@@ -17,9 +18,9 @@ from .const import (
     UiType,
     Weekdays,
 )
-from .exceptions import MeshException
+from .exceptions import MeshException, MeshInvalidInput
 from .logger import Logger
-from .types import MeshDetails
+from .types import MeshDetails, NodeType
 
 # endregion
 
@@ -329,6 +330,8 @@ class MeshEntity:
         self,
         action: api.Actions,
         payload: list[dict] | dict | None = None,
+        *,
+        ip: str | None = None,
         raise_on_error: bool = True,
     ) -> None:
         """Make a request to the API."""
@@ -338,7 +341,7 @@ class MeshEntity:
             payload=payload,
             raise_on_error=raise_on_error,
             session=self._mesh_details.session,
-            target=self._mesh_details.host,
+            target=ip or self._mesh_details.host,
             username=self._mesh_details.user,
         )
         try:
@@ -436,6 +439,14 @@ class MeshEntity:
         return ret
 
     @property
+    def parent_name(self) -> str | None:
+        """Name of the node the device is connected to.
+
+        :return: The parent node name or None if no node has been identified.
+        """
+        return self._data.get("parent_name")
+
+    @property
     def results_time(self) -> str:
         """Get the time that the API was queried for the device results.
 
@@ -515,7 +526,6 @@ class DeviceEntity(MeshEntity):
 
         :return: None
         """
-
         _LOGGER.debug(self._log_formatter.format("entered"))
 
         await self._async_api_request(
@@ -903,14 +913,192 @@ class DeviceEntity(MeshEntity):
         return ret
 
     @property
-    def parent_name(self) -> str | None:
-        """Name of the node the device is connected to.
-
-        :return: The parent node name or None if no node has been identified.
-        """
-        return self._data.get("parent_name")
-
-    @property
     def serial(self) -> str | None:
         """Get the serial number."""
         return self._data.get("unit", {}).get("serialNumber", None)
+
+
+class NodeEntity(MeshEntity):
+    """Represents a node on the mesh."""
+
+    async def async_reboot(self, force: bool = False) -> None:
+        """Reboot the node.
+
+        Rebooting the primary node will cause all nodes to reboot. If you're sure you want to
+        reboot the primary node, set the `force` parameter to `True`
+
+        :param force: True to acknowledge the primary node, ignored for everything else
+
+        :return: None
+        """
+        _LOGGER.debug(
+            self._log_formatter.format("entered, force: %s"),
+            force,
+        )
+
+        # region #-- check for primary node --#
+        if self.type == NodeType.PRIMARY and not force:
+            raise MeshInvalidInput(f"{self.name} is a primary node. Use the force.")
+        # endregion
+
+        # region #-- establish the correct IP to use --#
+        target_ip: str | None = next(
+            (
+                adapter.get("ip")
+                for adapter in self.adapter_info
+                if adapter.get("ip") and adapter.get("primary")
+            ),
+            None,
+        )
+        if not target_ip:
+            raise MeshInvalidInput(f"{self.name}: no valid address found")
+        # endregion
+
+        # region #-- do the reboot --#
+        await self._async_api_request(api.Actions.REBOOT, ip=target_ip)
+        # endregion
+
+        _LOGGER.debug(self._log_formatter.format("exited"))
+
+    @property
+    def adapter_info(self) -> list[dict[str, Any]]:
+        """Retrieve details about the entity's adapters.
+
+        :return: Adapter details including reservation, Wi-Fi, IP and Guest details.
+            Additionally includes whether it is the primary adapter or not.
+        """
+
+        super_adapters: list[dict[str, Any]] = super().adapter_info
+        backhaul: dict[str, Any] = self._data.get("backhaul", {})
+        for adapter in super_adapters:
+            adapter["primary"] = (
+                True
+                if adapter.get("ip") == backhaul.get("ipAddress")
+                or self.type == NodeType.PRIMARY
+                else False
+            )
+
+        return super_adapters
+
+    @property
+    def backhaul(self) -> dict[str, Any]:
+        """Get details about the backhaul."""
+        ret = {}
+        backhaul = self._data.get("backhaul", {})
+        speed_mbps: float | None = None
+        with contextlib.suppress(TypeError, ValueError):
+            speed_mbps = float(backhaul.get("speedMbps"))
+
+        if backhaul:
+            signal_strength_raw: int = backhaul.get("wirelessConnectionInfo", {}).get(
+                "stationRSSI"
+            )
+            ret = {
+                "connection": backhaul.get("connectionType"),
+                "last_checked": backhaul.get("timestamp"),
+                "speed_mbps": speed_mbps,
+                "rssi_dbm": signal_strength_raw,
+                "signal_strength": signal_strength_to_text(rssi=signal_strength_raw),
+            }
+
+        return ret
+
+    @property
+    def connected_devices(self) -> list[dict[str, Any]]:
+        """List of the devices that are connected to the node.
+
+        :return: List of connected devices in alphabetical order sorted by device name
+        """
+        connected_devices: list[dict[str, Any]] = self._data.get(
+            "connected_devices", []
+        )
+        return sorted(connected_devices, key=lambda device: device.get("name"))
+
+    @property
+    def firmware(self) -> dict:
+        """Get the firmware details for the node.
+
+        N.B. The date doesn't seem to correlate to anything that I can see (I would have thought it was a build
+        or install time but that doesn't seem to be the case)
+
+        :return: A dictionary containing the firmware version and date
+        """
+        ret = {}
+        if (unit_details := self._data.get("unit")) is not None:
+            ret["version"] = unit_details.get("firmwareVersion")
+            ret["date"] = unit_details.get("firmwareDate")
+        available_updates = self._data.get("firmware_updates", {}).get(
+            "availableUpdate", {}
+        )
+        if available_updates:
+            ret["latest_version"] = available_updates["firmwareVersion"]
+            ret["latest_date"] = available_updates["firmwareDate"]
+        else:
+            ret["latest_version"] = ret.get("version", None)
+            ret["latest_date"] = ret.get("date", None)
+        return ret
+
+    @property
+    def hardware_version(self) -> str:
+        """Get the hardware version of the node.
+
+        :return: A string containing the hardware version
+        """
+        return self._data.get("model", {}).get("hardwareVersion")
+
+    @property
+    def last_update_check(self) -> str | None:
+        """Get the last time an update was checked for.
+
+        :return: String containing the last update time as per the API
+        """
+        ret = self._data.get("updates", {}).get("lastSuccessfulCheckTime", None)
+        return ret
+
+    @property
+    def manufacturer(self) -> str:
+        """Get the node manufacturer.
+
+        :return: String containing the name of the manufacturer
+        """
+        return self._data.get("model", {}).get("manufacturer")
+
+    @property
+    def model(self) -> str:
+        """Get the model of the node.
+
+        :return: A string containing the model
+        """
+        return self._data.get("model", {}).get("modelNumber")
+
+    @property
+    def parent_ip(self) -> str | None:
+        """IP of the parent node.
+
+        :return: The IP of the parent node or None if no node has been identified.
+        """
+        return self._data.get("backhaul", {}).get("parentIPAddress")
+
+    @property
+    def serial(self) -> str:
+        """Get the serial number of the node.
+
+        :return: A string containing the serial number
+        """
+        return self._data.get("unit", {}).get("serialNumber")
+
+    @property
+    def type(self) -> NodeType:
+        """Get the node type.
+
+        The node types are represented as primary or secondary.
+
+        :return: A NodeType enumeration containing the node type.
+        """
+        ret = ""
+        native_type = self._data.get("nodeType", "").lower()
+        if native_type == "master":
+            ret = NodeType.PRIMARY
+        elif native_type == "slave":
+            ret = NodeType.SECONDARY
+        return ret

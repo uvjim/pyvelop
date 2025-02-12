@@ -23,8 +23,7 @@ from .exceptions import (
     MeshTimeoutError,
 )
 from .mesh import Mesh, MeshCapability
-from .mesh_entity import DeviceEntity, ParentalControl
-from .node import Node
+from .mesh_entity import DeviceEntity, NodeEntity, ParentalControl
 
 # endregion
 
@@ -615,55 +614,52 @@ async def node_details(
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_initialise()
-            nodes: list[Node] = mesh_obj.nodes
+            nodes: list[NodeEntity] = mesh_obj.nodes
             if not nodes:
                 click.echo("No nodes found")
             else:
-                found_node: Node
-                for found_node in nodes:
-                    if found_node.name == node_name:
-                        try:
-                            title: str = node_name
-                            click.echo(title)
-                            click.echo("-" * len(title))
-                            _display_value("Queried at", found_node.results_time)
-                            _display_value("Device ID", found_node.unique_id)
-                            _display_value("Online", found_node.status),
-                            _display_value("Node type", found_node.type.title())
-                            _display_value("Manufacturer", found_node.manufacturer)
-                            _display_value("Model", found_node.model)
+                found_node: NodeEntity | None = next(
+                    (node for node in nodes if node.name == node_name), None
+                )
+                if found_node is None:
+                    click.echo("Node not found")
+                else:
+                    try:
+                        title: str = node_name
+                        click.echo(title)
+                        click.echo("-" * len(title))
+                        _display_value("Queried at", found_node.results_time)
+                        _display_value("Device ID", found_node.unique_id)
+                        _display_value("Online", found_node.status),
+                        _display_value("Node type", found_node.type.title())
+                        _display_value("Manufacturer", found_node.manufacturer)
+                        _display_value("Model", found_node.model)
+                        _display_value("Hardware version", found_node.hardware_version)
+                        _display_value("Serial #", found_node.serial)
+                        _display_value("Icon type", found_node.ui_type)
+                        _display_value(
+                            "Firmware details",
+                            {
+                                "Versions": found_node.firmware,
+                                "last_checked": found_node.last_update_check,
+                            },
+                        )
+                        _display_value("Connections", found_node.adapter_info)
+                        if found_node.type == "secondary":
                             _display_value(
-                                "Hardware version", found_node.hardware_version
-                            )
-                            _display_value("Serial #", found_node.serial)
-                            _display_value("Icon type", found_node.ui_type)
-                            _display_value(
-                                "Firmware details",
+                                "Backhaul",
                                 {
-                                    "Versions": found_node.firmware,
-                                    "last_checked": found_node.last_update_check,
+                                    "details": [found_node.backhaul],
+                                    "parent": f"{found_node.parent_name} ({found_node.parent_ip})",
                                 },
+                                include_count_on_list=False,
                             )
-                            _display_value("Connections", found_node.connected_adapters)
-                            if found_node.type == "secondary":
-                                _display_value(
-                                    "Backhaul",
-                                    {
-                                        "details": [found_node.backhaul],
-                                        "parent": f"{found_node.parent_name}\t{found_node.parent_ip}",
-                                    },
-                                    include_count_on_list=False,
-                                )
-                            _display_value(
-                                "Connected Devices",
-                                [
-                                    d.get("name", "")
-                                    for d in found_node.connected_devices
-                                ],
-                            )
-                            break
-                        except Exception as exc:
-                            click.echo(click.style(exc, fg="red"))
+                        _display_value(
+                            "Connected Devices",
+                            [d.get("name", "") for d in found_node.connected_devices],
+                        )
+                    except Exception as exc:
+                        click.echo(click.style(exc, fg="red"))
 
 
 @node_group.command(cls=StandardCommand, name="restart")
@@ -675,14 +671,34 @@ async def node_restart(
     **_,
 ) -> None:
     """Restart a node on the Mesh."""
+
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            try:
-                await mesh_obj.async_gather_details()
-                _LOGGER.debug("Restarting %s", node_name)
-                await mesh_obj.async_reboot_node(node_name=node_name)
-            except (MeshDeviceNotFoundResponse, MeshInvalidInput) as err:
-                _LOGGER.error(err)
+            await mesh_obj.async_initialise()
+            nodes: list[NodeEntity] = mesh_obj.nodes
+            if not nodes:
+                click.echo("No nodes found")
+            else:
+                found_node: NodeEntity | None = next(
+                    (node for node in nodes if node.name == node_name), None
+                )
+                if found_node is None:
+                    click.echo("Node not found")
+                else:
+                    try:
+                        await found_node.async_reboot()
+                    except Exception as exc:
+                        click.echo(click.style(exc, fg="red"), err=True)
+                        return
+
+    # if mesh_obj := await _async_mesh_connect(ctx):
+    #     async with mesh_obj:
+    #         try:
+    #             await mesh_obj.async_gather_details()
+    #             _LOGGER.debug("Restarting %s", node_name)
+    #             await mesh_obj.async_reboot_node(node_name=node_name)
+    #         except (MeshDeviceNotFoundResponse, MeshInvalidInput) as err:
+    #             _LOGGER.error(err)
 
 
 @cli.group(name="parental_schedules")
@@ -837,7 +853,7 @@ async def _get_device_details(
 ) -> list[DeviceEntity] | None:
     """Retreive device details from the mesh."""
 
-    ret: list[DeviceEntity | Node] | None
+    ret: list[DeviceEntity | NodeEntity] | None
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_initialise()
@@ -895,5 +911,5 @@ async def _get_device_details(
 
 
 if __name__ == "__main__":
-    with contextlib.suppress(Exception):
-        cli()
+    # with contextlib.suppress(Exception):
+    cli()
