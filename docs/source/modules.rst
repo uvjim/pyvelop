@@ -6,14 +6,7 @@ Mesh Object
 .. automodule:: pyvelop.mesh
     :members:
 
-Node Object
------------
-.. automodule:: pyvelop.node
-    :members:
-    :inherited-members:
-    :show-inheritance:
-
-DeviceEntity Object
+Mesh Entity Objects
 -------------------
 .. automodule:: pyvelop.mesh_entity
     :members:
