@@ -865,6 +865,22 @@ class Mesh:
 
         await self.async_gather_details()
 
+    async def async_reboot_mesh(self) -> None:
+        """Reboot the mesh."""
+
+        _LOGGER.debug(self._log_formatter.format("entered"))
+        found_node: NodeEntity = next(
+            (node for node in self.nodes if node.type == NodeType.PRIMARY),
+            None,
+        )
+
+        if found_node is None:
+            raise MeshDeviceNotFoundResponse
+
+        await found_node.async_reboot(True)
+
+        _LOGGER.debug(self._log_formatter.format("entered"))
+
     @deprecated(solution="Use the async_reboot method on the NodeEntity object.")
     async def async_reboot_node(self, node_name: str, force: bool = False) -> None:
         """Reboot the given node.
