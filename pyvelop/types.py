@@ -19,6 +19,10 @@ class MeshDetails:
     session: ClientSession
     user: str
 
+    def __repr__(self) -> str:
+        """Friendly string representation of the class."""
+        return f"{self.__class__.__name__}: {self.host}"
+
 
 class NodeType(StrEnum):
     """Enumeration for node types."""
