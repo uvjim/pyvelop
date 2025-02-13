@@ -1059,7 +1059,7 @@ class NodeEntity(MeshEntity):
 
         :return: String containing the last update time as per the API
         """
-        ret = self._data.get("updates", {}).get("lastSuccessfulCheckTime", None)
+        ret = self._data.get("firmware_updates", {}).get("lastSuccessfulCheckTime")
         return ret
 
     @property
