@@ -25,3 +25,12 @@ class NodeType(StrEnum):
 
     PRIMARY = auto()
     SECONDARY = auto()
+
+
+class SignalStrength(StrEnum):
+    """Enumeration for signal strength."""
+
+    EXCELLENT = auto()
+    FAIR = auto()
+    GOOD = auto()
+    WEAK = auto()
