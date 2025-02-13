@@ -10,7 +10,6 @@ from collections import namedtuple
 from typing import Any, final
 
 from . import jnap as api
-from . import signal_strength_to_text
 from .const import (
     DEF_EMPTY_NAME,
     DeviceProperty,
@@ -20,7 +19,7 @@ from .const import (
 )
 from .exceptions import MeshException, MeshInvalidInput
 from .logger import Logger
-from .types import MeshDetails, NodeType
+from .types import MeshDetails, NodeType, SignalStrength
 
 # endregion
 
@@ -326,6 +325,22 @@ class MeshEntity:
 
         return ret
 
+    @staticmethod
+    def _signal_strength_to_text(rssi: int | None) -> SignalStrength | None:
+        """Convert the given RSSI value to a textual representation."""
+        ret: str | None = None
+        if rssi is not None:
+            if rssi <= 0:
+                ret = SignalStrength.EXCELLENT
+            if rssi <= -50:
+                ret = SignalStrength.GOOD
+            if rssi <= -60:
+                ret = SignalStrength.FAIR
+            if rssi <= -70:
+                ret = SignalStrength.WEAK
+
+        return ret
+
     async def _async_api_request(
         self,
         action: api.Actions,
@@ -388,6 +403,9 @@ class MeshEntity:
                     == adapter.get("macAddress", "").lower()
                     else {}
                 )
+                signal_strength: SignalStrength | None = self._signal_strength_to_text(
+                    wifi_info.get("wireless", {}).get("signalDecibels")
+                )
                 props = {
                     "band": adapter.get("band"),
                     "connected": bool(connection_info),
@@ -415,8 +433,10 @@ class MeshEntity:
                     "reservation": bool(reservation_info),
                     "reservation_description": reservation_info.get("description"),
                     "rssi": wifi_info.get("wireless", {}).get("signalDecibels"),
-                    "signal_strength": signal_strength_to_text(
-                        wifi_info.get("wireless", {}).get("signalDecibels")
+                    "signal_strength": (
+                        signal_strength.value.lower()
+                        if signal_strength is not None
+                        else None
                     ),
                     "type": adapter.get("interfaceType"),
                 }
@@ -997,15 +1017,22 @@ class NodeEntity(MeshEntity):
             speed_mbps = float(backhaul.get("speedMbps"))
 
         if backhaul:
-            signal_strength_raw: int = backhaul.get("wirelessConnectionInfo", {}).get(
-                "stationRSSI"
+            signal_strength_raw: int | None = backhaul.get(
+                "wirelessConnectionInfo", {}
+            ).get("stationRSSI")
+            signal_strength: SignalStrength | None = self._signal_strength_to_text(
+                signal_strength_raw
             )
             ret = {
                 "connection": backhaul.get("connectionType"),
                 "last_checked": backhaul.get("timestamp"),
                 "speed_mbps": speed_mbps,
                 "rssi_dbm": signal_strength_raw,
-                "signal_strength": signal_strength_to_text(rssi=signal_strength_raw),
+                "signal_strength": (
+                    signal_strength.value.lower()
+                    if signal_strength is not None
+                    else None
+                ),
             }
 
         return ret
