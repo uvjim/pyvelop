@@ -6,7 +6,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import time
+import uuid
 from collections.abc import Coroutine, Iterable
 from typing import Any
 
@@ -23,7 +25,6 @@ from .exceptions import (
     MeshInvalidArguments,
     MeshInvalidCredentials,
     MeshInvalidInput,
-    MeshInvalidOutput,
     MeshTooManyMatches,
 )
 from .logger import Logger
@@ -33,7 +34,7 @@ from .types import MeshDetails, NodeType
 # endregion
 
 
-_ATTR_PROCESSED_DEVICES: str = "devices"
+_ATTR_PROCESSED_DEVICES: str = "processed_devices"
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
@@ -638,22 +639,24 @@ class Mesh:
         return resp.get(MeshCapability.GET_CHANNEL_SCAN_STATUS.value)
 
     @needs_initialise
+    @deprecated(solution="Use the async_get_devices method")
     async def async_get_device_from_id(
         self,
         device_id: Iterable[str],
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> list[DeviceEntity | NodeEntity]:
-        """Get a Device or Node object based on the ID.
+    ) -> list[DeviceEntity] | None:
+        """Get a device based on the ID.
+
+        **DEPRECATED** Use the async_get_devices method.
 
         By default, the stored information is used, but you can refresh it from the API.
-        Raises an error if the device is not found.
 
         :param device_id: Iterable of device IDs to get details about
         :param force_refresh: True to re-query the API for the latest details
         :param raise_for_missing: True to raise an error when a device is not found
 
-        :return: List of Device or Node objects whichever is applicable
+        :return: List of DeviceEntity objects
         """
         _LOGGER.debug(
             self._log_formatter.format("entered, device_id: %s, force_refresh: %s"),
@@ -661,46 +664,41 @@ class Mesh:
             force_refresh,
         )
 
-        all_devices: list[DeviceEntity | NodeEntity]
-        if not force_refresh:
-            all_devices = self.devices + self.nodes
-        else:
-            resp = await self._async_gather_details(
-                self._mesh_capabilities_device_details
-            )
-            all_devices = resp.get(_ATTR_PROCESSED_DEVICES)
+        for ident in device_id:
+            try:
+                _ = uuid.UUID(ident)
+            except ValueError:
+                raise MeshInvalidInput("Invalid device IDs")
 
-        if not all_devices:
-            raise MeshInvalidOutput from None
-
-        ret = [device for device in all_devices if device.unique_id in device_id]
-        if len(ret) != len(device_id) and raise_for_missing:
-            found_ids = [device.unique_id for device in ret]
-            raise MeshDeviceNotFoundResponse(
-                devices=list(set(device_id).difference(found_ids))
-            )
+        ret = await self.async_get_devices(
+            device_id,
+            force_refresh=force_refresh,
+            raise_for_missing=raise_for_missing,
+        )
 
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     @needs_initialise
+    @deprecated(solution="Use the async_get_devices method")
     async def async_get_device_from_mac_address(
         self,
         mac_address: Iterable[str],
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> DeviceEntity | NodeEntity:
-        """To get a Device or Node object based on the MAC address.
+    ) -> list[DeviceEntity] | None:
+        """To get a device based on the MAC address.
+
+        **DEPRECATED** Use the async_get_devices method.
 
         Searches through all known adapters on the device to find a match.
         By default, the stored information is used, but you can refresh it from the API.
-        Raises an error if the device is not found.
 
         :param mac_address: An iterable containing MAC address to search for
         :param force_refresh: True to re-query the details from the API
         :param raise_for_missing: True to raise exception when a device is not found
 
-        :return:  Device or Node object whichever is applicable
+        :return: List of DeviceEntity objects
         """
         _LOGGER.debug(
             self._log_formatter.format("entered, mac_address: %s, force_refresh: %s"),
@@ -708,38 +706,32 @@ class Mesh:
             force_refresh,
         )
 
-        ret: list[DeviceEntity | NodeEntity] = []
-        lower_macs: list[str] = list(map(str.lower, mac_address))
-        found_macs: list[str] = []
+        for ident in mac_address:
+            regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
+            if (
+                re.match(pattern=regex_pattern, string=ident, flags=re.IGNORECASE)
+                is None
+            ):
+                raise MeshInvalidInput("Invalid device MAC")
 
-        all_devices: list[DeviceEntity | NodeEntity]
-        if not force_refresh:
-            all_devices = self.nodes + self.devices
-        else:
-            resp = await self._async_gather_details(
-                self._mesh_capabilities_device_details
-            )
-            all_devices = resp.get(_ATTR_PROCESSED_DEVICES)
-
-        for device in all_devices:
-            if device.network:
-                for adapter in device.network:
-                    if adapter.get("mac").lower() in lower_macs:
-                        ret.append(device)
-                        found_macs.append(adapter.get("mac").lower())
-                        break
-
-        if len(ret) != len(mac_address) and raise_for_missing:
-            raise MeshDeviceNotFoundResponse(
-                devices=list(set(lower_macs).difference(found_macs))
-            )
+        ret = await self.async_get_devices(
+            mac_address,
+            force_refresh=force_refresh,
+            raise_for_missing=raise_for_missing,
+        )
 
         _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     @needs_initialise
-    async def async_get_devices(self) -> list[DeviceEntity]:
-        """Get the devices from the API.
+    async def async_get_devices(
+        self,
+        identity: Iterable[str | uuid.UUID] | None = None,
+        *,
+        force_refresh: bool = False,
+        raise_for_missing: bool = True,
+    ) -> list[DeviceEntity] | None:
+        """Get matching devices if identity is specified, or all devices.
 
         To be used only if needing to query devices and get the details returned.
         Returns the devices in alphabetical order based on the name.
@@ -748,14 +740,82 @@ class Mesh:
         """
         _LOGGER.debug(self._log_formatter.format("entered"))
 
-        all_devices = await self._async_gather_details(
-            self._mesh_capabilities_device_details
-        )
-        ret: list[DeviceEntity] = [
-            device
-            for device in all_devices.get(_ATTR_PROCESSED_DEVICES, [])
-            if isinstance(device, DeviceEntity)
-        ]
+        all_devices: list[DeviceEntity] = []
+        ret: list[DeviceEntity] = []
+
+        if force_refresh:
+            all_devices = await self._async_gather_details(
+                self._mesh_capabilities_device_details
+            )
+            all_devices = [
+                dev
+                for dev in all_devices.get(_ATTR_PROCESSED_DEVICES, [])
+                if type(dev) is DeviceEntity
+            ]
+        else:
+            all_devices = self.devices
+
+        if identity is None:
+            ret = all_devices
+        else:
+            found: DeviceEntity | None = None
+            identity_formatted: tuple[str, uuid.UUID] = tuple(
+                map(str.lower, map(str.strip, identity))
+            )
+            identity_found: list[str, uuid.UUID] = []
+            for ident in identity_formatted:
+                try:  # match a GUID?
+                    _ = uuid.UUID(ident)
+                    found = next(
+                        (
+                            dev
+                            for dev in all_devices
+                            if type(dev) is DeviceEntity
+                            and dev.unique_id.lower() == ident
+                        ),
+                        None,
+                    )
+                except ValueError:  # not a GUID
+                    regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
+                    if (  # MAC address?
+                        re.match(
+                            pattern=regex_pattern, string=ident, flags=re.IGNORECASE
+                        )
+                        is not None
+                    ):
+                        found = next(
+                            dev
+                            for dev in all_devices
+                            if type(dev) is DeviceEntity
+                            and next(
+                                (
+                                    adapter
+                                    for adapter in dev.adapter_info
+                                    if adapter.get("mac").strip().lower() == ident
+                                ),
+                                None,
+                            )
+                        )
+                    else:
+                        found = next(
+                            (
+                                dev
+                                for dev in all_devices
+                                if type(dev) is DeviceEntity
+                                and dev.name.strip().lower() == ident
+                            ),
+                            None,
+                        )
+
+                if found is not None:
+                    identity_found.append(ident)
+                    ret.append(found)
+
+            if len(ret) != len(identity) and raise_for_missing:
+                raise MeshDeviceNotFoundResponse(
+                    devices=list(set(identity_formatted).difference(identity_found))
+                )
+
         ret = sorted(ret, key=lambda device: device.name)
 
         _LOGGER.debug(self._log_formatter.format("exited"))
