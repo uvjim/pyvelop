@@ -329,7 +329,11 @@ async def device_pc_set_rules(
             map(
                 lambda weekday, readable_schedule: (
                     weekday.name.lower(),
-                    readable_schedule,
+                    (
+                        readable_schedule
+                        if not readable_schedule.startswith("${")
+                        else None
+                    ),
                 ),
                 Weekdays,
                 rules,
@@ -345,13 +349,6 @@ async def device_pc_set_rules(
                     rules_to_apply,
                     force_enable=True,
                 )
-
-        # if mesh_obj := await _async_mesh_connect(ctx):
-        #     async with mesh_obj:
-        #         await mesh_obj.async_initialise()
-        #         await mesh_obj.async_set_parental_control_rules(
-        #             device_id=device_id, rules=rules_to_apply
-        #         )
     except Exception as exc:
         click.echo(click.style(exc, fg="red"))
 
