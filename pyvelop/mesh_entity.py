@@ -120,7 +120,9 @@ class ParentalControl:
         """Encode the schedule for storage in a property."""
         ret: str = ""
         chunk_length: int = 8
-        sorted_schedule: str = "".join([schedule[day.name] for day in list(Weekdays)])
+        sorted_schedule: str = "".join(
+            [schedule[day.name.lower()] for day in list(Weekdays)]
+        )
         sorted_chunks: list[str] = [
             (sorted_schedule[i : i + chunk_length])
             for i in range(0, len(sorted_schedule), chunk_length)
@@ -156,7 +158,7 @@ class ParentalControl:
 
     @staticmethod
     def human_readable_to_binary(
-        to_encode: str | dict[str, str]
+        to_encode: str | dict[str, str],
     ) -> str | dict[str, str]:
         """Encode the human readable information to somethings that can be stored."""
         fake_day = "sunday"
@@ -226,7 +228,7 @@ class ParentalControl:
 
     @staticmethod
     def binary_to_human_readable(
-        to_decode: str | dict[str, str]
+        to_decode: str | dict[str, str],
     ) -> str | dict[str, list[str]]:
         """Decode the binary format string to humand readble form."""
         if isinstance(to_decode, str):
@@ -696,7 +698,7 @@ class DeviceEntity(MeshEntity):
                     "isParentalControlEnabled": (
                         True
                         if force_enable
-                        else live_pc_info.get("isParentalControlEnabled", True)
+                        else live_pc_info.data.get("isParentalControlEnabled", True)
                     ),
                     "rules": keep_rules + this_device_rules,
                 },
@@ -714,6 +716,7 @@ class DeviceEntity(MeshEntity):
                 ),
             )
         )
+
         if new_rule == ParentalControl.ALL_PAUSED_SCHEDULE():
             if current_schedule:
                 device_properties["modify"].append(
@@ -740,6 +743,7 @@ class DeviceEntity(MeshEntity):
                     },
                 )
             )
+
         if device_properties["remove"]:
             requests.append(
                 self._async_api_request(
@@ -835,7 +839,7 @@ class DeviceEntity(MeshEntity):
                     "isParentalControlEnabled": (
                         True
                         if force_enable
-                        else live_pc_info.get("isParentalControlEnabled", True)
+                        else live_pc_info.data.get("isParentalControlEnabled", True)
                     ),
                     "rules": keep_rules
                     + (
