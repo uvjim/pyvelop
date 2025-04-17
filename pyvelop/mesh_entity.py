@@ -56,7 +56,7 @@ class ParentalControl:
         """Make the given schedule human readable."""
         ret = {}
         for day, sched in schedule.items():
-            ret[day] = []
+            ret[day.lower()] = []
             idx = 0
             while idx < __class__.BINARY_LENGTH:
                 block_start: int | None = (
