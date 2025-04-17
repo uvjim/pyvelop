@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import re
-import uuid
 from typing import Any
 
 import aiohttp
@@ -18,7 +16,6 @@ from .exceptions import (
     MeshDeviceNotFoundResponse,
     MeshException,
     MeshInvalidCredentials,
-    MeshInvalidInput,
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
@@ -853,63 +850,25 @@ async def _get_device_details(
 ) -> list[DeviceEntity] | None:
     """Retreive device details from the mesh."""
 
-    ret: list[DeviceEntity | NodeEntity] | None
+    ret: list[DeviceEntity | NodeEntity] | None = None
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_initialise()
-            for dev in device:
-                try:  # match a GUID?
-                    _ = uuid.UUID(dev)
-                    ret = await mesh_obj.async_get_device_from_id(
-                        device_id=(dev,),
-                        force_refresh=True,
-                    )
-                except MeshDeviceNotFoundResponse as exc:
-                    click.echo(
-                        click.style(f"{exc}, {', '.join(exc.devices)}", fg="red"),
-                        err=True,
-                    )
-                    return
-                except ValueError:  # not a GUID
-                    regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
-                    if (  # MAC address?
-                        re.match(pattern=regex_pattern, string=dev, flags=re.IGNORECASE)
-                        is not None
-                    ):
-                        try:
-                            ret = await mesh_obj.async_get_device_from_mac_address(
-                                dev, force_refresh=True
-                            )
-                        except MeshDeviceNotFoundResponse as exc:
-                            click.echo(
-                                click.style(
-                                    f"{exc}, {', '.join(exc.devices)}", fg="red"
-                                ),
-                                err=True,
-                            )
-                            return
-                    else:
-                        try:
-                            ret = [
-                                found_device
-                                for found_device in await mesh_obj.async_get_devices()
-                                if found_device.name.strip() == dev.strip()
-                            ]
-                            if not ret:
-                                click.echo(
-                                    click.style(f"Device not found ({dev})", fg="red")
-                                )
-                                return
-                        except Exception as exc:
-                            click.echo(click.style(exc, fg="red"), err=True)
-                            return
-                except Exception as exc:
-                    click.echo(click.style(exc, fg="red"), err=True)
-                    return
+            try:
+                refresh: bool = True
+                if not device:
+                    device = None
+                ret = await mesh_obj.async_get_devices(device, force_refresh=refresh)
+            except MeshDeviceNotFoundResponse as exc:
+                click.echo(click.style(f"{exc}: {exc.devices}", fg="red"), err=True)
+                return
+            except Exception as exc:
+                click.echo(click.style(exc, fg="red"), err=True)
+                return
 
     return ret
 
 
 if __name__ == "__main__":
-    # with contextlib.suppress(Exception):
-    cli()
+    with contextlib.suppress(Exception):
+        cli()
