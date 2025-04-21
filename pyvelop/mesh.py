@@ -287,26 +287,22 @@ class Mesh:
         _LOGGER.debug(self._log_formatter.format("entered, args: %s"), capabilities)
 
         ret = {}
-        payload_safe: list[dict[str, Any]] = []
-        request_unsafe: list = []
+        payload: list[dict[str, Any]] = []
 
         for capability in capabilities:
             jnap_action: api.Actions = api.Actions[capability.name]
-            payload_safe.append(
+            payload.append(
                 {
                     "action": jnap_action.value,
                     "request": api.Defaults.payloads[jnap_action],
                 }
             )
 
-        request_safe = self._async_make_request(
-            action=api.Actions.TRANSACTION,
-            payload=payload_safe,
-            raise_on_error=False,
-        )
-
-        responses: list[tuple[api.Request, api.Response]] = await asyncio.gather(
-            request_safe, *request_unsafe
+        responses: tuple[api.Request, api.Response] = await asyncio.gather(
+            self._async_make_request(
+                action=api.Actions.TRANSACTION,
+                payload=payload,
+            )
         )
 
         # region #-- prepare all the raw details --#
