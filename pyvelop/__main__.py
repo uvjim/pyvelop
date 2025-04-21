@@ -855,7 +855,12 @@ async def _get_device_details(
                 refresh: bool = True
                 if not device:
                     device = None
-                ret = await mesh_obj.async_get_devices(device, force_refresh=refresh)
+                device_qry: tuple[str, ...] = tuple(
+                    filter(lambda d: not d.startswith("${input:"), device)
+                )
+                ret = await mesh_obj.async_get_devices(
+                    device_qry, force_refresh=refresh
+                )
             except MeshDeviceNotFoundResponse as exc:
                 click.echo(click.style(f"{exc}: {exc.devices}", fg="red"), err=True)
                 return
