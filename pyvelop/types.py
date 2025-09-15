@@ -29,6 +29,7 @@ class NodeType(StrEnum):
 
     PRIMARY = auto()
     SECONDARY = auto()
+    UNKNOWN = auto()
 
 
 class SignalStrength(StrEnum):
