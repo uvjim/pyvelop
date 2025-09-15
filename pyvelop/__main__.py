@@ -761,12 +761,33 @@ async def ps_encode(
 
 
 @parental_schedule_group.command(name="encode_for_backup")
-@click.argument("to_encode", nargs=-1, required=True)
-async def ps_encode_for_backup(to_encode: tuple[str, ...]) -> None:
+@click.option("--sunday")
+@click.option("--monday")
+@click.option("--tuesday")
+@click.option("--wednesday")
+@click.option("--thursday")
+@click.option("--friday")
+@click.option("--saturday")
+async def ps_encode_for_backup(
+    sunday: str,
+    monday: str,
+    tuesday: str,
+    wednesday: str,
+    thursday: str,
+    friday: str,
+    saturday: str,
+) -> None:
     """Encode the given schedule for backup."""
 
-    to_backup: dict[str, Any] = {}
-    _display_value("", ParentalControl.encode_for_backup(to_backup))
+    to_backup: dict[str, Any] = {
+        day.name.lower(): (
+            locals().get(day.name.lower()) if locals().get(day.name.lower()) else None
+        )
+        for day in Weekdays
+    }
+    encoded: str | dict[str, Any] = ParentalControl.human_readable_to_binary(to_backup)
+    if isinstance(encoded, dict):
+        _display_value("", ParentalControl.encode_for_backup(encoded))
 
 
 async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
