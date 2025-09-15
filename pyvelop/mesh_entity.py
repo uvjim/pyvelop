@@ -53,7 +53,7 @@ class ParentalControl:
         self._rule: dict[str, Any] = rule
 
     @staticmethod
-    def _human_readable(schedule: dict[str, str]) -> dict[str, list[str]]:
+    def _human_readable(schedule: dict[str, Any]) -> dict[str, list[str]]:
         """Make the given schedule human readable."""
         ret: dict[str, list[str]] = {}
         for day, sched in schedule.items():
@@ -62,7 +62,8 @@ class ParentalControl:
             while idx < __class__.BINARY_LENGTH:
                 block_start: int | None = (
                     sched.index(ParentalControlActionType.BLOCKED.value, idx)
-                    if ParentalControlActionType.BLOCKED.value in sched[idx + 1 :]
+                    if sched is not None
+                    and ParentalControlActionType.BLOCKED.value in sched[idx + 1 :]
                     else None
                 )
                 block_end: int | None = None
@@ -72,7 +73,8 @@ class ParentalControl:
                     sched.index(
                         ParentalControlActionType.UNBLOCKED.value, block_start + 1
                     )
-                    if ParentalControlActionType.UNBLOCKED.value
+                    if sched is not None
+                    and ParentalControlActionType.UNBLOCKED.value
                     in sched[block_start + 1 :]
                     else None
                 )

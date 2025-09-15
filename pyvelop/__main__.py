@@ -296,30 +296,36 @@ async def device_set_icon(ctx: click.Context, device_id: str, icon: str, **_) ->
 @device_group.command(cls=StandardCommand, name="set_rules")
 @click.pass_context
 @click.argument("device_id")
-@click.argument("rules", nargs=7)
+@click.option("--sunday")
+@click.option("--monday")
+@click.option("--tuesday")
+@click.option("--wednesday")
+@click.option("--thursday")
+@click.option("--friday")
+@click.option("--saturday")
 async def device_pc_set_rules(
     ctx: click.Context,
     device_id: str,
-    rules: tuple[str, ...],
+    sunday: str,
+    monday: str,
+    tuesday: str,
+    wednesday: str,
+    thursday: str,
+    friday: str,
+    saturday: str,
     **_,
 ) -> None:
     """Set the parental control rules."""
 
     try:
-        rules_to_apply: dict[str, Any] = dict(
-            map(
-                lambda weekday, readable_schedule: (
-                    weekday.name.lower(),
-                    (
-                        readable_schedule
-                        if any(char in readable_schedule for char in ":-")
-                        else None
-                    ),
-                ),
-                Weekdays,
-                rules,
+        rules_to_apply: dict[str, Any] = {
+            day.name.lower(): (
+                locals().get(day.name.lower())
+                if locals().get(day.name.lower())
+                else None
             )
-        )
+            for day in Weekdays
+        }
 
         dev_id = (device_id,)
         devices = await _get_device_details(ctx, dev_id)
@@ -664,57 +670,124 @@ async def parental_schedule_group() -> None:
     """Parental schedule conversions."""
 
 
+@parental_schedule_group.command(name="all_blocked")
+async def ps_all_blocked() -> None:
+    """Display the all unblocked binary code."""
+
+    ret = ParentalControl.ALL_PAUSED_SCHEDULE()
+    _display_value("", ret)
+
+
+@parental_schedule_group.command(name="all_unblocked")
+async def ps_all_unblocked() -> None:
+    """Display the all unblocked binary code."""
+
+    ret = ParentalControl.ALL_ALLOWED_SCHEDULE()
+    _display_value("", ret)
+
+
 @parental_schedule_group.command(name="decode")
-@click.argument("to_decode", nargs=-1, required=True)
-async def ps_decode(to_decode: tuple[str, ...]) -> None:
+@click.option("--sunday")
+@click.option("--monday")
+@click.option("--tuesday")
+@click.option("--wednesday")
+@click.option("--thursday")
+@click.option("--friday")
+@click.option("--saturday")
+async def ps_decode(
+    sunday: str,
+    monday: str,
+    tuesday: str,
+    wednesday: str,
+    thursday: str,
+    friday: str,
+    saturday: str,
+) -> None:
     """Decode the given binary schedule forms to a human readable form."""
-    if len(to_decode) > len(Weekdays):
-        _LOGGER.error("Too many arguments specified")
-    elif len(to_decode) == 1:
-        _display_value("", ParentalControl.binary_to_human_readable(to_decode[0]))
-    else:
-        dict_to_decode: dict[str, str] = dict(
-            map(
-                lambda weekday, binary_schedule: (weekday.name, binary_schedule),
-                Weekdays,
-                to_decode,
-            )
+
+    ret = {}
+    dict_to_encode: dict[str, Any] = {
+        day.name.lower(): (
+            locals().get(day.name.lower()) if locals().get(day.name.lower()) else None
         )
-        ret = ParentalControl.binary_to_human_readable(dict_to_decode)
-        _display_value("", ret)
+        for day in Weekdays
+    }
+    decoded: str | dict[str, Any] = ParentalControl.binary_to_human_readable(
+        dict_to_encode
+    )
+    if isinstance(decoded, dict):
+        for day in Weekdays:
+            if locals().get(day.name.lower()) is not None:
+                ret[day.name.lower()] = decoded.get(day.name.lower())
+
+    _display_value("", ret)
 
 
 @parental_schedule_group.command(name="encode")
-@click.argument("to_encode", nargs=-1, required=True)
-async def ps_encode(to_encode: tuple[str, ...]) -> None:
+@click.option("--sunday")
+@click.option("--monday")
+@click.option("--tuesday")
+@click.option("--wednesday")
+@click.option("--thursday")
+@click.option("--friday")
+@click.option("--saturday")
+async def ps_encode(
+    sunday: str,
+    monday: str,
+    tuesday: str,
+    wednesday: str,
+    thursday: str,
+    friday: str,
+    saturday: str,
+) -> None:
     """Encode the given human readable form schedules to binary form."""
-    if len(to_encode) > len(Weekdays):
-        _LOGGER.error("Too many arguments specified")
-    elif len(to_encode) == 1:
-        _display_value("", ParentalControl.human_readable_to_binary(to_encode[0]))
-    else:
-        dict_to_encode: dict[str, str] = dict(
-            map(
-                lambda weekday, readable_schedule: (
-                    weekday.name,
-                    readable_schedule if readable_schedule else "",
-                ),
-                Weekdays,
-                to_encode,
-            )
-        )
-        dict_to_encode = dict(filter(lambda itm: itm[1] != "", dict_to_encode.items()))
 
-        _display_value("", ParentalControl.human_readable_to_binary(dict_to_encode))
+    ret = {}
+    dict_to_encode: dict[str, Any] = {
+        day.name.lower(): (
+            locals().get(day.name.lower()) if locals().get(day.name.lower()) else None
+        )
+        for day in Weekdays
+    }
+    encoded: str | dict[str, Any] = ParentalControl.human_readable_to_binary(
+        dict_to_encode
+    )
+    if isinstance(encoded, dict):
+        for day in Weekdays:
+            if locals().get(day.name.lower()) is not None:
+                ret[day.name.lower()] = encoded.get(day.name.lower())
+
+    _display_value("", ret)
 
 
 @parental_schedule_group.command(name="encode_for_backup")
-@click.argument("to_encode", nargs=-1, required=True)
-async def ps_encode_for_backup(to_encode: tuple[str, ...]) -> None:
+@click.option("--sunday")
+@click.option("--monday")
+@click.option("--tuesday")
+@click.option("--wednesday")
+@click.option("--thursday")
+@click.option("--friday")
+@click.option("--saturday")
+async def ps_encode_for_backup(
+    sunday: str,
+    monday: str,
+    tuesday: str,
+    wednesday: str,
+    thursday: str,
+    friday: str,
+    saturday: str,
+) -> None:
     """Encode the given schedule for backup."""
 
-    to_backup: dict[str, Any] = {}
-    _display_value("", ParentalControl.encode_for_backup(to_backup))
+    to_backup: dict[str, Any] = {
+        day.name.lower(): (
+            locals().get(day.name.lower()) if locals().get(day.name.lower()) else None
+        )
+        for day in Weekdays
+    }
+    encoded: str | dict[str, Any] = ParentalControl.human_readable_to_binary(to_backup)
+    if isinstance(encoded, dict):
+        _display_value("", ParentalControl.encode_for_backup(encoded))
 
 
 async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
