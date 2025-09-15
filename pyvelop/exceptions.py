@@ -42,6 +42,10 @@ class MeshConnectionError(MeshException):
         super().__init__("Connection Error")
 
 
+class MeshDeviceDbFailure(MeshException):
+    """DeviceDBFailure reported by the API."""
+
+
 class MeshDeviceHasPCRules(MeshException):
     """Device already has Parental Control rules."""
 
