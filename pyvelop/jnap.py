@@ -30,6 +30,8 @@ from .logger import Logger
 
 # endregion
 
+type JnapResponse = dict[str, Any]
+
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
@@ -143,15 +145,17 @@ class Request:
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._payload: list[dict] | dict | None = payload
         self._raise_on_error: bool = raise_on_error
-        self._session: aiohttp.ClientSession | None = session or aiohttp.ClientSession(
-            raise_for_status=True
+        self._session: aiohttp.ClientSession = (
+            session
+            if session is not None
+            else aiohttp.ClientSession(raise_for_status=True)
         )
 
         if self._payload is None:
             self._payload = []
         self._jnap_url: str = jnap_url(target=target)
 
-    async def execute(self, timeout: int = 10) -> Response:
+    async def execute(self, timeout: float = 10) -> Response:
         """Send the request.
 
         :param timeout: the timeout in seconds for the request, defaults to 10s
@@ -186,7 +190,7 @@ class Request:
                 json=self._payload or {},
                 timeout=timeout,
             )
-            resp_json = await resp.json()
+            resp_json: JnapResponse = await resp.json()
         except TimeoutError as err:
             raise MeshTimeoutError from err
         except (
@@ -208,7 +212,7 @@ class Request:
             resp_json,
         )
 
-        ret: Response = Response(
+        ret = Response(
             action=self.action, data=resp_json, raise_on_error=self._raise_on_error
         )
 
@@ -243,7 +247,7 @@ class Response:
     RESULT_KEY: str = "result"
 
     def __init__(
-        self, action: str, data: dict[str, Any], raise_on_error: bool = True
+        self, action: str, data: JnapResponse | None, raise_on_error: bool = True
     ) -> None:
         """Initialise the response.
 
@@ -251,7 +255,7 @@ class Response:
         :param data: The JSON response received in response to the API call
         """
         self._action: str = action
-        self._data: dict[str, Any] = data
+        self._data: JnapResponse | None = data
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._raise_on_error: bool = raise_on_error
 
@@ -259,8 +263,18 @@ class Response:
 
     def _process_data(self) -> None:
         """Process the given data to check for errors."""
+
+        if self._data is None:
+            return
+
         if self._data.get(self.RESULT_KEY) != "OK" and self._raise_on_error:
-            responses = self.data if self.action == Actions.TRANSACTION else [self.data]
+            responses = (
+                self._data.get(self.DATA_KEY_TRANSACTION, {})
+                if self.action == Actions.TRANSACTION
+                else [self._data]
+            )
+            if responses is None:
+                raise MeshException("error processing response")
 
             err = None
             for resp in responses:
@@ -324,8 +338,12 @@ class Response:
         return self._action
 
     @property
-    def data(self) -> dict[str, Any]:
+    def data(self) -> JnapResponse | list[JnapResponse] | None:
         """Return the response data."""
+
+        if self._data is None:
+            return
+
         ret = (
             self._data.get(self.DATA_KEY_TRANSACTION)
             if self.action == Actions.TRANSACTION

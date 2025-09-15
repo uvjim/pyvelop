@@ -20,7 +20,7 @@ def deprecated(solution: str):
         @functools.wraps(func)
         def deprecated_wrapper(self, *args, **kwargs):
             """Wrap for the original function."""
-            logger: logging.Logger = logging.getLogger(func.__module__)
+            logger = logging.getLogger(func.__module__)
             log_formatter = getattr(self, "_log_formatter", None)
             if log_formatter is not None:
                 logger.warning(
