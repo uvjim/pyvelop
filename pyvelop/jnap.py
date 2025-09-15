@@ -19,6 +19,7 @@ from .exceptions import (
     MeshBadResponse,
     MeshCannotDeleteDevice,
     MeshConnectionError,
+    MeshDeviceDbFailure,
     MeshException,
     MeshInvalidCredentials,
     MeshInvalidInput,
@@ -301,6 +302,10 @@ class Response:
                     err = MeshAlreadyInProgress
                 elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
                     err = MeshCannotDeleteDevice
+                elif resp.get(self.RESULT_KEY) == "ErrorDeviceDBFailure":
+                    err = MeshDeviceDbFailure(
+                        resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", "")
+                    )
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
                     err = MeshNodeNotPrimary
                 elif resp.get(self.RESULT_KEY) == "ErrorInvalidWANSchedule":
