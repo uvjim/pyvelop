@@ -16,8 +16,8 @@ from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .const import DeviceProperty, MeshCapability, UiType
-from .decorators import deprecated, needs_initialise
+from .const import DeviceProperty, MeshCapability
+from .decorators import needs_initialise
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
@@ -25,10 +25,9 @@ from .exceptions import (
     MeshInvalidArguments,
     MeshInvalidCredentials,
     MeshInvalidInput,
-    MeshTooManyMatches,
 )
 from .logger import Logger
-from .mesh_entity import DeviceEntity, NodeEntity, ParentalControl
+from .mesh_entity import DeviceEntity, NodeEntity
 from .types import MeshDetails, NodeType
 
 # endregion
@@ -105,41 +104,6 @@ def _process_speedtest_results(
     if only_latest:
         if ret:
             ret = [ret[0]]
-
-    return ret
-
-
-def _get_parental_control_device_attributes(
-    schedule: dict[str, Any], urls: list[str]
-) -> dict[str, Any]:
-    """Determine what happens with device properties for parental control."""
-    ret = {
-        "remove": [],
-        "modify": [],
-    }
-    if schedule == ParentalControl.ALL_ALLOWED_SCHEDULE() and not urls:
-        ret["remove"].extend(
-            [
-                DeviceProperty.ACTUAL_WAN_SCHEDULE.value,
-                DeviceProperty.BLOCK_ALL_MANUALLY.value,
-                DeviceProperty.SHOW_IN_PC_LIST.value,
-            ]
-        )
-
-    if (
-        schedule != ParentalControl.ALL_ALLOWED_SCHEDULE()
-        or schedule == ParentalControl.ALL_ALLOWED_SCHEDULE()
-        and urls
-    ):
-        ret["modify"].append(
-            {"name": DeviceProperty.SHOW_IN_PC_LIST.value, "value": "true"}
-        )
-        if schedule == ParentalControl.ALL_PAUSED_SCHEDULE():
-            ret["modify"].append(
-                {"name": DeviceProperty.BLOCK_ALL_MANUALLY.value, "value": "true"}
-            )
-        else:
-            ret["remove"].append(DeviceProperty.BLOCK_ALL_MANUALLY.value)
 
     return ret
 
