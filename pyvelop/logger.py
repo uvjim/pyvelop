@@ -2,8 +2,24 @@
 
 # region #-- imports --#
 import inspect
+import logging
 
 # endregion
+
+
+def set_logging_format(
+    *, prefix: str = "", include_lineno: bool = False, include_func_name: bool = False
+) -> str:
+    """Set the format used by loggers."""
+
+    format: list[str] = logging.BASIC_FORMAT.split(":")
+    if include_lineno:
+        format.insert(-1, "%(lineno)d")
+    if include_func_name:
+        format.insert(-1, "%(funcName)s")
+    if prefix != "":
+        format[-1] = f"{prefix}{format[-1]}"
+    return ":".join(format)
 
 
 class Logger:

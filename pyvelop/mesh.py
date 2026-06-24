@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from collections.abc import Coroutine
-from typing import Any
+from typing import Any, cast
 
 from aiohttp import ClientSession
 
@@ -26,7 +26,6 @@ from .exceptions import (
     MeshInvalidCredentials,
     MeshInvalidInput,
 )
-from .logger import Logger
 from .mesh_entity import DeviceEntity, NodeEntity
 from .types import MeshDetails, NodeType
 
@@ -40,7 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
-def _get_speedtest_state(speedtest_results=None) -> str:
+def _get_speedtest_state(speedtest_results: dict[str, Any] | None = None) -> str:
     """Process the Speedtest results to get a textual state."""
     if speedtest_results is None:
         speedtest_results = {}
@@ -132,9 +131,8 @@ class Mesh:
         :param session: session to use in for interacting with the Mesh
         :param username: username to use; default admin
         """
-        self._log_formatter = Logger()
 
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         self._mesh_attributes: dict[
             str, list[DeviceEntity] | list[NodeEntity] | api.JnapResponse
@@ -157,29 +155,32 @@ class Mesh:
         self.__passed_session: bool = isinstance(session, ClientSession)
 
         _LOGGER.debug(
-            self._log_formatter.format("Session was passed in: %s"),
-            "Yes" if self.__passed_session else "No",
+            "session was passed in: %s",
+            "yes" if self.__passed_session else "no",
         )
 
         _LOGGER.debug(
-            self._log_formatter.format("%s version: %s"),
+            "%s version: %s",
             __package__,
             __version__,
         )
         _LOGGER.debug(
-            self._log_formatter.format(
-                "Initialised mesh for %s with request timeout %ss"
-            ),
+            "initialised mesh for %s with request timeout %ss",
             self._mesh_details.host,
             self._mesh_details.request_timeout,
         )
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Mesh:
         """Asynchronous enter magic method."""
         return self
 
-    async def __aexit__(self, exc_type, exc, traceback) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: Any,
+    ) -> None:
         """Asynchronous exit magic method."""
         await self.async_close()
 
@@ -196,9 +197,9 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER_VERBOSE.debug(self._log_formatter.format("entered"))
+        _LOGGER_VERBOSE.debug("entered")
         session = ClientSession(raise_for_status=True)
-        _LOGGER_VERBOSE.debug(self._log_formatter.format("exited"))
+        _LOGGER_VERBOSE.debug("exited")
         return session
 
     async def _async_make_request(
@@ -218,7 +219,7 @@ class Mesh:
 
         :return: tuple containing the request and response objects or raises an error if need be
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         if node_address is not None and action != api.Actions.REBOOT:
             raise MeshInvalidArguments
@@ -229,9 +230,7 @@ class Mesh:
         if (
             not self.__passed_session and self._mesh_details.session.closed
         ):  # session closed so recreate it
-            _LOGGER_VERBOSE.debug(
-                self._log_formatter.format("session was closed, reopening")
-            )
+            _LOGGER_VERBOSE.debug("session was closed, reopening")
             self._mesh_details.session = self.__create_session()
 
         req = api.Request(
@@ -248,7 +247,7 @@ class Mesh:
         except Exception as err:
             raise err from None
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         return (req, req_resp)
 
     async def _async_gather_details(
@@ -258,9 +257,9 @@ class Mesh:
 
         :return: A dictionary containing the relevant details.
         """
-        _LOGGER.debug(self._log_formatter.format("entered, args: %s"), capabilities)
+        _LOGGER.debug("entered, args: %s", capabilities)
 
-        ret = {}
+        ret: dict[str, Any] = {}
         payload: list[dict[str, Any]] = []
 
         for capability in capabilities:
@@ -268,11 +267,11 @@ class Mesh:
             payload.append(
                 {
                     "action": jnap_action.value,
-                    "request": api.Defaults.payloads[jnap_action],
+                    "request": api.Defaults.get(jnap_action.name),
                 }
             )
 
-        responses: tuple[_ApiResponse] = await asyncio.gather(
+        responses: tuple[_ApiResponse, ...] = await asyncio.gather(
             self._async_make_request(api.Actions.TRANSACTION, payload=payload)
         )
 
@@ -282,7 +281,7 @@ class Mesh:
             try:
                 api_response: api.Response = api.Response(action=action, data=data)
             except MeshException as err:
-                _LOGGER.debug(self._log_formatter.format("%s"), err)
+                _LOGGER.debug("%s", err)
             else:
                 capability: MeshCapability = MeshCapability[api.Actions(action).name]
                 ret[capability.value] = api_response.data
@@ -292,7 +291,7 @@ class Mesh:
             if req.action == api.Actions.TRANSACTION:
                 if resp.data is not None and isinstance(resp.data, list):
                     for idx, action_response in enumerate(resp.data):
-                        if req.payload is not None:
+                        if isinstance(req.payload, list):
                             _set_raw_value(
                                 action=req.payload[idx].get("action", ""),
                                 data=action_response,
@@ -303,9 +302,10 @@ class Mesh:
 
         # region #-- handle mesh entities --#
         mesh_entities: list[DeviceEntity | NodeEntity] = []
-        discovered_mesh_entities: list[dict[str, Any]] = ret.get(
-            MeshCapability.GET_DEVICES.value, {}
-        ).get("devices", [])
+        discovered_mesh_entities: list[dict[str, Any]] = cast(
+            list[dict[str, Any]],
+            ret.get(MeshCapability.GET_DEVICES.value, {}).get("devices", []),
+        )
         # region #-- build the properties for the mesh entity types --#
         for entity in discovered_mesh_entities:
             entity_data: dict[str, Any] = {}
@@ -313,7 +313,7 @@ class Mesh:
             entity_data.update(entity)
             if "nodeType" not in entity:
                 # region #-- process MAC based information --#
-                dev_pc_schedule: list = []
+                dev_pc_schedule: list[dict[str, Any]] = []
                 dev_adapter_macs: list[str] = [
                     dev_adapter.get("macAddress")
                     for dev_adapter in entity.get("knownInterfaces", [])
@@ -441,7 +441,7 @@ class Mesh:
         ret[_ATTR_PROCESSED_DEVICES] = mesh_entities or []
         # endregion
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         return ret
 
     async def _async_set_device_property(
@@ -455,9 +455,7 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(
-            self._log_formatter.format("entered, name: %s, value: %s"), name, value
-        )
+        _LOGGER.debug("entered, name: %s, value: %s", name, value)
 
         try:
             await self._async_make_request(
@@ -479,7 +477,7 @@ class Mesh:
         except Exception as err:
             _LOGGER.error(err)
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     # endregion
 
@@ -491,11 +489,11 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
         await self._async_make_request(
             action=api.Actions.UPDATE_FIRMWARE, payload={"onlyCheck": True}
         )
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_close(self) -> None:
         """Close the session to the mesh.
@@ -503,9 +501,9 @@ class Mesh:
         :return: None
         """
         if not self.__passed_session:
-            _LOGGER.debug(self._log_formatter.format("entered"))
+            _LOGGER.debug("entered")
             await self._mesh_details.session.close()
-            _LOGGER.debug(self._log_formatter.format("exited"))
+            _LOGGER.debug("exited")
 
     async def async_detect_capabilities(self) -> list[MeshCapability]:
         """Attempt to detect the capabilities of the Mesh.
@@ -513,13 +511,13 @@ class Mesh:
         :return: list of capabilities for the mesh.
         """
         ret: list[MeshCapability] = []
-        requests: list[Coroutine] = []
+        requests: list[Coroutine[Any, Any, _ApiResponse]] = []
         for qry in MeshCapability:
             action_name: str = qry.name
             requests.append(
                 self._async_make_request(
                     action=getattr(api.Actions, action_name),
-                    payload=api.Defaults.payloads[getattr(api.Actions, action_name)],
+                    payload=api.Defaults.get(action_name),
                     raise_on_error=False,
                 )
             )
@@ -544,12 +542,12 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         self._mesh_attributes = await self._async_gather_details(
             self._mesh_capabilities
         )
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_get_channel_scan_info(self) -> dict[str, Any] | None:
         """Get the current state of the channel scan.
@@ -576,7 +574,7 @@ class Mesh:
 
         :return: List of device objects
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         all_devices: list[DeviceEntity] = []
         ret: list[DeviceEntity] = []
@@ -659,7 +657,7 @@ class Mesh:
 
         ret = sorted(ret, key=lambda device: device.name)
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         return ret
 
     async def async_get_speedtest_results(
@@ -673,17 +671,17 @@ class Mesh:
 
         :return: List of dictionaries containing the result details
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         payload = {
-            **api.Defaults.payloads[api.Actions.GET_SPEEDTEST_RESULTS],
+            **api.Defaults.get(api.Actions.GET_SPEEDTEST_RESULTS),
             "lastNumberOfResults": count,
         }
         _, resp = await self._async_make_request(
             action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload
         )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         ret = []
         if resp.data is not None and not isinstance(resp.data, list):
             speedtest_results = resp.data.get("healthCheckResults", [])
@@ -701,7 +699,7 @@ class Mesh:
 
         :return: A string containing the stage
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         resp = await self._async_gather_details([MeshCapability.GET_SPEEDTEST_STATUS])
         ret = _get_speedtest_state(
@@ -710,7 +708,7 @@ class Mesh:
             )
         )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         return ret
 
     async def async_get_update_state(self) -> bool:
@@ -718,7 +716,7 @@ class Mesh:
 
         :return: True if still running, False if not
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         resp = await self._async_gather_details(
             [MeshCapability.GET_UPDATE_FIRMWARE_STATE]
@@ -731,7 +729,7 @@ class Mesh:
 
         ret: bool = any(all_states)
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         return ret
 
     async def async_get_upnp_state(self) -> dict[str, bool]:
@@ -740,13 +738,15 @@ class Mesh:
         :return: dictionary containing information about the state of UPnP functionality
         """
 
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         resp = await self._async_gather_details([MeshCapability.GET_UPNP_SETTINGS])
 
-        ret = resp.get(MeshCapability.GET_UPNP_SETTINGS.value, {})
+        ret = cast(
+            dict[str, bool], resp.get(MeshCapability.GET_UPNP_SETTINGS.value, {})
+        )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         return ret
 
     async def async_initialise(self) -> None:
@@ -777,7 +777,7 @@ class Mesh:
     async def async_reboot_mesh(self) -> None:
         """Reboot the mesh."""
 
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
         found_node: NodeEntity | None = next(
             (node for node in self.nodes if node.type == NodeType.PRIMARY),
             None,
@@ -788,7 +788,7 @@ class Mesh:
 
         await found_node.async_reboot(True)
 
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
@@ -801,7 +801,7 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
+        _LOGGER.debug("entered, state: %s", state)
 
         # get the current radio settings from the API; they may have changed
         resp = await self._async_gather_details([MeshCapability.GET_GUEST_NETWORK_INFO])
@@ -815,7 +815,7 @@ class Mesh:
             action=api.Actions.SET_GUEST_NETWORK, payload=payload
         )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_set_homekit_state(self, state: bool) -> None:
         """Set the state of the HomeKit feature.
@@ -824,11 +824,11 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
+        _LOGGER.debug("entered, state: %s", state)
         await self._async_make_request(
             action=api.Actions.SET_HOMEKIT_SETTINGS, payload={"isEnabled": state}
         )
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature. Rules are left intact.
@@ -837,7 +837,7 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
+        _LOGGER.debug("entered, state: %s", state)
         # get the current rules from the API because they may be different
         resp = await self._async_gather_details(
             [MeshCapability.GET_PARENTAL_CONTROL_INFO]
@@ -852,7 +852,7 @@ class Mesh:
             action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload
         )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_set_upnp_settings(
         self, enabled: bool, allow_change_settings: bool, allow_disable_internet: bool
@@ -866,9 +866,7 @@ class Mesh:
         :return: None
         """
         _LOGGER.debug(
-            self._log_formatter.format(
-                "entered, enabled: %s, allow_change_settings: %s, allow_disable_internet: %s"
-            ),
+            "entered, enabled: %s, allow_change_settings: %s, allow_disable_internet: %s",
             enabled,
             allow_change_settings,
             allow_disable_internet,
@@ -881,7 +879,7 @@ class Mesh:
         await self._async_make_request(
             action=api.Actions.SET_UPNP_SETTINGS, payload=payload
         )
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_set_wps_state(self, state: bool) -> None:
         """Set the state of the WPS feature.
@@ -890,35 +888,30 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered, state: %s"), state)
+        _LOGGER.debug("entered, state: %s", state)
         await self._async_make_request(
             action=api.Actions.SET_WPS_SERVER_SETTINGS, payload={"enabled": state}
         )
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_start_channel_scan(self) -> None:
         """Start a channel scan on the mesh.
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         try:
             await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN)
         except MeshAlreadyInProgress as err:
-            _LOGGER.debug(
-                self._log_formatter.format("%s"),
-                err,
-            )
+            _LOGGER.debug(err)
         except MeshInvalidInput as err:
             _LOGGER.warning(
-                self._log_formatter.format(
-                    "%s - are you sure the functionality is available"
-                ),
+                "%s - are you sure the functionality is available",
                 err,
             )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_start_speedtest(self) -> None:
         """Instruct the mesh to carry out a Speedtest.
@@ -928,21 +921,21 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         payload = {"runHealthCheckModule": "SpeedTest"}
         await self._async_make_request(
             action=api.Actions.START_SPEEDTEST, payload=payload
         )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid.
 
         :return: True if valid, False if not
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
+        _LOGGER.debug("entered")
 
         ret: bool = False
         try:
@@ -957,7 +950,7 @@ class Mesh:
             _LOGGER.error(err)
             raise
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
         return ret
 
     # endregion
@@ -1000,11 +993,14 @@ class Mesh:
         :return: True if enabled, False otherwise.
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}
+            ),
         )
 
-        return attr.get("isClientSteeringEnabled")
+        return cast(bool | None, attr.get("isClientSteeringEnabled"))
 
     @property
     def connected_node(self) -> str:
@@ -1040,11 +1036,12 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_LAN_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_LAN_SETTINGS.value, {}),
         )
 
-        return attr.get("isDHCPEnabled")
+        return cast(bool | None, attr.get("isDHCPEnabled"))
 
     @property
     @needs_initialise
@@ -1056,8 +1053,9 @@ class Mesh:
         ret: list[dict[str, str]] = []
         temp_dict: dict[str, str] = {}
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_LAN_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_LAN_SETTINGS.value, {}),
         )
 
         for reservation in attr.get("dhcpSettings", {}).get("reservations", []):
@@ -1118,11 +1116,12 @@ class Mesh:
         :return: True if enabled
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_GUEST_NETWORK_INFO.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_GUEST_NETWORK_INFO.value, {}),
         )
 
-        return attr.get("isGuestNetworkEnabled")
+        return cast(bool | None, attr.get("isGuestNetworkEnabled"))
 
     @property
     @needs_initialise
@@ -1132,16 +1131,18 @@ class Mesh:
         :return: A list of dictionaries containing the SSID and band for the networks
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_GUEST_NETWORK_INFO.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_GUEST_NETWORK_INFO.value, {}),
         )
+        radios = cast(list[dict[str, Any]], attr.get("radios", []))
 
         ret = [
             {
-                "ssid": radio.get("guestSSID"),
-                "band": radio.get("radioID").split("_")[-1],
+                "ssid": cast(str, radio.get("guestSSID")),
+                "band": cast(str, radio.get("radioID", "")).split("_")[-1],
             }
-            for _, radio in enumerate(attr.get("radios", []))
+            for radio in radios
         ]
         return ret
 
@@ -1153,11 +1154,12 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_HOMEKIT_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_HOMEKIT_SETTINGS.value, {}),
         )
 
-        return attr.get("isEnabled")
+        return cast(bool | None, attr.get("isEnabled"))
 
     @property
     @needs_initialise
@@ -1167,11 +1169,12 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_HOMEKIT_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_HOMEKIT_SETTINGS.value, {}),
         )
 
-        return attr.get("isPaired")
+        return cast(bool | None, attr.get("isPaired"))
 
     @property
     @needs_initialise
@@ -1181,11 +1184,12 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_CHANNEL_SCAN_STATUS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_CHANNEL_SCAN_STATUS.value, {}),
         )
 
-        return attr.get("isRunning")
+        return cast(bool | None, attr.get("isRunning"))
 
     @property
     @needs_initialise
@@ -1199,8 +1203,9 @@ class Mesh:
 
         ret: _SpeedtestResult | None = None
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_SPEEDTEST_RESULTS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_RESULTS.value, {}),
         )
         results: list[_SpeedtestResult] = _process_speedtest_results(
             attr.get("healthCheckResults", []),
@@ -1220,11 +1225,14 @@ class Mesh:
         :return: list of MAC addresses
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
+            ),
         )
 
-        return attr.get("macAddresses", [])
+        return cast(list[str], attr.get("macAddresses", []))
 
     @property
     @needs_initialise
@@ -1234,11 +1242,14 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
+            ),
         )
 
-        return attr.get("macFilterMode", "").lower() != "disabled"
+        return cast(str, attr.get("macFilterMode", "")).lower() != "disabled"
 
     @property
     @needs_initialise
@@ -1248,11 +1259,14 @@ class Mesh:
         :return: string containing the filtering mode
         """
         if self.mac_filtering_enabled:
-            attr: api.JnapResponse | Any = self._mesh_attributes.get(
-                MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
+            attr = cast(
+                dict[str, Any],
+                self._mesh_attributes.get(
+                    MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}
+                ),
             )
 
-            return attr.get("macFilterMode", "").lower()
+            return cast(str, attr.get("macFilterMode", "")).lower()
 
         return None
 
@@ -1334,16 +1348,17 @@ class Mesh:
 
     @property
     @needs_initialise
-    def storage_available(self) -> list:
+    def storage_available(self) -> list[dict[str, Any]]:
         """Get available shared partitions.
 
         :return: List of the available storage devices and their properties
         """
-        ret: list = []
+        ret: list[dict[str, Any]] = []
         node: NodeEntity | None
-        device: dict
-        storage_available: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_STORAGE_PARTITIONS.value, {}
+        device: dict[str, Any]
+        storage_available = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(MeshCapability.GET_STORAGE_PARTITIONS.value, {}),
         )
 
         for storage_node in storage_available.get("storageNodes", []):
@@ -1388,17 +1403,23 @@ class Mesh:
 
     @property
     @needs_initialise
-    def storage_settings(self) -> dict:
+    def storage_settings(self) -> dict[str, bool | None]:
         """Get the settings for shared partitions.
 
         :return: dictionary of the storage settings
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_STORAGE_SMB_SERVER.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_STORAGE_SMB_SERVER.value,
+                {},
+            ),
         )
 
-        return {"anonymous_access": attr.get("isAnonymousAccessEnabled")}
+        return {
+            "anonymous_access": cast(bool | None, attr.get("isAnonymousAccessEnabled"))
+        }
 
     @property
     def timeout(self) -> float:
@@ -1418,9 +1439,7 @@ class Mesh:
         :return: None
         """
 
-        _LOGGER.debug(
-            self._log_formatter.format("setting request timeout to: %ss"), value
-        )
+        _LOGGER.debug("setting request timeout to: %ss", value)
         self._mesh_details.request_timeout = value
 
     @property
@@ -1467,7 +1486,7 @@ class Mesh:
 
     @property
     @needs_initialise
-    def wan_dns(self) -> list:
+    def wan_dns(self) -> list[str]:
         """Get the WAN DNS servers.
 
         :return: A list containing the IP addresses of the WAN DNS servers
@@ -1478,8 +1497,8 @@ class Mesh:
         )
 
         ret = [
-            val
-            for key, val in attr.get("wanConnection", {}).items()
+            cast(str, val)
+            for key, val in cast(dict[str, Any], attr.get("wanConnection", {})).items()
             if key.startswith("dnsServer")
         ]
 
@@ -1493,10 +1512,17 @@ class Mesh:
         :return: A string containing the IP address for the WAN
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_WAN_INFO.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_WAN_INFO.value,
+                {},
+            ),
         )
-        return attr.get("wanConnection", {}).get("ipAddress")
+        return cast(
+            str | None,
+            cast(dict[str, Any], attr.get("wanConnection", {})).get("ipAddress"),
+        )
 
     @property
     @needs_initialise
@@ -1506,11 +1532,15 @@ class Mesh:
         :return: A string containing the MAC address for the WAN adapter
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_WAN_INFO.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_WAN_INFO.value,
+                {},
+            ),
         )
 
-        return attr.get("macAddress", "")
+        return cast(str, attr.get("macAddress", ""))
 
     @property
     @needs_initialise
@@ -1520,11 +1550,15 @@ class Mesh:
         :return: True if connected, False if not
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_WAN_INFO.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_WAN_INFO.value,
+                {},
+            ),
         )
 
-        return attr.get("wanStatus", "").lower() == "connected"
+        return cast(str, attr.get("wanStatus", "")).lower() == "connected"
 
     @property
     @needs_initialise
@@ -1534,10 +1568,14 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_WPS_SERVER_SETTINGS.value, {}
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_WPS_SERVER_SETTINGS.value,
+                {},
+            ),
         )
 
-        return attr.get("enabled", False)
+        return cast(bool, attr.get("enabled", False))
 
     # endregion

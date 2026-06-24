@@ -82,9 +82,17 @@ class MeshInvalidCredentials(MeshException):
 class MeshInvalidInput(MeshException):
     """Parameters passed to the API are in valid."""
 
+    def __init__(self, info: object | None = None) -> None:
+        """Initialise with optional info."""
+        super().__init__(str(info) if info is not None else "Invalid Input")
+
 
 class MeshInvalidOutput(MeshException):
     """Invalid information would be returned from the API."""
+
+    def __init__(self, info: object | None = None) -> None:
+        """Initialise with optional info."""
+        super().__init__(str(info) if info is not None else "Invalid Output")
 
 
 class MeshNeedsInitialise(MeshException):

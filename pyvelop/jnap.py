@@ -6,7 +6,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -37,7 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
-def jnap_url(target) -> str:
+def jnap_url(target: str) -> str:
     """Return the URL that should be used for the request.
 
     :param target: the API host
@@ -108,12 +107,18 @@ class Actions(StrEnum):
 class Defaults:
     """Represents the default payloads required for requests."""
 
-    payloads = defaultdict(dict)
-    payloads[Actions.GET_SPEEDTEST_RESULTS] = {
-        "healthCheckModule": "SpeedTest",
-        "includeModuleResults": True,
-        "lastNumberOfResults": 10,
-    }
+    @staticmethod
+    def get(api_name: str) -> dict[str, Any]:
+        """Return the default payload for the given API name."""
+
+        if api_name == Actions.GET_SPEEDTEST_RESULTS.name:
+            return {
+                "healthCheckModule": "SpeedTest",
+                "includeModuleResults": True,
+                "lastNumberOfResults": 10,
+            }
+
+        return {}
 
 
 class Request:
@@ -124,7 +129,7 @@ class Request:
         action: str,
         password: str,
         target: str,
-        payload: list[dict] | dict | None = None,
+        payload: list[dict[str, Any]] | dict[str, Any] | None = None,
         raise_on_error: bool = True,
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
@@ -144,7 +149,7 @@ class Request:
             bytes(f"{username}:{password}", "utf-8")
         ).decode("ascii")
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
-        self._payload: list[dict] | dict | None = payload
+        self._payload: list[dict[str, Any]] | dict[str, Any] | None = payload
         self._raise_on_error: bool = raise_on_error
         self._session: aiohttp.ClientSession = (
             session
@@ -230,7 +235,7 @@ class Request:
         return self._action
 
     @property
-    def payload(self) -> list[dict] | dict | None:
+    def payload(self) -> list[dict[str, Any]] | dict[str, Any] | None:
         """Return the payload used for the request.
 
         :return: list[dict] | dict | None containing the payload
@@ -277,7 +282,7 @@ class Response:
             if responses is None:
                 raise MeshException("error processing response")
 
-            err = None
+            err: MeshException | None = None
             for resp in responses:
                 err = None
                 if resp is None:
@@ -287,7 +292,7 @@ class Response:
                 elif resp.get(self.RESULT_KEY) == "_ErrorInvalidOutput":
                     err = MeshInvalidOutput(resp.get("error"))
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnauthorized":
-                    err = MeshInvalidCredentials
+                    err = MeshInvalidCredentials()
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
                     action = (
                         resp.get("error")
@@ -299,15 +304,15 @@ class Response:
                     resp.get(self.RESULT_KEY)
                     == "ErrorAutoChannelSelectionAlreadyInProgress"
                 ):
-                    err = MeshAlreadyInProgress
+                    err = MeshAlreadyInProgress()
                 elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
-                    err = MeshCannotDeleteDevice
+                    err = MeshCannotDeleteDevice()
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceDBFailure":
                     err = MeshDeviceDbFailure(
                         resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", "")
                     )
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
-                    err = MeshNodeNotPrimary
+                    err = MeshNodeNotPrimary()
                 elif resp.get(self.RESULT_KEY) == "ErrorInvalidWANSchedule":
                     err = MeshInvalidInput("Invalid WAN Schedule")
                 elif resp.get(self.RESULT_KEY) == "ErrorRulesOverlap":
@@ -329,7 +334,7 @@ class Response:
                     self._log_formatter.format("unknown error received: %s"),
                     self._data,
                 )
-                err = MeshBadResponse
+                err = MeshBadResponse()
 
             raise err
 
@@ -347,7 +352,7 @@ class Response:
         """Return the response data."""
 
         if self._data is None:
-            return
+            return None
 
         ret = (
             self._data.get(self.DATA_KEY_TRANSACTION)
