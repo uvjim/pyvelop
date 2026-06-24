@@ -7,8 +7,8 @@ import contextlib
 import datetime
 import logging
 from collections import namedtuple
-from collections.abc import Callable
-from typing import Any, TypeVar, final
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar, cast, final
 
 from . import jnap as api
 from .const import (
@@ -59,17 +59,16 @@ class ParentalControl:
         for day, sched in schedule.items():
             ret[day.lower()] = []
             idx: int = 0
-            while idx < __class__.BINARY_LENGTH:
+            while idx < ParentalControl.BINARY_LENGTH:
                 block_start: int | None = (
                     sched.index(ParentalControlActionType.BLOCKED.value, idx)
                     if sched is not None
                     and ParentalControlActionType.BLOCKED.value in sched[idx + 1 :]
                     else None
                 )
-                block_end: int | None = None
                 if block_start is None:
                     break
-                block_end = (
+                block_end: int | None = (
                     sched.index(
                         ParentalControlActionType.UNBLOCKED.value, block_start + 1
                     )
@@ -96,7 +95,7 @@ class ParentalControl:
                 if block_end is not None:
                     idx = block_end + 1
                 else:
-                    idx = __class__.BINARY_LENGTH
+                    idx = ParentalControl.BINARY_LENGTH
 
         return ret
 
@@ -105,15 +104,15 @@ class ParentalControl:
     def backup_to_binary(schedule: str) -> dict[str, str]:
         """Decode the schedule for restoring to the device."""
         ret: dict[str, str] = {}
-        decoded = schedule and base64.b64decode(schedule)
+        decoded = base64.b64decode(schedule) if schedule else b""
         sorted_schedule: str = ""
         for chunk in decoded:
             sorted_schedule += f"{int(chunk):08b}"
 
         for daily_schedule in range(0, len(list(Weekdays))):
-            start = daily_schedule * __class__.BINARY_LENGTH
+            start = daily_schedule * ParentalControl.BINARY_LENGTH
             ret[Weekdays(daily_schedule).name] = sorted_schedule[
-                start : start + __class__.BINARY_LENGTH
+                start : start + ParentalControl.BINARY_LENGTH
             ]
 
         return ret
@@ -135,7 +134,10 @@ class ParentalControl:
         for chunk in sorted_chunks:
             chunk_chars.append(int(chunk, base=2))
 
-        ret = chunk_chars and base64.b64encode(chunk_chars).decode()
+        if chunk_chars:
+            ret = base64.b64encode(chunk_chars).decode()
+        else:
+            ret = ""
         return ret
 
     @staticmethod
@@ -148,13 +150,13 @@ class ParentalControl:
         """Generate a rule dictionary that can be passed to the API."""
         ret: dict[str, Any] = {
             "blockedURLs": blocked_urls if blocked_urls is not None else [],
-            "description": __class__.DEFAULT_DESCRIPTION,
+            "description": ParentalControl.DEFAULT_DESCRIPTION,
             "isEnabled": True,
             "macAddresses": [mac_address],
             "wanSchedule": (
                 schedule
                 if not schedule_to_binary
-                else __class__.human_readable_to_binary(schedule)
+                else ParentalControl.human_readable_to_binary(schedule)
             ),
         }
         return ret
@@ -173,11 +175,11 @@ class ParentalControl:
             if len(to_process) > len(Weekdays):
                 raise ValueError("Too many arguments")
 
-        ret: str | dict[str, str] = {}
+        ret_dict: dict[str, str] = {}
         for day, schedule in to_process.items():
             default_binary = [
                 ParentalControlActionType.UNBLOCKED.value
-            ] * __class__.BINARY_LENGTH
+            ] * ParentalControl.BINARY_LENGTH
             if schedule is not None:
                 time_schedules: list[str] = schedule.split(",")
                 TimeBlock = namedtuple("TimeBlock", ["start", "end"])
@@ -193,13 +195,13 @@ class ParentalControl:
                         and time_block.start.minute == 0
                     ):
                         offset_start = 0
-                        offset_end = __class__.BINARY_LENGTH
+                        offset_end = ParentalControl.BINARY_LENGTH
                     elif (  # time wrapping
                         time_block.end < time_block.start
                         and str(time_block.end.time()) != "00:00:00"
                     ):
                         offset_start = 0
-                        offset_end = __class__.BINARY_LENGTH
+                        offset_end = ParentalControl.BINARY_LENGTH
                     else:  # normal time
                         offset_start = time_block.start.hour * 2 + (
                             1 if time_block.start.minute >= 30 else 0
@@ -220,12 +222,12 @@ class ParentalControl:
                     ):
                         break
 
-            ret[day] = "".join(default_binary)
+            ret_dict[day] = "".join(default_binary)
 
         if isinstance(to_encode, str):
-            ret = ret[fake_day]
+            return ret_dict[fake_day]
 
-        return ret
+        return ret_dict
 
     @staticmethod
     def binary_to_human_readable(
@@ -249,12 +251,14 @@ class ParentalControl:
     @property
     def blocked_urls(self) -> list[str]:
         """Return blocked URLs."""
-        return self._rule.get("blockedURLs", [])
+        return cast(list[str], self._rule.get("blockedURLs", []))
 
     @property
     def description(self) -> str:
         """Return the rule description."""
-        return self._rule.get("description", __class__.DEFAULT_DESCRIPTION)
+        return cast(
+            str, self._rule.get("description", ParentalControl.DEFAULT_DESCRIPTION)
+        )
 
     @property
     def human_readable(self) -> dict[str, list[str]]:
@@ -264,17 +268,17 @@ class ParentalControl:
     @property
     def is_enabled(self) -> bool:
         """Return whether the rule is enabled or not."""
-        return self._rule.get("isEnabled", True)
+        return cast(bool, self._rule.get("isEnabled", True))
 
     @property
     def is_paused(self) -> bool:
         """Return whether the rule is all blocking."""
-        return self.schedule == __class__.ALL_PAUSED_SCHEDULE()
+        return self.schedule == ParentalControl.ALL_PAUSED_SCHEDULE()
 
     @property
     def mac_addresses(self) -> list[str]:
         """Return the MAC addresses the rule is for."""
-        return self._rule.get("macAddresses", [])
+        return cast(list[str], self._rule.get("macAddresses", []))
 
     @final
     @property
@@ -291,7 +295,7 @@ class ParentalControl:
     @property
     def schedule(self) -> dict[str, str]:
         """Return the current internet access schedule used in the rule."""
-        return self._rule.get("wanSchedule", {})
+        return cast(dict[str, str], self._rule.get("wanSchedule", {}))
 
     # endregion
 
@@ -321,7 +325,7 @@ class MeshEntity:
         ret: str | None = None
 
         user_properties: list[dict[str, Any]] = self._data.get("properties", [])
-        user_prop: list[dict[str, Any]] | str = [
+        user_prop: list[dict[str, Any]] = [
             prop for prop in user_properties if prop.get("name") == property_name.value
         ]
         if user_prop:
@@ -463,7 +467,7 @@ class MeshEntity:
 
         :return: The parent node name or None if no node has been identified.
         """
-        return self._data.get("parent_name")
+        return cast(str | None, self._data.get("parent_name"))
 
     @property
     def results_time(self) -> str | None:
@@ -471,7 +475,7 @@ class MeshEntity:
 
         :return: The time the scan was executed
         """
-        return self._data.get("results_time")
+        return cast(str | None, self._data.get("results_time"))
 
     @property
     def status(self) -> bool:
@@ -496,7 +500,7 @@ class MeshEntity:
     @property
     def unique_id(self) -> str | None:
         """Return the unique id of the entity."""
-        return self._data.get("deviceID")
+        return cast(str | None, self._data.get("deviceID"))
 
 
 MeshEntityType = TypeVar("MeshEntityType", bound=MeshEntity)
@@ -837,7 +841,7 @@ class DeviceEntity(MeshEntity):
             )
         )
 
-        requests: list = [
+        requests: list[Awaitable[api.Response]] = [
             self._async_api_request(
                 api.Actions.SET_PARENTAL_CONTROL_INFO,
                 {
@@ -893,7 +897,7 @@ class DeviceEntity(MeshEntity):
 
         :return: Device description as per the mesh
         """
-        return self._data.get("model", {}).get("description", None)
+        return cast(str | None, self._data.get("model", {}).get("description", None))
 
     @property
     def manufacturer(self) -> str | None:
@@ -941,21 +945,20 @@ class DeviceEntity(MeshEntity):
 
         :return: dictionary containing the parental controls for the device.
         """
-        ret: dict = {}
-        if self._data.get("parental_controls"):
-            for rule in self._data.get("parental_controls", {}):
-                pc_details: ParentalControl = ParentalControl(rule)
-                ret = {
-                    "blocked_internet_access": pc_details.human_readable,
-                    "blocked_sites": pc_details.blocked_urls,
-                }
+        ret: dict[str, Any] = {}
+        for rule in self._data.get("parental_controls", []):
+            pc_details: ParentalControl = ParentalControl(rule)
+            ret = {
+                "blocked_internet_access": pc_details.human_readable,
+                "blocked_sites": pc_details.blocked_urls,
+            }
 
         return ret
 
     @property
     def serial(self) -> str | None:
         """Get the serial number."""
-        return self._data.get("unit", {}).get("serialNumber", None)
+        return cast(str | None, self._data.get("unit", {}).get("serialNumber", None))
 
 
 class NodeEntity(MeshEntity):
@@ -1091,7 +1094,7 @@ class NodeEntity(MeshEntity):
 
         :return: A string containing the hardware version
         """
-        return self._data.get("model", {}).get("hardwareVersion")
+        return cast(str | None, self._data.get("model", {}).get("hardwareVersion"))
 
     @property
     def last_update_check(self) -> str | None:
@@ -1099,7 +1102,10 @@ class NodeEntity(MeshEntity):
 
         :return: String containing the last update time as per the API
         """
-        ret = self._data.get("firmware_updates", {}).get("lastSuccessfulCheckTime")
+        ret = cast(
+            str | None,
+            self._data.get("firmware_updates", {}).get("lastSuccessfulCheckTime"),
+        )
         return ret
 
     @property
@@ -1108,7 +1114,7 @@ class NodeEntity(MeshEntity):
 
         :return: String containing the name of the manufacturer
         """
-        return self._data.get("model", {}).get("manufacturer")
+        return cast(str | None, self._data.get("model", {}).get("manufacturer"))
 
     @property
     def model(self) -> str | None:
@@ -1116,7 +1122,7 @@ class NodeEntity(MeshEntity):
 
         :return: A string containing the model
         """
-        return self._data.get("model", {}).get("modelNumber")
+        return cast(str | None, self._data.get("model", {}).get("modelNumber"))
 
     @property
     def parent_ip(self) -> str | None:
@@ -1124,7 +1130,7 @@ class NodeEntity(MeshEntity):
 
         :return: The IP of the parent node or None if no node has been identified.
         """
-        return self._data.get("backhaul", {}).get("parentIPAddress")
+        return cast(str | None, self._data.get("backhaul", {}).get("parentIPAddress"))
 
     @property
     def serial(self) -> str | None:
@@ -1132,7 +1138,7 @@ class NodeEntity(MeshEntity):
 
         :return: A string containing the serial number
         """
-        return self._data.get("unit", {}).get("serialNumber")
+        return cast(str | None, self._data.get("unit", {}).get("serialNumber"))
 
     @property
     def type(self) -> NodeType:
