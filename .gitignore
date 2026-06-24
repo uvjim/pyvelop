@@ -132,8 +132,11 @@ dmypy.json
 .idea/
 tests/
 
+# Package files
+.vscode/
+cli_output/
 doco_package.py
 logo.ico
 *.code-workspace
-.vscode/launch.json
-.vscode/settings.json
+.mypy_*.txt
+mypy_*.txt
