@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from typing import Any, cast
 
@@ -735,7 +736,7 @@ async def mesh_action(
     except Exception as exc:
         _write_error(exc)
     else:
-        _output(None, ret)
+        _output(None, json.dumps(ret))
 
 
 @cli.group(name="node")
@@ -1128,4 +1129,5 @@ async def _get_device_details(
 
 if __name__ == "__main__":
     with contextlib.suppress(Exception):
+        cli()
         cli()
