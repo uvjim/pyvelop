@@ -19,11 +19,45 @@ class DeviceProperty(StrEnum):
     UI_TYPE = "userDeviceType"
 
 
+class MeshCapability(StrEnum):
+    """The possible capabilities available to the Mesh."""
+
+    GET_ALG_SETTINGS = "alg_settings"
+    GET_BACKHAUL = "backhaul"
+    GET_CHANNEL_SCAN_STATUS = "channel_scan_status"
+    GET_DEVICES = "devices"
+    GET_EXPRESS_FORWARDING = "express_forwarding"
+    GET_FIRMWARE_UPDATE_SETTINGS = "firmware_update_settings"
+    GET_GUEST_NETWORK_INFO = "guest_network_info"
+    GET_HOMEKIT_SETTINGS = "homekit_settings"
+    GET_LAN_SETTINGS = "lan_setting"
+    GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
+    GET_NETWORK_CONNECTIONS = "network_connections"
+    GET_PARENTAL_CONTROL_INFO = "parental_control_info"
+    GET_SCHEDULED_REBOOT_SETTINGS = "scheduled_reboot_settings"
+    GET_SPEEDTEST_RESULTS = "speedtest_results"
+    GET_SPEEDTEST_STATUS = "speedtest_status"
+    GET_STORAGE_PARTITIONS = "storage_partitions"
+    GET_STORAGE_SMB_SERVER = "storage_smb_server"
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "topology_optimisation_settings"
+    GET_UPDATE_FIRMWARE_STATE = "update_firmware_state"
+    GET_UPNP_SETTINGS = "upnp_settings"
+    GET_WAN_INFO = "wan_info"
+    GET_WPS_SERVER_SETTINGS = "wps_server_settings"
+
+
 class ParentalControlActionType(StrEnum):
     """Representation of parental control time actions."""
 
     BLOCKED = "0"
     UNBLOCKED = "1"
+
+
+class ScheduledRebootInterval(StrEnum):
+    """Representation of the available scheduled reboot intervals."""
+
+    MONTHLY = "Monthly"
+    WEEKLY = "Weekly"
 
 
 class UiType(StrEnum):
@@ -187,29 +221,3 @@ class Weekdays(IntEnum):
     THURSDAY = auto()
     FRIDAY = auto()
     SATURDAY = auto()
-
-
-class MeshCapability(StrEnum):
-    """The possible capabilities available to the Mesh."""
-
-    GET_ALG_SETTINGS = "alg_settings"
-    GET_BACKHAUL = "backhaul"
-    GET_CHANNEL_SCAN_STATUS = "channel_scan_status"
-    GET_DEVICES = "devices"
-    GET_EXPRESS_FORWARDING = "express_forwarding"
-    GET_FIRMWARE_UPDATE_SETTINGS = "firmware_update_settings"
-    GET_GUEST_NETWORK_INFO = "guest_network_info"
-    GET_HOMEKIT_SETTINGS = "homekit_settings"
-    GET_LAN_SETTINGS = "lan_setting"
-    GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
-    GET_NETWORK_CONNECTIONS = "network_connections"
-    GET_PARENTAL_CONTROL_INFO = "parental_control_info"
-    GET_SPEEDTEST_RESULTS = "speedtest_results"
-    GET_SPEEDTEST_STATUS = "speedtest_status"
-    GET_STORAGE_PARTITIONS = "storage_partitions"
-    GET_STORAGE_SMB_SERVER = "storage_smb_server"
-    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "topology_optimisation_settings"
-    GET_UPDATE_FIRMWARE_STATE = "update_firmware_state"
-    GET_UPNP_SETTINGS = "upnp_settings"
-    GET_WAN_INFO = "wan_info"
-    GET_WPS_SERVER_SETTINGS = "wps_server_settings"

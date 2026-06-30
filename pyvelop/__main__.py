@@ -12,7 +12,7 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
-from .const import MeshCapability, Weekdays
+from .const import MeshCapability, ScheduledRebootInterval, Weekdays
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -422,6 +422,83 @@ async def mesh_group() -> None:
     """Work with the mesh."""
 
 
+@mesh_group.command(cls=StandardCommand, name="action")
+@click.argument(
+    "action", type=click.Choice(tuple(MESH_ALLOWED_ACTIONS), case_sensitive=False)
+)
+@click.pass_context
+async def mesh_action(
+    ctx: click.Context,
+    /,
+    action: str,
+    **_: Any,
+) -> None:
+    """Carry out a specified action on the mesh."""
+
+    ret: Any = None
+    try:
+        if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
+            async with mesh_obj:
+                if action == "channel_scan_info":
+                    ret = await mesh_obj.async_get_channel_scan_info()
+                elif action == "channel_scan_start":
+                    await mesh_obj.async_start_channel_scan()
+                elif action == "detect_capabilities":
+                    ret = await mesh_obj.async_detect_capabilities()
+                elif action == "guest_wifi_off":
+                    await mesh_obj.async_set_guest_wifi_state(state=False)
+                elif action == "guest_wifi_on":
+                    await mesh_obj.async_set_guest_wifi_state(state=True)
+                elif action == "homekit_off":
+                    await mesh_obj.async_set_homekit_state(state=False)
+                elif action == "homekit_on":
+                    await mesh_obj.async_set_homekit_state(state=True)
+                elif action == "parental_control_off":
+                    await mesh_obj.async_set_parental_control_state(state=False)
+                elif action == "parental_control_on":
+                    await mesh_obj.async_set_parental_control_state(state=True)
+                elif action == "speedtest_results":
+                    ret = await mesh_obj.async_get_speedtest_results()
+                elif action == "speedtest_start":
+                    await mesh_obj.async_start_speedtest()
+                elif action == "speedtest_state":
+                    ret = await mesh_obj.async_get_speedtest_state()
+                elif action == "update_check_start":
+                    await mesh_obj.async_check_for_updates()
+                elif action == "upnp_off":
+                    cur_settings = await mesh_obj.async_get_upnp_state()
+                    new_upnp_settings_off: dict[str, bool] = {
+                        "enabled": False,
+                        "allow_change_settings": cur_settings.get(
+                            "canUsersConfigure", False
+                        ),
+                        "allow_disable_internet": cur_settings.get(
+                            "canUsersDisableWANAccess", False
+                        ),
+                    }
+                    await mesh_obj.async_set_upnp_settings(**new_upnp_settings_off)
+                elif action == "upnp_on":
+                    cur_settings = await mesh_obj.async_get_upnp_state()
+                    new_upnp_settings_on: dict[str, bool] = {
+                        "enabled": True,
+                        "allow_change_settings": cur_settings.get(
+                            "canUsersConfigure", False
+                        ),
+                        "allow_disable_internet": cur_settings.get(
+                            "canUsersDisableWANAccess", False
+                        ),
+                    }
+                    await mesh_obj.async_set_upnp_settings(**new_upnp_settings_on)
+                elif action == "wps_off":
+                    await mesh_obj.async_set_wps_state(state=False)
+                elif action == "wps_on":
+                    await mesh_obj.async_set_wps_state(state=True)
+    except Exception as exc:
+        _write_error(exc)
+    else:
+        _output(None, json.dumps(ret))
+
+
 @mesh_group.command(cls=StandardCommand, name="details")
 @click.option("--outfile", default=None, required=False)
 @click.pass_context
@@ -448,6 +525,24 @@ async def mesh_details(
                     pd.DataFrame(mesh_obj.capabilities, columns=[""]),
                     title="Capabilities",
                 )
+                if (
+                    MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS
+                    in mesh_obj.capabilities
+                ):
+                    data: dict[str, Any] = {
+                        "Enabled": mesh_obj.scheduled_reboot_enabled,
+                        "Interval": (
+                            mesh_obj.scheduled_reboot_interval.value
+                            if mesh_obj.scheduled_reboot_interval is not None
+                            else None
+                        ),
+                    }
+                    _display(
+                        outfile,
+                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                        index=True,
+                        title="Scheduled Reboot Settings",
+                    )
                 if MeshCapability.GET_WAN_INFO in mesh_obj.capabilities:
                     data: dict[str, Any] = {
                         "Internet connected": mesh_obj.wan_status,
@@ -660,81 +755,32 @@ async def mesh_details(
                 _write_error(exc)
 
 
-@mesh_group.command(cls=StandardCommand, name="action")
-@click.argument(
-    "action", type=click.Choice(tuple(MESH_ALLOWED_ACTIONS), case_sensitive=False)
-)
+@mesh_group.command(cls=StandardCommand, name="scheduled_reboot")
+@click.option("--interval")
 @click.pass_context
-async def mesh_action(
+async def mesh_scheduled_reboot(
     ctx: click.Context,
     /,
-    action: str,
+    interval: str | None = None,
     **_: Any,
 ) -> None:
-    """Carry out a specified action on the mesh."""
+    """Change state of the Scheduled Reboot feature."""
 
-    ret: Any = None
     try:
         if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
             async with mesh_obj:
-                if action == "channel_scan_info":
-                    ret = await mesh_obj.async_get_channel_scan_info()
-                elif action == "channel_scan_start":
-                    await mesh_obj.async_start_channel_scan()
-                elif action == "detect_capabilities":
-                    ret = await mesh_obj.async_detect_capabilities()
-                elif action == "guest_wifi_off":
-                    await mesh_obj.async_set_guest_wifi_state(state=False)
-                elif action == "guest_wifi_on":
-                    await mesh_obj.async_set_guest_wifi_state(state=True)
-                elif action == "homekit_off":
-                    await mesh_obj.async_set_homekit_state(state=False)
-                elif action == "homekit_on":
-                    await mesh_obj.async_set_homekit_state(state=True)
-                elif action == "parental_control_off":
-                    await mesh_obj.async_set_parental_control_state(state=False)
-                elif action == "parental_control_on":
-                    await mesh_obj.async_set_parental_control_state(state=True)
-                elif action == "speedtest_results":
-                    ret = await mesh_obj.async_get_speedtest_results()
-                elif action == "speedtest_start":
-                    await mesh_obj.async_start_speedtest()
-                elif action == "speedtest_state":
-                    ret = await mesh_obj.async_get_speedtest_state()
-                elif action == "update_check_start":
-                    await mesh_obj.async_check_for_updates()
-                elif action == "upnp_off":
-                    cur_settings = await mesh_obj.async_get_upnp_state()
-                    new_upnp_settings_off: dict[str, bool] = {
-                        "enabled": False,
-                        "allow_change_settings": cur_settings.get(
-                            "canUsersConfigure", False
-                        ),
-                        "allow_disable_internet": cur_settings.get(
-                            "canUsersDisableWANAccess", False
-                        ),
-                    }
-                    await mesh_obj.async_set_upnp_settings(**new_upnp_settings_off)
-                elif action == "upnp_on":
-                    cur_settings = await mesh_obj.async_get_upnp_state()
-                    new_upnp_settings_on: dict[str, bool] = {
-                        "enabled": True,
-                        "allow_change_settings": cur_settings.get(
-                            "canUsersConfigure", False
-                        ),
-                        "allow_disable_internet": cur_settings.get(
-                            "canUsersDisableWANAccess", False
-                        ),
-                    }
-                    await mesh_obj.async_set_upnp_settings(**new_upnp_settings_on)
-                elif action == "wps_off":
-                    await mesh_obj.async_set_wps_state(state=False)
-                elif action == "wps_on":
-                    await mesh_obj.async_set_wps_state(state=True)
+                if interval is None:
+                    _LOGGER.debug("disabling scheduled reboots")
+                    await mesh_obj.async_set_scheduled_reboot_state(state=False)
+                else:
+                    _LOGGER.debug(
+                        "setting scheduled reboot interval to %s", interval.title()
+                    )
+                    await mesh_obj.async_set_scheduled_reboot_interval(
+                        interval=ScheduledRebootInterval(interval.title())
+                    )
     except Exception as exc:
         _write_error(exc)
-    else:
-        _output(None, json.dumps(ret))
 
 
 @cli.group(name="node")
