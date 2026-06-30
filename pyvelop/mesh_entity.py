@@ -111,7 +111,7 @@ class ParentalControl:
 
         for daily_schedule in range(0, len(list(Weekdays))):
             start = daily_schedule * ParentalControl.BINARY_LENGTH
-            ret[Weekdays(daily_schedule).name] = sorted_schedule[
+            ret[Weekdays(daily_schedule).name.lower()] = sorted_schedule[
                 start : start + ParentalControl.BINARY_LENGTH
             ]
 
@@ -658,13 +658,13 @@ class DeviceEntity(MeshEntity):
                 if device_mac.upper() in rule.get("macAddresses", [])
             ]
 
-        new_rule = ParentalControl.human_readable_to_binary(rules)
         if this_device_rules:  # already has rules
             current_schedule = this_device_rules[0]["wanSchedule"]
 
         cached_schedule = self._get_user_property(DeviceProperty.ACTUAL_WAN_SCHEDULE)
+        new_rule = ParentalControl.human_readable_to_binary(rules)
         if new_rule != ParentalControl.ALL_ALLOWED_SCHEDULE():
-            _LOGGER.debug(self._log_formatter.format("Adding new rules"))
+            _LOGGER.debug(self._log_formatter.format("adding new rules"))
             if this_device_rules:
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
@@ -679,7 +679,7 @@ class DeviceEntity(MeshEntity):
         else:
             if cached_schedule:
                 _LOGGER.debug(
-                    self._log_formatter.format("Restoring backed up schedule")
+                    self._log_formatter.format("restoring backed up schedule")
                 )
                 new_rule = ParentalControl.backup_to_binary(cached_schedule)
                 this_device_rules[0]["wanSchedule"] = new_rule
@@ -689,12 +689,12 @@ class DeviceEntity(MeshEntity):
                 ):
                     _LOGGER.debug(
                         self._log_formatter.format(
-                            "Blocked URLs found, applying permissive rule"
+                            "blocked URLs found, applying permissive rule"
                         )
                     )
                     this_device_rules[0]["wanSchedule"] = new_rule
                 else:
-                    _LOGGER.debug(self._log_formatter.format("Removing from rules"))
+                    _LOGGER.debug(self._log_formatter.format("removing from rules"))
                     this_device_rules = []
         # endregion
 
