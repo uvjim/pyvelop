@@ -62,3 +62,24 @@ jobs:
           path: ${{ env.ARTIFACT_PATH }}
           if-no-files-found: error
           retention-days: 1  
+
+  release:
+    name: Release
+    needs: 
+      - init
+      - build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          files: |
+            ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+            ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/docs/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+          generate_release_notes: true
+          prerelease: ${{ needs.init.outputs.beta_release }}
