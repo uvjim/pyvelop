@@ -279,22 +279,20 @@ async def device_internet_access(
     if devices is not None:
         for found_device in devices:
             try:
-                if not block:
-                    rules_to_apply = {}
-                else:
-                    rules_to_apply = dict(
-                        map(
-                            lambda weekday, readable_schedule: (
-                                weekday.name,
-                                readable_schedule,
-                            ),
-                            Weekdays,
-                            ("00:00-00:00",) * len(Weekdays),
+                rules_to_apply = {}
+                for weekday in Weekdays:
+                    rules_to_apply[weekday.name.lower()] = (
+                        None
+                        if not block
+                        else ParentalControl.binary_to_human_readable(
+                            ParentalControl.ALL_PAUSED_SCHEDULE().get(
+                                weekday.name.lower(), ""
+                            )
                         )
                     )
                 await found_device.async_set_parental_control_rules(
                     rules=rules_to_apply,
-                    force_enable=True,
+                    force_enable=True if block else False,
                 )
             except MeshDeviceNotFoundResponse as err:
                 _LOGGER.error("Device not found: %s", err.devices[0])
@@ -1129,5 +1127,4 @@ async def _get_device_details(
 
 if __name__ == "__main__":
     with contextlib.suppress(Exception):
-        cli()
         cli()
