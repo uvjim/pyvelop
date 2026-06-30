@@ -72,6 +72,9 @@ class Actions(StrEnum):
     GET_PARENTAL_CONTROL_INFO = (
         "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
     )
+    GET_SCHEDULED_REBOOT_SETTINGS = (
+        "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings"
+    )
     GET_SPEEDTEST_RESULTS = "http://linksys.com/jnap/healthcheck/GetHealthCheckResults"
     GET_SPEEDTEST_STATUS = "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus"
     GET_STORAGE_PARTITIONS = "http://linksys.com/jnap/nodes/storage/GetNodesPartitions"
@@ -94,6 +97,9 @@ class Actions(StrEnum):
     SET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/SetHomeKitSettings"
     SET_PARENTAL_CONTROL_INFO = (
         "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
+    )
+    SET_SCHEDULED_REBOOT_SETTINGS = (
+        "http://linksys.com/jnap/diagnostics/SetScheduledRebootSettings"
     )
     SET_UPNP_SETTINGS = "http://linksys.com/jnap/routerupnp/SetUPnPSettings"
     SET_WPS_SERVER_SETTINGS = "http://linksys.com/jnap/wirelessap/SetWPSServerSettings"

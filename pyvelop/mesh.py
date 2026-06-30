@@ -16,7 +16,7 @@ from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .const import DeviceProperty, MeshCapability
+from .const import DeviceProperty, MeshCapability, ScheduledRebootInterval
 from .decorators import needs_initialise
 from .exceptions import (
     MeshAlreadyInProgress,
@@ -854,6 +854,59 @@ class Mesh:
 
         _LOGGER.debug("exited")
 
+    async def async_set_scheduled_reboot_interval(
+        self, interval: ScheduledRebootInterval
+    ) -> None:
+        """Set the reboot interval for the Scheduled Reboot feature and enable it.
+
+        :param interval: a valid interval value
+
+        :return: None
+        """
+        _LOGGER.debug("entered, interval: %s", interval)
+
+        payload = {
+            "isScheduledRebootEnabled": True,
+            "rebootInterval": interval.value,
+        }
+        await self._async_make_request(
+            action=api.Actions.SET_SCHEDULED_REBOOT_SETTINGS,
+            payload=payload,
+        )
+
+        _LOGGER.debug("exited")
+
+    async def async_set_scheduled_reboot_state(self, state: bool) -> None:
+        """Set the state of the Scheduled Reboot feature. Interval is left intact.
+
+        :param state: True to enabled, False to disable
+
+        :return: None
+        """
+        _LOGGER.debug("entered, state: %s", state)
+        # get the current interval from the API because they may be different
+        resp = await self._async_gather_details(
+            [MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS]
+        )
+        _LOGGER.debug(f"---> {resp} <---")
+        interval: str | None = resp.get(
+            MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS.value, {}
+        ).get("rebootInterval")
+
+        if interval is None:
+            raise MeshException("Interval setting not found")
+
+        payload = {
+            "isScheduledRebootEnabled": state,
+            "rebootInterval": interval,
+        }
+        await self._async_make_request(
+            action=api.Actions.SET_SCHEDULED_REBOOT_SETTINGS,
+            payload=payload,
+        )
+
+        _LOGGER.debug("exited")
+
     async def async_set_upnp_settings(
         self, enabled: bool, allow_change_settings: bool, allow_disable_internet: bool
     ) -> None:
@@ -1315,6 +1368,38 @@ class Mesh:
         )
 
         return attr.get("isParentalControlEnabled")
+
+    @property
+    @needs_initialise
+    def scheduled_reboot_enabled(self) -> bool | None:
+        """Get the state of the Scheduled Reboot feature.
+
+        :return: True if enabled, False otherwise
+        """
+
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(
+            MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS.value, {}
+        )
+
+        return attr.get("isScheduledRebootEnabled")
+
+    @property
+    @needs_initialise
+    def scheduled_reboot_interval(self) -> ScheduledRebootInterval | None:
+        """Get the interval for the Scheduled Reboot feature.
+
+        :return: value representing the interval
+        """
+
+        ret: ScheduledRebootInterval | None = None
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(
+            MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS.value, {}
+        )
+        val: str | None = attr.get("rebootInterval")
+        if val is not None:
+            ret = ScheduledRebootInterval(val)
+
+        return ret
 
     @property
     @needs_initialise
