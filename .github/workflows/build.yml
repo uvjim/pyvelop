@@ -81,8 +81,8 @@ jobs:
         with:
           draft: true
           files: |
-            ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
-            ${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/docs/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+            ./dist/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
+            ./docs/${{ env.PACKAGE_NAME }}-${{ github.ref_name }}*
           generate_release_notes: true
           prerelease: ${{ needs.init.outputs.beta_release }}
 
@@ -107,4 +107,4 @@ jobs:
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with: 
-          packages-dir: "${{ env.PACKAGE_NAME }}-${{ github.ref_name }}/dist"
+          packages-dir: "./dist"
