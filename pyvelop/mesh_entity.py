@@ -470,12 +470,12 @@ class MeshEntity:
         return cast(str | None, self._data.get("parent_name"))
 
     @property
-    def results_time(self) -> str | None:
+    def results_time(self) -> int | None:
         """Get the time that the API was queried for the device results.
 
         :return: The time the scan was executed
         """
-        return cast(str | None, self._data.get("results_time"))
+        return cast(int | None, self._data.get("results_time"))
 
     @property
     def status(self) -> bool:
