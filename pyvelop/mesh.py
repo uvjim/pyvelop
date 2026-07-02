@@ -566,7 +566,7 @@ class Mesh:
         *,
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> list[DeviceEntity] | None:
+    ) -> list[DeviceEntity]:
         """Get matching devices if identity is specified, or all devices.
 
         To be used only if needing to query devices and get the details returned.
