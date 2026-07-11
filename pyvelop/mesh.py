@@ -805,7 +805,13 @@ class Mesh:
 
         # get the current radio settings from the API; they may have changed
         resp = await self._async_gather_details([MeshCapability.GET_GUEST_NETWORK_INFO])
-        radios = resp.get("radios", [])
+        radios = resp.get(
+            MeshCapability.GET_GUEST_NETWORK_INFO.value, {}
+        ).get("radios", [])
+        
+        for radio_details in radios:
+            radio_details["isEnabled"] = state
+            radio_details["broadcastGuestSSID"] = state
 
         payload = {
             "isGuestNetworkEnabled": state,
