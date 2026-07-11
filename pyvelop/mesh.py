@@ -134,6 +134,12 @@ class Mesh:
 
         _LOGGER.debug("entered")
 
+        self._last_gather_details: dict[str, float | None] = {
+            "gather_end": None,
+            "gather_start": None,
+            "process_end": None,
+            "process_start": None,
+        }
         self._mesh_attributes: dict[
             str, list[DeviceEntity] | list[NodeEntity] | api.JnapResponse
         ] = {}
@@ -271,9 +277,13 @@ class Mesh:
                 }
             )
 
+        self._last_gather_details.update({"gather_start": time.time()})
         responses: tuple[_ApiResponse, ...] = await asyncio.gather(
             self._async_make_request(api.Actions.TRANSACTION, payload=payload)
         )
+        self._last_gather_details.update({"gather_end": time.time()})
+
+        self._last_gather_details.update({"process_start": time.time()})
 
         # region #-- prepare all the raw details --#
         def _set_raw_value(action: str, data: api.JnapResponse | None) -> None:
@@ -309,7 +319,8 @@ class Mesh:
         # region #-- build the properties for the mesh entity types --#
         for entity in discovered_mesh_entities:
             entity_data: dict[str, Any] = {}
-            entity_data["results_time"] = int(time.time())
+            # stamp the gather time into each entity
+            entity_data["results_time"] = self._last_gather_details.get("gather_end")
             entity_data.update(entity)
             if "nodeType" not in entity:
                 # region #-- process MAC based information --#
@@ -440,6 +451,7 @@ class Mesh:
 
         ret[_ATTR_PROCESSED_DEVICES] = mesh_entities or []
         # endregion
+        self._last_gather_details.update({"process_end": time.time()})
 
         _LOGGER.debug("exited")
         return ret
@@ -805,10 +817,10 @@ class Mesh:
 
         # get the current radio settings from the API; they may have changed
         resp = await self._async_gather_details([MeshCapability.GET_GUEST_NETWORK_INFO])
-        radios = resp.get(
-            MeshCapability.GET_GUEST_NETWORK_INFO.value, {}
-        ).get("radios", [])
-        
+        radios = resp.get(MeshCapability.GET_GUEST_NETWORK_INFO.value, {}).get(
+            "radios", []
+        )
+
         for radio_details in radios:
             radio_details["isEnabled"] = state
             radio_details["broadcastGuestSSID"] = state
@@ -1249,6 +1261,21 @@ class Mesh:
         )
 
         return cast(bool | None, attr.get("isRunning"))
+
+    @property
+    def last_gather_details(self) -> dict[str, float | None]:
+        """Return some timings about when the details were gathered.
+
+        All times are epoch and are approximate.
+        Available values are: -
+
+        gather_start: when the requests started being made
+        gather_end: when the requests were finshed
+        process_start: when processing the results started
+        process_end: when processing the results finished
+        """
+
+        return self._last_gather_details
 
     @property
     @needs_initialise

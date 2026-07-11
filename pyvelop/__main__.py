@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+from datetime import datetime
 from typing import Any, cast
 
 import aiohttp
@@ -519,7 +520,43 @@ async def mesh_details(
                 return None
 
             try:
+                data: dict[str, Any] = {}
                 _output(outfile, "# Mesh Details\n")
+                data = {
+                    "Gather started": (
+                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        if (val := mesh_obj.last_gather_details.get("gather_start", 0))
+                        != 0
+                        else "unknown"
+                    ),
+                    "Gather finished": (
+                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        if (val := mesh_obj.last_gather_details.get("gather_end", 0))
+                        != 0
+                        else "unknown"
+                    ),
+                    "Processing started": (
+                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        if (val := mesh_obj.last_gather_details.get("process_start", 0))
+                        != 0
+                        else "unknown"
+                    ),
+                    "Processing finished": (
+                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        if (val := mesh_obj.last_gather_details.get("process_end", 0))
+                        != 0
+                        else "unknown"
+                    ),
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(
+                        data,
+                        orient="index",
+                        columns=[""],
+                    ),
+                    index=True,
+                )
                 _display(
                     outfile,
                     pd.DataFrame(mesh_obj.capabilities, columns=[""]),
@@ -529,7 +566,7 @@ async def mesh_details(
                     MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS
                     in mesh_obj.capabilities
                 ):
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.scheduled_reboot_enabled,
                         "Interval": (
                             mesh_obj.scheduled_reboot_interval.value
