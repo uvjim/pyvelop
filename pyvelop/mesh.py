@@ -256,8 +256,11 @@ class Mesh:
         _LOGGER.debug("exited")
         return (req, req_resp)
 
-    async def _async_gather_details(
-        self, capabilities: list[MeshCapability]
+    async def _async_gather_details(  # noqa: C901
+        self,
+        capabilities: list[MeshCapability],
+        *,
+        track_time: bool = False,
     ) -> dict[str, Any]:
         """Work is done here to gather the necessary details for mesh.
 
@@ -277,13 +280,16 @@ class Mesh:
                 }
             )
 
-        self._last_gather_details.update({"gather_start": time.time()})
+        if track_time:
+            self._last_gather_details.update({"gather_start": time.time()})
+
         responses: tuple[_ApiResponse, ...] = await asyncio.gather(
             self._async_make_request(api.Actions.TRANSACTION, payload=payload)
         )
-        self._last_gather_details.update({"gather_end": time.time()})
 
-        self._last_gather_details.update({"process_start": time.time()})
+        if track_time:
+            self._last_gather_details.update({"gather_end": time.time()})
+            self._last_gather_details.update({"process_start": time.time()})
 
         # region #-- prepare all the raw details --#
         def _set_raw_value(action: str, data: api.JnapResponse | None) -> None:
@@ -451,7 +457,8 @@ class Mesh:
 
         ret[_ATTR_PROCESSED_DEVICES] = mesh_entities or []
         # endregion
-        self._last_gather_details.update({"process_end": time.time()})
+        if track_time:
+            self._last_gather_details.update({"process_end": time.time()})
 
         _LOGGER.debug("exited")
         return ret
@@ -557,7 +564,8 @@ class Mesh:
         _LOGGER.debug("entered")
 
         self._mesh_attributes = await self._async_gather_details(
-            self._mesh_capabilities
+            self._mesh_capabilities,
+            track_time=True,
         )
         _LOGGER.debug("exited")
 
