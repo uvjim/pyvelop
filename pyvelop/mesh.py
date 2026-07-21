@@ -52,6 +52,7 @@ class MeshCapability(StrEnum):
     GET_GUEST_NETWORK_INFO = "guest_network_info"
     GET_HOMEKIT_SETTINGS = "homekit_settings"
     GET_LAN_SETTINGS = "lan_setting"
+    GET_LED_NIGHT_MODE = "led_night_mode"
     GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
     GET_NETWORK_CONNECTIONS = "network_connections"
     GET_PARENTAL_CONTROL_INFO = "parental_control_info"
@@ -66,6 +67,14 @@ class MeshCapability(StrEnum):
     GET_UPNP_SETTINGS = "upnp_settings"
     GET_WAN_INFO = "wan_info"
     GET_WPS_SERVER_SETTINGS = "wps_server_settings"
+
+
+class NightModeState(StrEnum):
+    """Possible states for the night mode functionality."""
+
+    ALWAYS = auto()
+    NIGHT_MODE = auto()
+    OFF = auto()
 
 
 class SpeedtestStatus(StrEnum):
@@ -942,6 +951,32 @@ class Mesh:
         )
         _LOGGER.debug("exited")
 
+    async def async_set_night_mode_state(self, state: NightModeState) -> None:
+        """Set the state of the the night mode functionality.
+
+        :param state: the state that night mode should be set to
+
+        :return: None
+        """
+        _LOGGER.debug("entered, state: %s", state)
+
+        payload: dict[str, Any] = {
+            "Enabled": True if state != NightModeState.OFF else False,
+        }
+        if state != NightModeState.OFF:
+            if NightModeState.ALWAYS:
+                payload["StartingTime"] = 0
+                payload["EndingTime"] = 24
+            elif NightModeState.NIGHT_MODE:
+                payload["StartingTime"] = 20
+                payload["EndingTime"] = 8
+
+        await self._async_make_request(
+            action=api.Actions.SET_LED_NIGHT_MODE, payload=payload
+        )
+
+        _LOGGER.debug("exited")
+
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature. Rules are left intact.
 
@@ -1466,6 +1501,30 @@ class Mesh:
             return cast(str, attr.get("macFilterMode", "")).lower()
 
         return None
+
+    @property
+    @needs_initialise
+    def night_mode(self) -> NightModeState | None:
+        """Return whether night mode is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        ret: NightModeState | None = None
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(
+            MeshCapability.GET_LED_NIGHT_MODE.value
+        )
+
+        if attr is not None:
+            if not attr.get("Enable", False):
+                ret = NightModeState.OFF
+            else:
+                if attr.get("StartingTime") == 0 and attr.get("EndingTime") == 24:
+                    ret = NightModeState.ALWAYS
+                elif attr.get("StartingTime") == 20 and attr.get("EndingTime") == 8:
+                    ret = NightModeState.NIGHT_MODE
+
+        return ret
 
     @property
     @needs_initialise
