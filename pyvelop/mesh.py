@@ -17,7 +17,6 @@ from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .const import DeviceProperty, ScheduledRebootInterval
 from .decorators import needs_initialise
 from .exceptions import (
     MeshAlreadyInProgress,
@@ -27,7 +26,7 @@ from .exceptions import (
     MeshInvalidCredentials,
     MeshInvalidInput,
 )
-from .mesh_entity import DeviceEntity, NodeEntity
+from .mesh_entity import DeviceEntity, DeviceProperty, NodeEntity
 from .types import MeshDetails, NodeType
 
 # endregion
@@ -75,6 +74,13 @@ class NightModeState(StrEnum):
     ALWAYS = auto()
     NIGHT_MODE = auto()
     OFF = auto()
+
+
+class ScheduledRebootInterval(StrEnum):
+    """Representation of the available scheduled reboot intervals."""
+
+    MONTHLY = "Monthly"
+    WEEKLY = "Weekly"
 
 
 class SpeedtestStatus(StrEnum):

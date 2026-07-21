@@ -14,7 +14,6 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
-from .const import ScheduledRebootInterval, Weekdays
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -24,8 +23,8 @@ from .exceptions import (
     MeshTimeoutError,
 )
 from .logger import set_logging_format
-from .mesh import Mesh, MeshCapability, NightModeState
-from .mesh_entity import DeviceEntity, ParentalControl
+from .mesh import Mesh, MeshCapability, NightModeState, ScheduledRebootInterval
+from .mesh_entity import DeviceEntity, ParentalControl, Weekdays
 
 # endregion
 

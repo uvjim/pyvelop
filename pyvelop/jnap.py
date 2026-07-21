@@ -12,7 +12,6 @@ from typing import Any
 
 import aiohttp
 
-from .const import DEF_REDACT
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshBadResponse,
@@ -34,6 +33,9 @@ type JnapResponse = dict[str, Any]
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
+
+
+DEF_REDACT: str = "**REDACTED**"
 
 
 def jnap_url(target: str) -> str:
