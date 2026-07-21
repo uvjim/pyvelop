@@ -24,7 +24,7 @@ from .exceptions import (
     MeshTimeoutError,
 )
 from .logger import set_logging_format
-from .mesh import Mesh, MeshCapability, SpeedtestStatus
+from .mesh import Mesh, MeshCapability, NightModeState
 from .mesh_entity import DeviceEntity, ParentalControl
 
 # endregion
@@ -137,6 +137,9 @@ MESH_ALLOWED_ACTIONS: set[str] = {
     "guest_wifi_on",
     "homekit_off",
     "homekit_on",
+    "night_mode_always",
+    "night_mode_off",
+    "night_mode_on",
     "parental_control_off",
     "parental_control_on",
     "speedtest_results",
@@ -455,6 +458,12 @@ async def mesh_action(
                     await mesh_obj.async_set_homekit_state(state=False)
                 elif action == "homekit_on":
                     await mesh_obj.async_set_homekit_state(state=True)
+                elif action == "night_mode_always":
+                    await mesh_obj.async_set_night_mode_state(NightModeState.ALWAYS)
+                elif action == "night_mode_off":
+                    await mesh_obj.async_set_night_mode_state(NightModeState.OFF)
+                elif action == "night_mode_on":
+                    await mesh_obj.async_set_night_mode_state(NightModeState.NIGHT_MODE)
                 elif action == "parental_control_off":
                     await mesh_obj.async_set_parental_control_state(state=False)
                 elif action == "parental_control_on":
@@ -581,6 +590,14 @@ async def mesh_details(
                     pd.DataFrame(mesh_obj.capabilities, columns=[""]),
                     title="Capabilities",
                 )
+                if MeshCapability.GET_LED_NIGHT_MODE in mesh_obj.capabilities:
+                    data = {"Night mode": mesh_obj.night_mode}
+                    _display(
+                        outfile,
+                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                        index=True,
+                        title="Night mode",
+                    )
                 if (
                     MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS
                     in mesh_obj.capabilities

@@ -65,6 +65,7 @@ class Actions(StrEnum):
     )
     GET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/GetHomeKitSettings"
     GET_LAN_SETTINGS = "http://linksys.com/jnap/router/GetLANSettings"
+    GET_LED_NIGHT_MODE = "http://linksys.com/jnap/routerleds/GetLedNightModeSetting"
     GET_MAC_FILTERING_SETTINGS = (
         "http://linksys.com/jnap/macfilter/GetMACFilterSettings"
     )
@@ -98,6 +99,7 @@ class Actions(StrEnum):
     SET_DEVICE_PROPERTY = "http://linksys.com/jnap/devicelist/SetDeviceProperties"
     SET_GUEST_NETWORK = "http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2"
     SET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/SetHomeKitSettings"
+    SET_LED_NIGHT_MODE = "http://linksys.com/jnap/routerleds/SetLedNightModeSetting2"
     SET_PARENTAL_CONTROL_INFO = (
         "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
     )
