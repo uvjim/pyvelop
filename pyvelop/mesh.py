@@ -10,13 +10,14 @@ import re
 import time
 import uuid
 from collections.abc import Coroutine
+from enum import StrEnum, auto
 from typing import Any, cast
 
 from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .const import DeviceProperty, MeshCapability, ScheduledRebootInterval
+from .const import DeviceProperty, ScheduledRebootInterval
 from .decorators import needs_initialise
 from .exceptions import (
     MeshAlreadyInProgress,
@@ -39,24 +40,65 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
-def _get_speedtest_state(speedtest_results: dict[str, Any] | None = None) -> str:
+class MeshCapability(StrEnum):
+    """The possible capabilities available to the Mesh."""
+
+    GET_ALG_SETTINGS = "alg_settings"
+    GET_BACKHAUL = "backhaul"
+    GET_CHANNEL_SCAN_STATUS = "channel_scan_status"
+    GET_DEVICES = "devices"
+    GET_EXPRESS_FORWARDING = "express_forwarding"
+    GET_FIRMWARE_UPDATE_SETTINGS = "firmware_update_settings"
+    GET_GUEST_NETWORK_INFO = "guest_network_info"
+    GET_HOMEKIT_SETTINGS = "homekit_settings"
+    GET_LAN_SETTINGS = "lan_setting"
+    GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
+    GET_NETWORK_CONNECTIONS = "network_connections"
+    GET_PARENTAL_CONTROL_INFO = "parental_control_info"
+    GET_SCHEDULED_REBOOT_SETTINGS = "scheduled_reboot_settings"
+    GET_SPEEDTEST_RESULTS = "speedtest_results"
+    GET_SPEEDTEST_STATUS = "speedtest_status"
+    GET_SPEEDTEST_TYPES = "speedtest_types"
+    GET_STORAGE_PARTITIONS = "storage_partitions"
+    GET_STORAGE_SMB_SERVER = "storage_smb_server"
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "topology_optimisation_settings"
+    GET_UPDATE_FIRMWARE_STATE = "update_firmware_state"
+    GET_UPNP_SETTINGS = "upnp_settings"
+    GET_WAN_INFO = "wan_info"
+    GET_WPS_SERVER_SETTINGS = "wps_server_settings"
+
+
+class SpeedtestStatus(StrEnum):
+    """Possible Speedtest statuses."""
+
+    CHECKING_DOWNLOAD_SPEED = auto()
+    CHECKING_LATENCY = auto()
+    CHECKING_UPLOAD_SPEED = auto()
+    DETECTING_SERVER = auto()
+    FINISHED = auto()
+    UNKNOWN = auto()
+
+
+def _get_speedtest_state(
+    speedtest_results: dict[str, Any] | None = None,
+) -> SpeedtestStatus:
     """Process the Speedtest results to get a textual state."""
     if speedtest_results is None:
         speedtest_results = {}
 
     if speedtest_results:
         if speedtest_results.get("uploadBandwidth", 0):
-            ret = "Checking upload speed"
+            ret = SpeedtestStatus.CHECKING_UPLOAD_SPEED
         elif speedtest_results.get("downloadBandwidth", 0):
-            ret = "Checking download speed"
+            ret = SpeedtestStatus.CHECKING_DOWNLOAD_SPEED
         elif speedtest_results.get("latency"):
-            ret = "Checking latency"
+            ret = SpeedtestStatus.CHECKING_LATENCY
         elif speedtest_results.get("serverID", "") == "0":
-            ret = "Detecting server"
+            ret = SpeedtestStatus.DETECTING_SERVER
         else:
-            ret = ""
+            ret = SpeedtestStatus.FINISHED
     else:
-        ret = ""
+        ret = SpeedtestStatus.UNKNOWN
 
     return ret
 
@@ -550,6 +592,32 @@ class Mesh:
                 continue
             ret.append(list(MeshCapability)[idx])
 
+        # region #-- remove speedtest related capabilities if they aren't really available --#
+        # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
+        speedtest_capabilities: set[MeshCapability] = {
+            MeshCapability.GET_SPEEDTEST_RESULTS,
+            MeshCapability.GET_SPEEDTEST_STATUS,
+        }
+        healthcheck_module: str | None = None
+        for resp in responses:
+            if resp[0].action == api.Actions.GET_SPEEDTEST_TYPES.value:
+                healthcheck_module = next(
+                    iter(
+                        cast(api.JnapResponse, resp[1].data).get(
+                            "supportedHealthCheckModules", []
+                        ),
+                    ),
+                    None,
+                )
+                break
+
+        if healthcheck_module is not None and healthcheck_module in (
+            "SpeedTestSamKnows",
+        ):
+            for capability in speedtest_capabilities:
+                ret.remove(capability)
+        # endregion
+
         self._mesh_capabilities = ret
         return self._mesh_capabilities
 
@@ -680,6 +748,7 @@ class Mesh:
         _LOGGER.debug("exited")
         return ret
 
+    @needs_initialise
     async def async_get_speedtest_results(
         self, count: int = 1, only_latest: bool = False, only_completed: bool = False
     ) -> list[_SpeedtestResult]:
@@ -693,8 +762,24 @@ class Mesh:
         """
         _LOGGER.debug("entered")
 
+        healthcheck_module: str | None = next(
+            iter(
+                cast(
+                    api.JnapResponse,
+                    self._mesh_attributes.get(
+                        MeshCapability.GET_SPEEDTEST_TYPES.value, {}
+                    ),
+                ).get("supportedHealthCheckModules", [])
+            ),
+            None,
+        )
+
+        if healthcheck_module is None:
+            raise MeshInvalidArguments
+
         payload = {
             **api.Defaults.get(api.Actions.GET_SPEEDTEST_RESULTS.name),
+            "healthCheckModule": healthcheck_module,
             "lastNumberOfResults": count,
         }
         _, resp = await self._async_make_request(
@@ -712,7 +797,8 @@ class Mesh:
             )
         return ret
 
-    async def async_get_speedtest_state(self) -> str:
+    @needs_initialise
+    async def async_get_speedtest_state(self) -> SpeedtestStatus:
         """Return a textual representation of the stage of a Speedtest.
 
         The API does not return a stage so this has to be inferred by the results.
@@ -992,6 +1078,7 @@ class Mesh:
 
         _LOGGER.debug("exited")
 
+    @needs_initialise
     async def async_start_speedtest(self) -> None:
         """Instruct the mesh to carry out a Speedtest.
 
@@ -1002,7 +1089,23 @@ class Mesh:
         """
         _LOGGER.debug("entered")
 
-        payload = {"runHealthCheckModule": "SpeedTest"}
+        healthcheck_module: str | None = next(
+            iter(
+                cast(
+                    api.JnapResponse,
+                    self._mesh_attributes.get(
+                        MeshCapability.GET_SPEEDTEST_TYPES.value, {}
+                    ),
+                ).get("supportedHealthCheckModules", [])
+            ),
+            None,
+        )
+
+        if healthcheck_module is None:
+            raise MeshInvalidArguments
+
+        payload: dict[str, Any] = {"runHealthCheckModule": healthcheck_module}
+
         await self._async_make_request(
             action=api.Actions.START_SPEEDTEST, payload=payload
         )
@@ -1458,7 +1561,7 @@ class Mesh:
 
     @property
     @needs_initialise
-    def speedtest_status(self) -> str:
+    def speedtest_status(self) -> SpeedtestStatus:
         """Return the current status of the Speedtest.
 
         :return: Textual representation of the Speedtest state
