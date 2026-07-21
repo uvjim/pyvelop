@@ -75,6 +75,9 @@ class Actions(StrEnum):
     GET_SCHEDULED_REBOOT_SETTINGS = (
         "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings"
     )
+    GET_SPEEDTEST_TYPES = (
+        "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules"
+    )
     GET_SPEEDTEST_RESULTS = "http://linksys.com/jnap/healthcheck/GetHealthCheckResults"
     GET_SPEEDTEST_STATUS = "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus"
     GET_STORAGE_PARTITIONS = "http://linksys.com/jnap/nodes/storage/GetNodesPartitions"

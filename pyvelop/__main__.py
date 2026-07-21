@@ -3,6 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -13,7 +14,7 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
-from .const import MeshCapability, ScheduledRebootInterval, Weekdays
+from .const import ScheduledRebootInterval, Weekdays
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -23,7 +24,7 @@ from .exceptions import (
     MeshTimeoutError,
 )
 from .logger import set_logging_format
-from .mesh import Mesh
+from .mesh import Mesh, MeshCapability, SpeedtestStatus
 from .mesh_entity import DeviceEntity, ParentalControl
 
 # endregion
@@ -459,10 +460,28 @@ async def mesh_action(
                 elif action == "parental_control_on":
                     await mesh_obj.async_set_parental_control_state(state=True)
                 elif action == "speedtest_results":
+                    await mesh_obj.async_initialise()
                     ret = await mesh_obj.async_get_speedtest_results()
                 elif action == "speedtest_start":
+                    await mesh_obj.async_initialise()
                     await mesh_obj.async_start_speedtest()
+                    res: str = await mesh_obj.async_get_speedtest_state()
+                    click.echo(f"{datetime.now()} state, {res}")
+                    prev_res: str = res
+                    ret = await mesh_obj.async_get_speedtest_results(
+                        count=1, only_latest=True
+                    )
+                    while ret[0].get("exit_code") == "Unavailable":
+                        await asyncio.sleep(1)
+                        res = await mesh_obj.async_get_speedtest_state()
+                        if res != prev_res:
+                            click.echo(f"{datetime.now()} state, {res}")
+                            prev_res = res
+                        ret = await mesh_obj.async_get_speedtest_results(
+                            count=1, only_latest=True
+                        )
                 elif action == "speedtest_state":
+                    await mesh_obj.async_initialise()
                     ret = await mesh_obj.async_get_speedtest_state()
                 elif action == "update_check_start":
                     await mesh_obj.async_check_for_updates()
