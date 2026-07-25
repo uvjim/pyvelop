@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import sys
 from datetime import datetime
 from typing import Any, cast
 
@@ -57,6 +58,7 @@ class StandardCommand(click.Command):
                         )
                     )
                     _LOGGER.setLevel(logging.DEBUG)
+                    _LOGGER.debug("args: %s", sys.argv[1:])
                     _LOGGER.debug("Setting up logging")
                     if value > 1:
                         logging.getLogger(__package__).setLevel(logging.DEBUG)
@@ -150,7 +152,6 @@ MESH_ALLOWED_ACTIONS: set[str] = {
     "wps_off",
     "wps_on",
 }
-DEF_INDENT: int = 2
 
 _LOGGER = logging.getLogger(f"{__package__}.cli")
 
