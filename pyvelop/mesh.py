@@ -604,31 +604,33 @@ class Mesh:
         for idx, resp in enumerate(responses):
             _, jnap_response = resp
             if isinstance(jnap_response.data, dict) and "result" in jnap_response.data:
+                _LOGGER.debug(
+                    "capability not found: %s, response: %s",
+                    list(MeshCapability)[idx],
+                    jnap_response.data,
+                )
                 continue
             ret.append(list(MeshCapability)[idx])
 
         # region #-- remove speedtest related capabilities if they aren't really available --#
         # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
+        _LOGGER.debug("establishing if speedtest is actually available")
         speedtest_capabilities: set[MeshCapability] = {
             MeshCapability.GET_SPEEDTEST_RESULTS,
             MeshCapability.GET_SPEEDTEST_STATUS,
         }
-        healthcheck_module: str | None = None
         for resp in responses:
             if resp[0].action == api.Actions.GET_SPEEDTEST_TYPES.value:
-                healthcheck_module = next(
-                    iter(
-                        cast(api.JnapResponse, resp[1].data).get(
-                            "supportedHealthCheckModules", []
-                        ),
-                    ),
-                    None,
+                healthcheck_modules: set[str] = set(
+                    cast(api.JnapResponse, resp[1].data).get(
+                        "supportedHealthCheckModules", []
+                    )
                 )
                 break
 
-        if healthcheck_module is not None and healthcheck_module in (
-            "SpeedTestSamKnows",
-        ):
+        valid_onboard_speedtest: set[str] = {"SpeedTest"}
+        if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
+            _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
             for capability in speedtest_capabilities:
                 ret.remove(capability)
         # endregion
