@@ -227,8 +227,8 @@ class Request:
         _LOGGER_VERBOSE.debug(
             self._log_formatter.format("action: %s --> payload: %s --> response: %s"),
             self.action,
-            self.payload,
-            resp_json,
+            json.dumps(self.payload),
+            json.dumps(resp_json),
         )
 
         ret = Response(
