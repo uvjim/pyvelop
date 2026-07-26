@@ -779,24 +779,19 @@ class Mesh:
         """
         _LOGGER.debug("entered")
 
-        healthcheck_module: str | None = next(
-            iter(
-                cast(
-                    api.JnapResponse,
-                    self._mesh_attributes.get(
-                        MeshCapability.GET_SPEEDTEST_TYPES.value, {}
-                    ),
-                ).get("supportedHealthCheckModules", [])
-            ),
-            None,
+        healthcheck_modules: set[str] | None = set(
+            cast(
+                api.JnapResponse,
+                self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_TYPES.value, {}),
+            ).get("supportedHealthCheckModules", [])
         )
 
-        if healthcheck_module is None:
+        if "SpeedTest" not in healthcheck_modules:
             raise MeshInvalidArguments
 
         payload = {
             **api.Defaults.get(api.Actions.GET_SPEEDTEST_RESULTS.name),
-            "healthCheckModule": healthcheck_module,
+            "healthCheckModule": "SpeedTest",
             "lastNumberOfResults": count,
         }
         _, resp = await self._async_make_request(
@@ -1132,22 +1127,17 @@ class Mesh:
         """
         _LOGGER.debug("entered")
 
-        healthcheck_module: str | None = next(
-            iter(
-                cast(
-                    api.JnapResponse,
-                    self._mesh_attributes.get(
-                        MeshCapability.GET_SPEEDTEST_TYPES.value, {}
-                    ),
-                ).get("supportedHealthCheckModules", [])
-            ),
-            None,
+        healthcheck_modules: set[str] | None = set(
+            cast(
+                api.JnapResponse,
+                self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_TYPES.value, {}),
+            ).get("supportedHealthCheckModules", [])
         )
 
-        if healthcheck_module is None:
+        if "SpeedTest" not in healthcheck_modules:
             raise MeshInvalidArguments
 
-        payload: dict[str, Any] = {"runHealthCheckModule": healthcheck_module}
+        payload: dict[str, Any] = {"runHealthCheckModule": "SpeedTest"}
 
         await self._async_make_request(
             action=api.Actions.START_SPEEDTEST, payload=payload
