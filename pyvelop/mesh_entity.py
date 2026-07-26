@@ -407,6 +407,7 @@ class UiType(StrEnum):
     SMART_LOCK = "smart-lock"
     SMART_MRCOFFEE = "smart-mrcoffee"
     SMART_SCALE = "smart-scale"
+    SMART_SMOKE_DETECTOR = "smart-smoke-detector"
     SMART_SPEAKER = "smart-speaker"
     SMART_SPRINKLER = "smart-sprinkler"
     SMART_THERMOSTAT = "smart-thermostat"
@@ -640,16 +641,19 @@ class MeshEntity:
         return ret
 
     @property
-    def ui_type(self) -> UiType | None:
+    def ui_type(self) -> UiType | str | None:
         """Get the type assigned to the device as per the web UI.
 
         :return: The icon slug if available.  None otherwise.
         """
 
-        ret: UiType | None = None
+        ret: UiType | str | None = None
         ui_type: str | None = self._get_user_property(DeviceProperty.UI_TYPE)
         if ui_type is not None:
-            ret = UiType(ui_type)
+            try:
+                ret = UiType(ui_type)
+            except ValueError:
+                ret = ui_type
 
         return ret
 
