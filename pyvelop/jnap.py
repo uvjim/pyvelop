@@ -71,6 +71,7 @@ class Actions(StrEnum):
     GET_MAC_FILTERING_SETTINGS = (
         "http://linksys.com/jnap/macfilter/GetMACFilterSettings"
     )
+    GET_MLO_SETTINGS = "http://linksys.com/jnap/wirelessap/GetMLOSettings"
     GET_NETWORK_CONNECTIONS = "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
     GET_PARENTAL_CONTROL_INFO = (
         "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"

@@ -54,6 +54,7 @@ class MeshCapability(StrEnum):
     GET_LAN_SETTINGS = "lan_setting"
     GET_LED_NIGHT_MODE = "led_night_mode"
     GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
+    GET_MLO_SETTINGS = "mlo_settings"
     GET_NETWORK_CONNECTIONS = "network_connections"
     GET_PARENTAL_CONTROL_INFO = "parental_control_info"
     GET_SCHEDULED_REBOOT_SETTINGS = "scheduled_reboot_settings"
@@ -1524,6 +1525,30 @@ class Mesh:
             return cast(str, attr.get("macFilterMode", "")).lower()
 
         return None
+
+    @property
+    @needs_initialise
+    def mlo_state(self) -> bool | None:
+        """Retrieve the state of MLO.
+
+        :return: True if enabled, False if disabled and None if not supported.
+        """
+
+        # {"isMLOSupported": true,"isMLOEnabled": false}
+
+        ret: bool | None = None
+        mlo_state: dict[str, bool] | None = cast(
+            dict[str, bool] | None,
+            self._mesh_attributes.get(MeshCapability.GET_MLO_SETTINGS.value),
+        )
+        if mlo_state is not None:
+            ret = (
+                None
+                if not mlo_state.get("isMLOSupported")
+                else mlo_state.get("isMLOEnabled")
+            )
+
+        return ret
 
     @property
     @needs_initialise
