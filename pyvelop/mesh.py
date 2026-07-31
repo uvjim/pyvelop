@@ -647,7 +647,8 @@ class Mesh:
         if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
             _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
             for capability in speedtest_capabilities:
-                ret.remove(capability)
+                if capability in ret:
+                    ret.remove(capability)
         # endregion
 
         self._mesh_capabilities = ret
