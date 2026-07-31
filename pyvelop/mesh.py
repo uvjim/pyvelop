@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import re
 import time
@@ -17,7 +18,6 @@ from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .decorators import needs_initialise
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
@@ -25,6 +25,7 @@ from .exceptions import (
     MeshInvalidArguments,
     MeshInvalidCredentials,
     MeshInvalidInput,
+    MeshNeedsInitialise,
 )
 from .mesh_entity import DeviceEntity, DeviceProperty, NodeEntity
 from .types import MeshDetails, NodeType
@@ -164,6 +165,19 @@ def _process_speedtest_results(
     return ret
 
 
+def needs_initialise(func: Any) -> Any:
+    """Ensure that async_initialise has been executed."""
+
+    def wrapper(self: Mesh, *args: Any, **kwargs: Any) -> Any:
+        """Wrap the required function."""
+        if not self.has_initialised:
+            raise MeshNeedsInitialise from None
+        return func(self, *args, **kwargs)
+
+    wrapped = functools.wraps(func)(wrapper)
+    return wrapped
+
+
 class Mesh:
     """Representation of the Velop Mesh.
 
@@ -191,6 +205,8 @@ class Mesh:
 
         _LOGGER.debug("entered")
 
+        # flag used to denote that initialise has been executed
+        self._initialise_executed: bool = False
         self._last_gather_details: dict[str, float | None] = {
             "gather_end": None,
             "gather_start": None,
@@ -213,8 +229,6 @@ class Mesh:
         self._mesh_capabilities: list[MeshCapability] = []
         self._mesh_capabilities_device_details: list[MeshCapability] = []
 
-        # flag used to denote that initialise has been executed
-        self.__initialise_executed: bool = False
         self.__passed_session: bool = isinstance(session, ClientSession)
 
         _LOGGER.debug(
@@ -876,9 +890,8 @@ class Mesh:
         """
 
         await self.async_detect_capabilities()
-        self.__initialise_executed = (
-            True  # flag here so that async_gather_details will run
-        )
+        # flag here so that async_gather_details will run
+        self._initialise_executed = True
         self._mesh_capabilities_device_details = [
             capability
             for capability in [
@@ -1360,6 +1373,18 @@ class Mesh:
             for radio in radios
         ]
         return ret
+
+    @property
+    def has_initialised(self) -> bool:
+        """Return whether the mesh has been initialised or not.
+
+        Initialising allows establishing the capabilities that are available as
+        well as populating the necessary details for immediate use.
+
+        :return: True if the mesh has been initialise, False otherwise
+        """
+
+        return self._initialise_executed
 
     @property
     @needs_initialise
