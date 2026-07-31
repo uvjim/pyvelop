@@ -617,7 +617,7 @@ async def mesh_details(
                         title="Scheduled Reboot Settings",
                     )
                 if MeshCapability.GET_WAN_INFO in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Internet connected": mesh_obj.wan_status,
                         "Public IP": mesh_obj.wan_ip,
                         "WAN MAC": mesh_obj.wan_mac,
@@ -629,7 +629,7 @@ async def mesh_details(
                         title="WAN Info",
                     )
                 if MeshCapability.GET_LAN_SETTINGS in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "DHCP enabled": mesh_obj.dhcp_enabled,
                     }
                     _display(
@@ -653,7 +653,7 @@ async def mesh_details(
                     MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS
                     in mesh_obj.capabilities
                 ):
-                    data: dict[str, Any] = {
+                    data = {
                         "Client steering enabled": mesh_obj.client_steering_enabled,
                         "Node steering enabled": mesh_obj.node_steering_enabled,
                     }
@@ -663,8 +663,22 @@ async def mesh_details(
                         index=True,
                         title="Topology Optimisation Settings",
                     )
+                if MeshCapability.GET_MLO_SETTINGS in mesh_obj.capabilities:
+                    data = {
+                        "Enabled": (
+                            mesh_obj.mlo_state
+                            if mesh_obj.mlo_state is not None
+                            else "Unsupported"
+                        )
+                    }
+                    _display(
+                        outfile,
+                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                        index=True,
+                        title="Multi-Link Operation (MLO)",
+                    )
                 if MeshCapability.GET_EXPRESS_FORWARDING in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Supported": mesh_obj.express_forwarding_supported,
                         "Enabled": mesh_obj.express_forwarding_enabled,
                     }
@@ -675,7 +689,7 @@ async def mesh_details(
                         title="Express Forwarding",
                     )
                 if MeshCapability.GET_PARENTAL_CONTROL_INFO in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.parental_control_enabled,
                     }
                     _display(
@@ -685,7 +699,7 @@ async def mesh_details(
                         title="Parental Control",
                     )
                 if MeshCapability.GET_MAC_FILTERING_SETTINGS in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.mac_filtering_enabled,
                         "Mode": mesh_obj.mac_filtering_mode,
                         "Filters": (
@@ -701,7 +715,7 @@ async def mesh_details(
                         title="MAC Filtering",
                     )
                 if MeshCapability.GET_WPS_SERVER_SETTINGS in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.wps_state,
                     }
                     _display(
@@ -711,7 +725,7 @@ async def mesh_details(
                         title="WPS Settings",
                     )
                 if MeshCapability.GET_ALG_SETTINGS in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.sip_enabled,
                     }
                     _display(
@@ -721,7 +735,7 @@ async def mesh_details(
                         title="SIP Settings",
                     )
                 if MeshCapability.GET_HOMEKIT_SETTINGS in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.homekit_enabled,
                         "Paired": mesh_obj.homekit_paired,
                     }
@@ -732,7 +746,7 @@ async def mesh_details(
                         title="HomeKit Settings",
                     )
                 if MeshCapability.GET_UPNP_SETTINGS in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.upnp_enabled,
                         "allow_change_settings": mesh_obj.upnp_allow_change_settings,
                         "allow_disable_Internet": mesh_obj.upnp_allow_disable_internet,
@@ -769,7 +783,7 @@ async def mesh_details(
                         title="Speedtest Results (Latest)",
                     )
                 if MeshCapability.GET_GUEST_NETWORK_INFO in mesh_obj.capabilities:
-                    data: dict[str, Any] = {
+                    data = {
                         "Enabled": mesh_obj.guest_wifi_enabled,
                     }
                     _display(
