@@ -193,7 +193,9 @@ class Mesh:
         password: str,
         request_timeout: int = 10,
         session: ClientSession | None = None,
+        *,
         username: str = "admin",
+        disable_redaction: bool = False,
     ) -> None:
         """Initialise the Mesh.
 
@@ -204,8 +206,7 @@ class Mesh:
         :param username: username to use; default admin
         """
 
-        _LOGGER.debug("entered")
-
+        self._disable_redaction: bool = disable_redaction
         # flag used to denote that initialise has been executed
         self._initialise_executed: bool = False
         self._last_gather_details: dict[str, float | None] = {
@@ -247,7 +248,6 @@ class Mesh:
             self._mesh_details.host,
             self._mesh_details.request_timeout,
         )
-        _LOGGER.debug("exited")
 
     async def __aenter__(self) -> Mesh:
         """Asynchronous enter magic method."""
@@ -275,9 +275,7 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER_VERBOSE.debug("entered")
         session = ClientSession(raise_for_status=True)
-        _LOGGER_VERBOSE.debug("exited")
         return session
 
     async def _async_make_request(
@@ -297,8 +295,6 @@ class Mesh:
 
         :return: tuple containing the request and response objects or raises an error if need be
         """
-        _LOGGER.debug("entered")
-
         if node_address is not None and action != api.Actions.REBOOT:
             raise MeshInvalidArguments
 
@@ -308,7 +304,6 @@ class Mesh:
         if (
             not self.__passed_session and self._mesh_details.session.closed
         ):  # session closed so recreate it
-            _LOGGER_VERBOSE.debug("session was closed, reopening")
             self._mesh_details.session = self.__create_session()
 
         req = api.Request(
@@ -319,13 +314,13 @@ class Mesh:
             session=self._mesh_details.session,
             target=node_address or self._mesh_details.host,
             username=self._mesh_details.user,
+            redact=self._disable_redaction is False,
         )
         try:
             req_resp = await req.execute(timeout=self._mesh_details.request_timeout)
         except Exception as err:
             raise err from None
 
-        _LOGGER.debug("exited")
         return (req, req_resp)
 
     async def _async_gather_details(  # noqa: C901
@@ -338,7 +333,6 @@ class Mesh:
 
         :return: A dictionary containing the relevant details.
         """
-        _LOGGER.debug("entered, args: %s", capabilities)
 
         ret: dict[str, Any] = {}
         payload: list[dict[str, Any]] = []
@@ -532,7 +526,6 @@ class Mesh:
         if track_time:
             self._last_gather_details.update({"process_end": time.time()})
 
-        _LOGGER.debug("exited")
         return ret
 
     async def _async_set_device_property(
@@ -546,7 +539,6 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, name: %s, value: %s", name, value)
 
         try:
             await self._async_make_request(
@@ -568,8 +560,6 @@ class Mesh:
         except Exception as err:
             _LOGGER.error(err)
 
-        _LOGGER.debug("exited")
-
     # endregion
 
     # region #-- public methods --#
@@ -580,11 +570,10 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered")
+
         await self._async_make_request(
             action=api.Actions.UPDATE_FIRMWARE, payload={"onlyCheck": True}
         )
-        _LOGGER.debug("exited")
 
     async def async_close(self) -> None:
         """Close the session to the mesh.
@@ -592,9 +581,7 @@ class Mesh:
         :return: None
         """
         if not self.__passed_session:
-            _LOGGER.debug("entered")
             await self._mesh_details.session.close()
-            _LOGGER.debug("exited")
 
     async def async_detect_capabilities(self) -> list[MeshCapability]:
         """Attempt to detect the capabilities of the Mesh.
@@ -662,13 +649,11 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered")
 
         self._mesh_attributes = await self._async_gather_details(
             self._mesh_capabilities,
             track_time=True,
         )
-        _LOGGER.debug("exited")
 
     async def async_get_channel_scan_info(self) -> dict[str, Any] | None:
         """Get the current state of the channel scan.
@@ -695,7 +680,6 @@ class Mesh:
 
         :return: List of device objects
         """
-        _LOGGER.debug("entered")
 
         all_devices: list[DeviceEntity] = []
         ret: list[DeviceEntity] = []
@@ -778,7 +762,6 @@ class Mesh:
 
         ret = sorted(ret, key=lambda device: device.name)
 
-        _LOGGER.debug("exited")
         return ret
 
     @needs_initialise
@@ -793,7 +776,6 @@ class Mesh:
 
         :return: List of dictionaries containing the result details
         """
-        _LOGGER.debug("entered")
 
         healthcheck_modules: set[str] | None = set(
             cast(
@@ -814,7 +796,6 @@ class Mesh:
             action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload
         )
 
-        _LOGGER.debug("exited")
         ret = []
         if resp.data is not None and not isinstance(resp.data, list):
             speedtest_results = resp.data.get("healthCheckResults", [])
@@ -833,7 +814,6 @@ class Mesh:
 
         :return: A string containing the stage
         """
-        _LOGGER.debug("entered")
 
         resp = await self._async_gather_details([MeshCapability.GET_SPEEDTEST_STATUS])
         ret = _get_speedtest_state(
@@ -842,7 +822,6 @@ class Mesh:
             )
         )
 
-        _LOGGER.debug("exited")
         return ret
 
     async def async_get_update_state(self) -> bool:
@@ -850,7 +829,6 @@ class Mesh:
 
         :return: True if still running, False if not
         """
-        _LOGGER.debug("entered")
 
         resp = await self._async_gather_details(
             [MeshCapability.GET_UPDATE_FIRMWARE_STATE]
@@ -863,7 +841,6 @@ class Mesh:
 
         ret: bool = any(all_states)
 
-        _LOGGER.debug("exited")
         return ret
 
     async def async_get_upnp_state(self) -> dict[str, bool]:
@@ -872,15 +849,12 @@ class Mesh:
         :return: dictionary containing information about the state of UPnP functionality
         """
 
-        _LOGGER.debug("entered")
-
         resp = await self._async_gather_details([MeshCapability.GET_UPNP_SETTINGS])
 
         ret = cast(
             dict[str, bool], resp.get(MeshCapability.GET_UPNP_SETTINGS.value, {})
         )
 
-        _LOGGER.debug("exited")
         return ret
 
     async def async_initialise(self) -> None:
@@ -910,7 +884,6 @@ class Mesh:
     async def async_reboot_mesh(self) -> None:
         """Reboot the mesh."""
 
-        _LOGGER.debug("entered")
         found_node: NodeEntity | None = next(
             (node for node in self.nodes if node.type == NodeType.PRIMARY),
             None,
@@ -920,8 +893,6 @@ class Mesh:
             raise MeshDeviceNotFoundResponse
 
         await found_node.async_reboot(True)
-
-        _LOGGER.debug("entered")
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
@@ -934,7 +905,6 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, state: %s", state)
 
         # get the current radio settings from the API; they may have changed
         resp = await self._async_gather_details([MeshCapability.GET_GUEST_NETWORK_INFO])
@@ -954,8 +924,6 @@ class Mesh:
             action=api.Actions.SET_GUEST_NETWORK, payload=payload
         )
 
-        _LOGGER.debug("exited")
-
     async def async_set_homekit_state(self, state: bool) -> None:
         """Set the state of the HomeKit feature.
 
@@ -963,11 +931,9 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, state: %s", state)
         await self._async_make_request(
             action=api.Actions.SET_HOMEKIT_SETTINGS, payload={"isEnabled": state}
         )
-        _LOGGER.debug("exited")
 
     async def async_set_night_mode_state(self, state: NightModeState) -> None:
         """Set the state of the the night mode functionality.
@@ -976,7 +942,6 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, state: %s", state)
 
         payload: dict[str, Any] = {
             "Enabled": True if state != NightModeState.OFF else False,
@@ -993,8 +958,6 @@ class Mesh:
             action=api.Actions.SET_LED_NIGHT_MODE, payload=payload
         )
 
-        _LOGGER.debug("exited")
-
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature. Rules are left intact.
 
@@ -1002,7 +965,6 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, state: %s", state)
         # get the current rules from the API because they may be different
         resp = await self._async_gather_details(
             [MeshCapability.GET_PARENTAL_CONTROL_INFO]
@@ -1017,8 +979,6 @@ class Mesh:
             action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload
         )
 
-        _LOGGER.debug("exited")
-
     async def async_set_scheduled_reboot_interval(
         self, interval: ScheduledRebootInterval
     ) -> None:
@@ -1028,7 +988,6 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, interval: %s", interval)
 
         payload = {
             "isScheduledRebootEnabled": True,
@@ -1039,8 +998,6 @@ class Mesh:
             payload=payload,
         )
 
-        _LOGGER.debug("exited")
-
     async def async_set_scheduled_reboot_state(self, state: bool) -> None:
         """Set the state of the Scheduled Reboot feature. Interval is left intact.
 
@@ -1048,12 +1005,12 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, state: %s", state)
+
         # get the current interval from the API because they may be different
         resp = await self._async_gather_details(
             [MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS]
         )
-        _LOGGER.debug(f"---> {resp} <---")
+
         interval: str | None = resp.get(
             MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS.value, {}
         ).get("rebootInterval")
@@ -1070,8 +1027,6 @@ class Mesh:
             payload=payload,
         )
 
-        _LOGGER.debug("exited")
-
     async def async_set_upnp_settings(
         self, enabled: bool, allow_change_settings: bool, allow_disable_internet: bool
     ) -> None:
@@ -1083,12 +1038,7 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug(
-            "entered, enabled: %s, allow_change_settings: %s, allow_disable_internet: %s",
-            enabled,
-            allow_change_settings,
-            allow_disable_internet,
-        )
+
         payload = {
             "isUPnPEnabled": enabled,
             "canUsersConfigure": allow_change_settings,
@@ -1097,7 +1047,6 @@ class Mesh:
         await self._async_make_request(
             action=api.Actions.SET_UPNP_SETTINGS, payload=payload
         )
-        _LOGGER.debug("exited")
 
     async def async_set_wps_state(self, state: bool) -> None:
         """Set the state of the WPS feature.
@@ -1106,18 +1055,16 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered, state: %s", state)
+
         await self._async_make_request(
             action=api.Actions.SET_WPS_SERVER_SETTINGS, payload={"enabled": state}
         )
-        _LOGGER.debug("exited")
 
     async def async_start_channel_scan(self) -> None:
         """Start a channel scan on the mesh.
 
         :return: None
         """
-        _LOGGER.debug("entered")
 
         try:
             await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN)
@@ -1129,8 +1076,6 @@ class Mesh:
                 err,
             )
 
-        _LOGGER.debug("exited")
-
     @needs_initialise
     async def async_start_speedtest(self) -> None:
         """Instruct the mesh to carry out a Speedtest.
@@ -1140,7 +1085,6 @@ class Mesh:
 
         :return: None
         """
-        _LOGGER.debug("entered")
 
         healthcheck_modules: set[str] | None = set(
             cast(
@@ -1158,14 +1102,11 @@ class Mesh:
             action=api.Actions.START_SPEEDTEST, payload=payload
         )
 
-        _LOGGER.debug("exited")
-
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid.
 
         :return: True if valid, False if not
         """
-        _LOGGER.debug("entered")
 
         ret: bool = False
         try:
@@ -1180,7 +1121,6 @@ class Mesh:
             _LOGGER.error(err)
             raise
 
-        _LOGGER.debug("exited")
         return ret
 
     # endregion
@@ -1776,7 +1716,6 @@ class Mesh:
         :return: None
         """
 
-        _LOGGER.debug("setting request timeout to: %ss", value)
         self._mesh_details.request_timeout = value
 
     @property

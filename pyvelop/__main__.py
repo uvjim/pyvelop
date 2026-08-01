@@ -106,6 +106,12 @@ class StandardCommand(click.Command):
                 required=True,
             ),
             click.Option(
+                ("--redact/--no-redact",),
+                default=True,
+                help="Redact sensitive information from output.",
+                is_flag=True,
+            ),
+            click.Option(
                 ("-t", "--timeout"),
                 default=30,
                 help="The timeout for a request.",
@@ -806,13 +812,6 @@ async def mesh_details(
                         title="File Shares",
                     )
                 if MeshCapability.GET_DEVICES in mesh_obj.capabilities:
-                    _LOGGER.debug(
-                        [
-                            {"name": d.name, "ip": d.adapter_info[0].get("ip")}
-                            for d in mesh_obj.devices
-                            if d.status
-                        ]
-                    )
                     data_list = [
                         {"name": d.name, "ip": d.adapter_info[0].get("ip")}
                         for d in mesh_obj.devices
@@ -1163,6 +1162,7 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             request_timeout=ctx.params.get("timeout", 30),
             session=await ctx.obj if ctx.obj else None,
             username=ctx.params.get("username", ""),
+            disable_redaction=not ctx.params.get("redact", True),
         )
         try:
             async with mesh_object:
