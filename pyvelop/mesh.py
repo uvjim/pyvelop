@@ -93,6 +93,7 @@ class SpeedtestStatus(StrEnum):
     CHECKING_UPLOAD_SPEED = auto()
     DETECTING_SERVER = auto()
     FINISHED = auto()
+    NOT_RUNNING = auto()
     UNKNOWN = auto()
 
 
@@ -100,11 +101,12 @@ def _get_speedtest_state(
     speedtest_results: dict[str, Any] | None = None,
 ) -> SpeedtestStatus:
     """Process the Speedtest results to get a textual state."""
-    if speedtest_results is None:
-        speedtest_results = {}
 
-    if speedtest_results:
-        if speedtest_results.get("uploadBandwidth", 0):
+    ret: SpeedtestStatus = SpeedtestStatus.UNKNOWN
+    if speedtest_results is not None:
+        if not speedtest_results:
+            ret = SpeedtestStatus.NOT_RUNNING
+        elif speedtest_results.get("uploadBandwidth", 0):
             ret = SpeedtestStatus.CHECKING_UPLOAD_SPEED
         elif speedtest_results.get("downloadBandwidth", 0):
             ret = SpeedtestStatus.CHECKING_DOWNLOAD_SPEED
@@ -114,8 +116,6 @@ def _get_speedtest_state(
             ret = SpeedtestStatus.DETECTING_SERVER
         else:
             ret = SpeedtestStatus.FINISHED
-    else:
-        ret = SpeedtestStatus.UNKNOWN
 
     return ret
 
