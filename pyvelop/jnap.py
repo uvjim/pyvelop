@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
 
@@ -33,9 +34,6 @@ type JnapResponse = dict[str, Any]
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
-
-
-DEF_REDACT: str = "**REDACTED**"
 
 
 def jnap_url(target: str) -> str:
@@ -135,6 +133,20 @@ class Defaults:
         return {}
 
 
+class Redactions:
+    """Represents the redactions that should be applied to requests and responses."""
+
+    def __init__(self, redactions: dict[str, set[str]]) -> None:
+        """Initialise."""
+
+        self._redactions: dict[str, set[str]] = redactions
+
+    def get(self, key: str) -> set[str]:
+        """Return the redactions for the given key."""
+
+        return self._redactions.get(key, set())
+
+
 class Request:
     """Represents a request for the API."""
 
@@ -147,6 +159,7 @@ class Request:
         raise_on_error: bool = True,
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
+        redact: bool = True,
     ) -> None:
         """Initialise a request.
 
@@ -165,6 +178,7 @@ class Request:
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._payload: list[dict[str, Any]] | dict[str, Any] | None = payload
         self._raise_on_error: bool = raise_on_error
+        self._redact: bool = redact
         self._session: aiohttp.ClientSession = (
             session
             if session is not None
@@ -181,26 +195,12 @@ class Request:
         :param timeout: the timeout in seconds for the request, defaults to 10s
         :return: a Response object representing the returned results
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
 
         headers: dict[str, str] = {
             "X-JNAP-Authorization": f"Basic {self._creds}",
             "Content-Type": "application/json; charset=UTF-8",
             "X-JNAP-Action": self._action,
         }
-
-        _LOGGER.debug(
-            self._log_formatter.format(
-                "URL: %s, Headers: %s, Payload: %s, Timeout: %i"
-            ),
-            self._jnap_url,
-            {
-                key: value if key not in ("X-JNAP-Authorization") else DEF_REDACT
-                for key, value in headers.items()
-            },
-            json.dumps(self._payload),
-            timeout,
-        )
 
         resp: aiohttp.ClientResponse | None = None
         try:
@@ -221,22 +221,49 @@ class Request:
             _LOGGER.error(self._log_formatter.format("%s"), err)
             raise MeshConnectionError from None
         except json.JSONDecodeError as err:
-            _LOGGER.debug(self._log_formatter.format("resp: %s"), resp)
             _LOGGER.error(self._log_formatter.format("%s"), err)
             raise err from None
 
-        _LOGGER_VERBOSE.debug(
-            self._log_formatter.format("action: %s --> payload: %s --> response: %s"),
-            self.action,
-            json.dumps(self.payload),
-            json.dumps(resp_json),
-        )
+        # region #-- log the response --#
+        to_log: dict[str, Any] = {
+            "action": self._action,
+            "payload": self._payload,
+            "response": copy.deepcopy(resp_json),
+        }
+        if self._action != Actions.TRANSACTION:
+            if self._redact and to_log["response"].get("result") == "OK":
+                to_log["response"].update(
+                    {
+                        "output": self._log_formatter.redact(
+                            to_log["response"].get("output", {}),
+                            RESPONSE_REDACTIONS.get(self._action),
+                        )
+                    }
+                )
+        else:
+            for idx, r_json in enumerate(to_log["response"].get("responses", [])):
+                action: str = (
+                    cast(list, self._payload)[idx].get("action", "")
+                    if self._payload is not None
+                    else ""
+                )
+                redactions = RESPONSE_REDACTIONS.get(action)
+                if self._redact and r_json.get("result") == "OK":
+                    r_json.update(
+                        {
+                            "output": self._log_formatter.redact(
+                                r_json.get("output", {}), redactions
+                            )
+                        }
+                    )
+
+        _LOGGER_VERBOSE.debug(json.dumps(to_log))
+        # endregion
 
         ret = Response(
             action=self.action, data=resp_json, raise_on_error=self._raise_on_error
         )
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
         return ret
 
     # region #-- properties --#
@@ -377,3 +404,29 @@ class Response:
         return ret
 
     # endregion
+
+
+RESPONSE_REDACTIONS = Redactions(
+    {
+        Actions.GET_DEVICES.value: {
+            "devices.connects.macAddress",
+            "devices.knownInterfaces.macAddress",
+            "devices.unit.serialNumber",
+        },
+        Actions.GET_GUEST_NETWORK_INFO.value: {
+            "radios.guestSSID",
+            "radios.guestWPAPassphrase",
+        },
+        Actions.GET_NETWORK_CONNECTIONS.value: {
+            "nodeWirelessConnections.connections.wireless.bssid"
+        },
+        Actions.GET_WAN_INFO.value: {
+            "linkLocalIPv6Address",
+            "macAddress",
+            "wanConnection.dnsServer1",
+            "wanConnection.dnsServer2",
+            "wanConnection.gateway",
+            "wanConnection.ipAddress",
+        },
+    }
+)
