@@ -712,13 +712,10 @@ class DeviceEntity(MeshEntity):
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered"))
 
         await self._async_api_request(
             api.Actions.DELETE_DEVICE, {"deviceID": self.unique_id}
         )
-
-        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_rename(self, name: str) -> None:
         """Set the name of the device.
@@ -727,7 +724,6 @@ class DeviceEntity(MeshEntity):
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered, name: %s"), name)
 
         payload: dict[str, Any] = {
             "deviceID": self.unique_id,
@@ -741,8 +737,6 @@ class DeviceEntity(MeshEntity):
 
         await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY, payload)
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
-
     async def async_set_icon(self, icon: UiType | str) -> None:
         """Set the icon for the device.
 
@@ -750,7 +744,6 @@ class DeviceEntity(MeshEntity):
 
         :return: None
         """
-        _LOGGER.debug(self._log_formatter.format("entered, icon: %s"), icon)
 
         _icon: UiType
         if not isinstance(icon, UiType):
@@ -772,8 +765,6 @@ class DeviceEntity(MeshEntity):
         }
 
         await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY, payload)
-
-        _LOGGER.debug(self._log_formatter.format("exited"))
 
     async def async_set_parental_control_rules(
         self, rules: dict[str, Any], force_enable: bool = False
@@ -923,8 +914,6 @@ class DeviceEntity(MeshEntity):
 
         await asyncio.gather(*requests)
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
-
     async def async_set_parental_control_urls(
         self,
         urls: list[str],
@@ -1048,8 +1037,6 @@ class DeviceEntity(MeshEntity):
         # endregion
 
         await asyncio.gather(*requests)
-
-        _LOGGER.debug(self._log_formatter.format("exited"))
 
     @property
     def description(self) -> str | None:
