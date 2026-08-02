@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import copy
 import json
 import logging
@@ -160,6 +161,7 @@ class Request:
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
         redact: bool = True,
+        supplementary_redactions: dict[str, set[str]] | None = None,
     ) -> None:
         """Initialise a request.
 
@@ -184,6 +186,9 @@ class Request:
             if session is not None
             else aiohttp.ClientSession(raise_for_status=True)
         )
+        self._supplementary_redactions: dict[str, set[str]] = (
+            supplementary_redactions or {}
+        )
 
         if self._payload is None:
             self._payload = []
@@ -195,6 +200,26 @@ class Request:
         :param timeout: the timeout in seconds for the request, defaults to 10s
         :return: a Response object representing the returned results
         """
+
+        def _build_redactions(action_name_or_value: str) -> set[str]:
+
+            action: Actions | None = None
+            ret: set[str] = set()
+            default_redactions: set[str]
+
+            if action_name_or_value in Actions:
+                action = Actions(action_name_or_value)
+            else:
+                with contextlib.suppress(KeyError):
+                    action = Actions[action_name_or_value]
+
+            if action is not None:
+                default_redactions = RESPONSE_REDACTIONS.get(action.value)
+                ret = default_redactions.union(
+                    self._supplementary_redactions.get(action.name, set())
+                )
+
+            return ret
 
         headers: dict[str, str] = {
             "X-JNAP-Authorization": f"Basic {self._creds}",
@@ -236,7 +261,7 @@ class Request:
                     {
                         "output": self._log_formatter.redact(
                             to_log["response"].get("output", {}),
-                            RESPONSE_REDACTIONS.get(self._action),
+                            _build_redactions(self._action),
                         )
                     }
                 )
@@ -247,7 +272,7 @@ class Request:
                     if self._payload is not None
                     else ""
                 )
-                redactions = RESPONSE_REDACTIONS.get(action)
+                redactions = _build_redactions(action)
                 if self._redact and r_json.get("result") == "OK":
                     r_json.update(
                         {
@@ -409,7 +434,7 @@ class Response:
 RESPONSE_REDACTIONS = Redactions(
     {
         Actions.GET_DEVICES.value: {
-            "devices.connects.macAddress",
+            "devices.connections.macAddress",
             "devices.knownInterfaces.macAddress",
             "devices.unit.serialNumber",
         },
