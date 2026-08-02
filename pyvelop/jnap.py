@@ -437,7 +437,7 @@ RESPONSE_REDACTIONS = Redactions(
             "devices.connections.macAddress",
             "devices.friendlyName",  # the name identified by the Mesh
             "devices.knownInterfaces.macAddress",
-            "device.properties",  # user supplied information and cache for parental control
+            "devices.properties",  # user supplied information and cache for parental control
             "devices.unit.serialNumber",
         },
         Actions.GET_GUEST_NETWORK_INFO.value: {
