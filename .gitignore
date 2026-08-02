@@ -140,3 +140,4 @@ logo.ico
 *.code-workspace
 .mypy_*.txt
 mypy_*.txt
+redact_file.json
