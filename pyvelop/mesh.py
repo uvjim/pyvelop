@@ -196,6 +196,7 @@ class Mesh:
         *,
         username: str = "admin",
         disable_redaction: bool = False,
+        supplementary_redactions: dict[str, set[str]] | None = None,
     ) -> None:
         """Initialise the Mesh.
 
@@ -230,7 +231,9 @@ class Mesh:
         )
         self._mesh_capabilities: list[MeshCapability] = []
         self._mesh_capabilities_device_details: list[MeshCapability] = []
-
+        self._supplementary_redactions: dict[str, set[str]] | None = (
+            supplementary_redactions
+        )
         self.__passed_session: bool = isinstance(session, ClientSession)
 
         _LOGGER.debug(
@@ -315,6 +318,7 @@ class Mesh:
             target=node_address or self._mesh_details.host,
             username=self._mesh_details.user,
             redact=self._disable_redaction is False,
+            supplementary_redactions=self._supplementary_redactions,
         )
         try:
             req_resp = await req.execute(timeout=self._mesh_details.request_timeout)
