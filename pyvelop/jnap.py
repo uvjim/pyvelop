@@ -435,7 +435,9 @@ RESPONSE_REDACTIONS = Redactions(
     {
         Actions.GET_DEVICES.value: {
             "devices.connections.macAddress",
+            "devices.friendlyName",  # the name identified by the Mesh
             "devices.knownInterfaces.macAddress",
+            "device.properties",  # user supplied information and cache for parental control
             "devices.unit.serialNumber",
         },
         Actions.GET_GUEST_NETWORK_INFO.value: {
@@ -445,6 +447,9 @@ RESPONSE_REDACTIONS = Redactions(
         Actions.GET_LAN_SETTINGS.value: {
             "hostName",
             "reservations",
+        },
+        Actions.GET_MAC_FILTERING_SETTINGS.value: {
+            "macAddresses",
         },
         Actions.GET_NETWORK_CONNECTIONS.value: {
             "nodeWirelessConnections.connections.wireless.bssid",
