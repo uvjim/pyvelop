@@ -23,6 +23,7 @@ from .exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
+from .jnap import RESPONSE_REDACTIONS, Actions
 from .logger import set_logging_format
 from .mesh import Mesh, MeshCapability, NightModeState, ScheduledRebootInterval
 from .mesh_entity import DeviceEntity, ParentalControl, Weekdays
@@ -104,6 +105,11 @@ class StandardCommand(click.Command):
                 help="The local mesh password.",
                 prompt=True,
                 required=True,
+            ),
+            click.Option(
+                ("--redact-file",),
+                help="Path to the file that provides supplementary redactions.",
+                type=click.File(),
             ),
             click.Option(
                 ("--redact/--no-redact",),
@@ -425,6 +431,50 @@ async def device_pc_set_urls(
                 )
             except Exception as exc:
                 _write_error(exc)
+
+
+@cli.group(name="example")
+@click.help_option()
+async def example_group() -> None:
+    """Manage available examples."""
+
+
+@example_group.command(name="create")
+@click.argument(
+    "path", type=click.Path(dir_okay=False, writable=True, resolve_path=True)
+)
+@click.argument("example", type=click.Choice(("redact_file",), case_sensitive=False))
+def create(example: str, path: str) -> None:
+    """Create an example file."""
+
+    if example == "redact_file":
+        output: dict[str, list[str]] = {
+            "comments": [
+                "This is an example file for helping specify supplementary redaction paths.",
+                "The file is used to add additional item paths to be redacted per capability.",
+                "The file is formatted using the capability name as the key with a list of paths that should be redacted.",
+                "Examples of item path processing: -",
+                "`macAddress` will redact the attribute at the root level of the API response for that capability.",
+                "`wanConnection.dnsServer1` will redact the `dnsServer1` attribute within the `wanConnection` object.",
+                "`devices.connections.macAddress` just like before this will navigate through the object to redact the `macAddress` attribute.",
+                "When the redaction process encounters a list the remaining path is used within that list.",
+                "using `devices.connections.macAddress` as the example;",
+                "`devices` is a list so all items in the `devices` are searched for a `connections` object.",
+                "It just so happens in this case that `connections` is also a list, so all those items are searched for `macAddress`.",
+                "This means that all `macAddress` attributes for all items in that API response will be redacted.",
+                "The defaults have been detailed in this file.",
+            ]
+        }
+        output.update(
+            {
+                capability.name: list(RESPONSE_REDACTIONS.get(Actions[capability.name]))
+                for capability in MeshCapability
+            }
+        )
+
+    with open(path, "w") as fp:
+        fp.write(json.dumps(output, indent=4))
+    click.echo(path)
 
 
 @cli.group(name="mesh")
@@ -1156,6 +1206,13 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
 
     msg: str = ""
     if ctx is not None:
+        supplementary_redactions: dict[str, set[str]] | None = None
+        with contextlib.suppress(json.JSONDecodeError, UnicodeDecodeError):
+            supplementary_redactions: dict[str, set[str]] | None = (
+                json.load(ctx.params.get("redact_file", ""))
+                if ctx.params.get("redact_file") is not None
+                else None
+            )
         mesh_object: Mesh = Mesh(
             node=ctx.params.get("primary_node", ""),
             password=ctx.params.get("password", ""),
@@ -1163,6 +1220,7 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             session=await ctx.obj if ctx.obj else None,
             username=ctx.params.get("username", ""),
             disable_redaction=not ctx.params.get("redact", True),
+            supplementary_redactions=supplementary_redactions,
         )
         try:
             async with mesh_object:
