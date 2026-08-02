@@ -442,8 +442,13 @@ RESPONSE_REDACTIONS = Redactions(
             "radios.guestSSID",
             "radios.guestWPAPassphrase",
         },
+        Actions.GET_LAN_SETTINGS.value: {
+            "hostName",
+            "reservations",
+        },
         Actions.GET_NETWORK_CONNECTIONS.value: {
-            "nodeWirelessConnections.connections.wireless.bssid"
+            "nodeWirelessConnections.connections.wireless.bssid",
+            "nodeWirelessConnections.connections.macAddress",
         },
         Actions.GET_WAN_INFO.value: {
             "linkLocalIPv6Address",
