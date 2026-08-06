@@ -11,9 +11,7 @@ from typing import Any
 DEF_REDACTED: str = "**REDACTED**"
 
 
-def set_logging_format(
-    *, prefix: str = "", include_lineno: bool = False, include_func_name: bool = False
-) -> str:
+def set_logging_format(*, prefix: str = "", include_lineno: bool = False, include_func_name: bool = False) -> str:
     """Set the format used by loggers."""
 
     format: list[str] = str(logging.BASIC_FORMAT).split(":")
@@ -34,9 +32,7 @@ class Logger:
         self._unique_id: str = unique_id
         self._prefix: str = prefix
 
-    def format(
-        self, message: str, include_caller: bool = True, include_lineno: bool = False
-    ) -> str:
+    def format(self, message: str, include_caller: bool = True, include_lineno: bool = False) -> str:
         """Format a log message in the correct format."""
         caller: str = ""
         if include_caller:
@@ -48,9 +44,7 @@ class Logger:
             message = f" --> {message}"
         return f"{self._prefix}{caller}{unique_id}{line_no}{message}"
 
-    def redact(
-        self, data: dict[str, Any], to_redact: set[str] = set()
-    ) -> dict[str, Any]:
+    def redact(self, data: dict[str, Any], to_redact: set[str] = set()) -> dict[str, Any]:
         """Redact sensitive data in a dict. Dotted paths may traverse dicts and lists."""
         ret: dict[str, Any] = copy.deepcopy(data)
 

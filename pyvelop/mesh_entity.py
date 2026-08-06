@@ -51,15 +51,11 @@ class ParentalControl:
     DEFAULT_DESCRIPTION: str = "default description"
 
     ALL_ALLOWED_SCHEDULE: Callable[..., dict[str, Any]] = lambda: {
-        day.name.lower(): ParentalControlActionType.UNBLOCKED.value
-        * ParentalControl.BINARY_LENGTH
-        for day in Weekdays
+        day.name.lower(): ParentalControlActionType.UNBLOCKED.value * ParentalControl.BINARY_LENGTH for day in Weekdays
     }
 
     ALL_PAUSED_SCHEDULE: Callable[..., dict[str, Any]] = lambda: {
-        day.name.lower(): ParentalControlActionType.BLOCKED.value
-        * ParentalControl.BINARY_LENGTH
-        for day in Weekdays
+        day.name.lower(): ParentalControlActionType.BLOCKED.value * ParentalControl.BINARY_LENGTH for day in Weekdays
     }
 
     def __init__(self, rule: dict[str, Any]) -> None:
@@ -79,19 +75,14 @@ class ParentalControl:
             while idx < ParentalControl.BINARY_LENGTH:
                 block_start: int | None = (
                     sched.index(ParentalControlActionType.BLOCKED.value, idx)
-                    if sched is not None
-                    and ParentalControlActionType.BLOCKED.value in sched[idx + 1 :]
+                    if sched is not None and ParentalControlActionType.BLOCKED.value in sched[idx + 1 :]
                     else None
                 )
                 if block_start is None:
                     break
                 block_end: int | None = (
-                    sched.index(
-                        ParentalControlActionType.UNBLOCKED.value, block_start + 1
-                    )
-                    if sched is not None
-                    and ParentalControlActionType.UNBLOCKED.value
-                    in sched[block_start + 1 :]
+                    sched.index(ParentalControlActionType.UNBLOCKED.value, block_start + 1)
+                    if sched is not None and ParentalControlActionType.UNBLOCKED.value in sched[block_start + 1 :]
                     else None
                 )
                 start_time = datetime.time(
@@ -106,9 +97,7 @@ class ParentalControl:
                     if block_end
                     else datetime.time(hour=0, minute=0)
                 )
-                ret[day.lower()].append(
-                    f"{start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')}"
-                )
+                ret[day.lower()].append(f"{start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')}")
                 if block_end is not None:
                     idx = block_end + 1
                 else:
@@ -128,9 +117,7 @@ class ParentalControl:
 
         for daily_schedule in range(0, len(list(Weekdays))):
             start = daily_schedule * ParentalControl.BINARY_LENGTH
-            ret[Weekdays(daily_schedule).name.lower()] = sorted_schedule[
-                start : start + ParentalControl.BINARY_LENGTH
-            ]
+            ret[Weekdays(daily_schedule).name.lower()] = sorted_schedule[start : start + ParentalControl.BINARY_LENGTH]
 
         return ret
 
@@ -139,12 +126,9 @@ class ParentalControl:
         """Encode the schedule for storage in a property."""
         ret: str = ""
         chunk_length: int = 8
-        sorted_schedule: str = "".join(
-            [schedule[day.name.lower()] for day in list(Weekdays)]
-        )
+        sorted_schedule: str = "".join([schedule[day.name.lower()] for day in list(Weekdays)])
         sorted_chunks: list[str] = [
-            (sorted_schedule[i : i + chunk_length])
-            for i in range(0, len(sorted_schedule), chunk_length)
+            (sorted_schedule[i : i + chunk_length]) for i in range(0, len(sorted_schedule), chunk_length)
         ]
 
         chunk_chars = bytearray()
@@ -170,11 +154,7 @@ class ParentalControl:
             "description": ParentalControl.DEFAULT_DESCRIPTION,
             "isEnabled": True,
             "macAddresses": [mac_address],
-            "wanSchedule": (
-                schedule
-                if not schedule_to_binary
-                else ParentalControl.human_readable_to_binary(schedule)
-            ),
+            "wanSchedule": (schedule if not schedule_to_binary else ParentalControl.human_readable_to_binary(schedule)),
         }
         return ret
 
@@ -194,9 +174,7 @@ class ParentalControl:
 
         ret_dict: dict[str, str] = {}
         for day, schedule in to_process.items():
-            default_binary = [
-                ParentalControlActionType.UNBLOCKED.value
-            ] * ParentalControl.BINARY_LENGTH
+            default_binary = [ParentalControlActionType.UNBLOCKED.value] * ParentalControl.BINARY_LENGTH
             if schedule is not None:
                 time_schedules: list[str] = schedule.split(",")
                 TimeBlock = namedtuple("TimeBlock", ["start", "end"])
@@ -214,19 +192,15 @@ class ParentalControl:
                         offset_start = 0
                         offset_end = ParentalControl.BINARY_LENGTH
                     elif (  # time wrapping
-                        time_block.end < time_block.start
-                        and str(time_block.end.time()) != "00:00:00"
+                        time_block.end < time_block.start and str(time_block.end.time()) != "00:00:00"
                     ):
                         offset_start = 0
                         offset_end = ParentalControl.BINARY_LENGTH
                     else:  # normal time
-                        offset_start = time_block.start.hour * 2 + (
-                            1 if time_block.start.minute >= 30 else 0
-                        )
+                        offset_start = time_block.start.hour * 2 + (1 if time_block.start.minute >= 30 else 0)
                         offset_end = (  # extend to end if midnight is the end time
                             time_block.end.hour
-                            if time_block.end.hour != 0
-                            or (time_block.end.hour == 0 and time_block.start.hour == 0)
+                            if time_block.end.hour != 0 or (time_block.end.hour == 0 and time_block.start.hour == 0)
                             else 24
                         ) * 2 + (1 if time_block.end.minute >= 30 else 0)
 
@@ -234,8 +208,7 @@ class ParentalControl:
                         default_binary[idx] = ParentalControlActionType.BLOCKED.value
 
                     if all(  # break out early if all blocked
-                        val == ParentalControlActionType.BLOCKED.value
-                        for val in default_binary
+                        val == ParentalControlActionType.BLOCKED.value for val in default_binary
                     ):
                         break
 
@@ -273,9 +246,7 @@ class ParentalControl:
     @property
     def description(self) -> str:
         """Return the rule description."""
-        return cast(
-            str, self._rule.get("description", ParentalControl.DEFAULT_DESCRIPTION)
-        )
+        return cast(str, self._rule.get("description", ParentalControl.DEFAULT_DESCRIPTION))
 
     @property
     def human_readable(self) -> dict[str, list[str]]:
@@ -484,9 +455,7 @@ class MeshEntity:
         ret: str | None = None
 
         user_properties: list[dict[str, Any]] = self._data.get("properties", [])
-        user_prop: list[dict[str, Any]] = [
-            prop for prop in user_properties if prop.get("name") == property_name.value
-        ]
+        user_prop: list[dict[str, Any]] = [prop for prop in user_properties if prop.get("name") == property_name.value]
         if user_prop:
             ret = user_prop[0].get("value")
 
@@ -548,22 +517,17 @@ class MeshEntity:
             connection_info: list[dict[str, Any]] = [
                 c
                 for c in self._data.get("connections", [])
-                if c.get("macAddress", "").lower()
-                == adapter.get("macAddress", "").lower()
+                if c.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
             ]
             reservation_info: dict[str, Any] = (
                 self._data.get("reservation_details", {})
-                if self._data.get("reservation_details", {})
-                .get("macAddress", "")
-                .lower()
+                if self._data.get("reservation_details", {}).get("macAddress", "").lower()
                 == adapter.get("macAddress", "").lower()
                 else {}
             )
             wifi_info: dict[str, Any] = (
                 self._data.get("connection_details", {})
-                if self._data.get("connection_details", {})
-                .get("macAddress", "")
-                .lower()
+                if self._data.get("connection_details", {}).get("macAddress", "").lower()
                 == adapter.get("macAddress", "").lower()
                 else {}
             )
@@ -573,42 +537,21 @@ class MeshEntity:
             props = {
                 "band": adapter.get("band"),
                 "connected": bool(connection_info),
-                "guest_network": (
-                    None
-                    if not connection_info
-                    else connection_info[0].get("isGuest", False)
-                ),
-                "ip": (
-                    None if not connection_info else connection_info[0].get("ipAddress")
-                ),
-                "ipv6": (
-                    None
-                    if not connection_info
-                    else connection_info[0].get("ipv6Address")
-                ),
+                "guest_network": (None if not connection_info else connection_info[0].get("isGuest", False)),
+                "ip": (None if not connection_info else connection_info[0].get("ipAddress")),
+                "ipv6": (None if not connection_info else connection_info[0].get("ipv6Address")),
                 "mac": adapter.get("macAddress"),
-                "parent_id": (
-                    None
-                    if not connection_info
-                    else connection_info[0].get("parentDeviceID")
-                ),
+                "parent_id": (None if not connection_info else connection_info[0].get("parentDeviceID")),
                 "reservation": bool(reservation_info),
                 "reservation_description": reservation_info.get("description"),
                 "rssi": wifi_info.get("wireless", {}).get("signalDecibels"),
-                "signal_strength": (
-                    signal_strength.value.lower()
-                    if signal_strength is not None
-                    else None
-                ),
+                "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
                 "type": adapter.get("interfaceType"),
             }
 
             # region #-- fix up the type --#
             if props.get("type") == ConnectionType.UNKNOWN and props.get("connected"):
-                if (  # we know it's wireless
-                    props.get("rssi") is not None
-                    and props.get("signal_strength") is not None
-                ):
+                if props.get("rssi") is not None and props.get("signal_strength") is not None:  # we know it's wireless
                     props.update({"type": ConnectionType.WIRELESS.value})
             # endregion
 
@@ -622,11 +565,7 @@ class MeshEntity:
 
         :return: The name of the entity
         """
-        ret = (
-            self._get_user_property(DeviceProperty.DEVICE_NAME)
-            or self._data.get("friendlyName")
-            or EMPTY_NAME
-        )
+        ret = self._get_user_property(DeviceProperty.DEVICE_NAME) or self._data.get("friendlyName") or EMPTY_NAME
 
         return ret
 
@@ -711,13 +650,9 @@ class DeviceEntity(MeshEntity):
             or schedule == ParentalControl.ALL_ALLOWED_SCHEDULE()
             and urls
         ):
-            ret["modify"].append(
-                {"name": DeviceProperty.SHOW_IN_PC_LIST.value, "value": "true"}
-            )
+            ret["modify"].append({"name": DeviceProperty.SHOW_IN_PC_LIST.value, "value": "true"})
             if schedule == ParentalControl.ALL_PAUSED_SCHEDULE():
-                ret["modify"].append(
-                    {"name": DeviceProperty.BLOCK_ALL_MANUALLY.value, "value": "true"}
-                )
+                ret["modify"].append({"name": DeviceProperty.BLOCK_ALL_MANUALLY.value, "value": "true"})
             else:
                 ret["remove"].append(DeviceProperty.BLOCK_ALL_MANUALLY.value)
 
@@ -731,9 +666,7 @@ class DeviceEntity(MeshEntity):
         :return: None
         """
 
-        await self._async_api_request(
-            api.Actions.DELETE_DEVICE, {"deviceID": self.unique_id}
-        )
+        await self._async_api_request(api.Actions.DELETE_DEVICE, {"deviceID": self.unique_id})
 
     async def async_rename(self, name: str) -> None:
         """Set the name of the device.
@@ -784,9 +717,7 @@ class DeviceEntity(MeshEntity):
 
         await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY, payload)
 
-    async def async_set_parental_control_rules(
-        self, rules: dict[str, Any], force_enable: bool = False
-    ) -> None:
+    async def async_set_parental_control_rules(self, rules: dict[str, Any], force_enable: bool = False) -> None:
         """Set the parental control schedule for the given device.
 
         :param rules: A dictionary of time string pairs in the form: `"monday": "00:00-02:00,17:30:18:00"`
@@ -810,9 +741,7 @@ class DeviceEntity(MeshEntity):
         # endregion
 
         # -- get the current rules as they may have changed --#
-        live_pc_info = await self._async_api_request(
-            api.Actions.GET_PARENTAL_CONTROL_INFO
-        )
+        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO)
 
         # region #-- determine the rules --#
         if live_pc_info and isinstance(live_pc_info.data, dict):
@@ -847,20 +776,12 @@ class DeviceEntity(MeshEntity):
                     )
         else:
             if cached_schedule:
-                _LOGGER.debug(
-                    self._log_formatter.format("restoring backed up schedule")
-                )
+                _LOGGER.debug(self._log_formatter.format("restoring backed up schedule"))
                 new_rule = ParentalControl.backup_to_binary(cached_schedule)
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
-                if len(this_device_rules) > 0 and this_device_rules[0].get(
-                    "blockedURLs", []
-                ):
-                    _LOGGER.debug(
-                        self._log_formatter.format(
-                            "blocked URLs found, applying permissive rule"
-                        )
-                    )
+                if len(this_device_rules) > 0 and this_device_rules[0].get("blockedURLs", []):
+                    _LOGGER.debug(self._log_formatter.format("blocked URLs found, applying permissive rule"))
                     this_device_rules[0]["wanSchedule"] = new_rule
                 else:
                     _LOGGER.debug(self._log_formatter.format("removing from rules"))
@@ -888,9 +809,7 @@ class DeviceEntity(MeshEntity):
         # region #-- calculate the device properties to update --#
         device_properties = self._get_parental_control_device_attributes(
             schedule=new_rule if isinstance(new_rule, dict) else {},
-            urls=(
-                this_device_rules[0].get("blockedURLs", []) if this_device_rules else []
-            ),
+            urls=(this_device_rules[0].get("blockedURLs", []) if this_device_rules else []),
         )
 
         if new_rule == ParentalControl.ALL_PAUSED_SCHEDULE():
@@ -903,9 +822,7 @@ class DeviceEntity(MeshEntity):
                 )
         else:
             if cached_schedule:
-                device_properties["remove"].append(
-                    DeviceProperty.ACTUAL_WAN_SCHEDULE.value
-                )
+                device_properties["remove"].append(DeviceProperty.ACTUAL_WAN_SCHEDULE.value)
 
         if device_properties["modify"]:
             requests.append(
@@ -963,9 +880,7 @@ class DeviceEntity(MeshEntity):
         # endregion
 
         # -- get the current rules as they may have changed --#
-        live_pc_info = await self._async_api_request(
-            api.Actions.GET_PARENTAL_CONTROL_INFO
-        )
+        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO)
 
         # region #-- determine the rules --#
         if live_pc_info and isinstance(live_pc_info.data, dict):
@@ -994,18 +909,14 @@ class DeviceEntity(MeshEntity):
                 this_device_rules[0]["blockedURLs"].extend(urls)
             else:
                 this_device_rules[0]["blockedURLs"] = urls
-            this_device_rules[0]["blockedURLs"] = list(
-                set(this_device_rules[0]["blockedURLs"])
-            )
+            this_device_rules[0]["blockedURLs"] = list(set(this_device_rules[0]["blockedURLs"]))
         # endregion
         # endregion
 
         # region #-- build a list of requests to send --#
-        device_properties: dict[str, list[str | dict[str, str]]] = (
-            self._get_parental_control_device_attributes(
-                this_device_rules[0].get("wanSchedule", {}),
-                urls,
-            )
+        device_properties: dict[str, list[str | dict[str, str]]] = self._get_parental_control_device_attributes(
+            this_device_rules[0].get("wanSchedule", {}),
+            urls,
         )
 
         requests: list[Awaitable[api.Response]] = [
@@ -1024,8 +935,7 @@ class DeviceEntity(MeshEntity):
                     "rules": keep_rules
                     + (
                         this_device_rules
-                        if DeviceProperty.SHOW_IN_PC_LIST.value
-                        not in device_properties["remove"]
+                        if DeviceProperty.SHOW_IN_PC_LIST.value not in device_properties["remove"]
                         else []
                     ),
                 },
@@ -1071,9 +981,9 @@ class DeviceEntity(MeshEntity):
         :return: Manufacturer as found by the mesh
         """
 
-        ret: str | None = self._get_user_property(
-            DeviceProperty.MANUFACTURER
-        ) or self._data.get("model", {}).get("manufacturer", None)
+        ret: str | None = self._get_user_property(DeviceProperty.MANUFACTURER) or self._data.get("model", {}).get(
+            "manufacturer", None
+        )
 
         return ret
 
@@ -1084,9 +994,9 @@ class DeviceEntity(MeshEntity):
         :return: Model as found by the mesh
         """
 
-        ret: str | None = self._get_user_property(
-            DeviceProperty.MODEL
-        ) or self._data.get("model", {}).get("modelNumber", None)
+        ret: str | None = self._get_user_property(DeviceProperty.MODEL) or self._data.get("model", {}).get(
+            "modelNumber", None
+        )
 
         return ret
 
@@ -1096,9 +1006,9 @@ class DeviceEntity(MeshEntity):
 
         :return: The OS as identified by the mesh
         """
-        ret: str | None = self._get_user_property(
-            DeviceProperty.OPERATING_SYSTEM
-        ) or self._data.get("unit", {}).get("operatingSystem", None)
+        ret: str | None = self._get_user_property(DeviceProperty.OPERATING_SYSTEM) or self._data.get("unit", {}).get(
+            "operatingSystem", None
+        )
 
         return ret
 
@@ -1151,11 +1061,7 @@ class NodeEntity(MeshEntity):
 
         # region #-- establish the correct IP to use --#
         target_ip: str | None = next(
-            (
-                adapter.get("ip")
-                for adapter in self.adapter_info
-                if adapter.get("ip") and adapter.get("primary")
-            ),
+            (adapter.get("ip") for adapter in self.adapter_info if adapter.get("ip") and adapter.get("primary")),
             None,
         )
         if not target_ip:
@@ -1180,10 +1086,7 @@ class NodeEntity(MeshEntity):
         backhaul: dict[str, Any] = self._data.get("backhaul", {})
         for adapter in super_adapters:
             adapter["primary"] = (
-                True
-                if adapter.get("ip") == backhaul.get("ipAddress")
-                or self.type == NodeType.PRIMARY
-                else False
+                True if adapter.get("ip") == backhaul.get("ipAddress") or self.type == NodeType.PRIMARY else False
             )
 
         return super_adapters
@@ -1198,22 +1101,14 @@ class NodeEntity(MeshEntity):
             speed_mbps = float(backhaul.get("speedMbps"))
 
         if backhaul:
-            signal_strength_raw: int | None = backhaul.get(
-                "wirelessConnectionInfo", {}
-            ).get("stationRSSI")
-            signal_strength: SignalStrength | None = self._signal_strength_to_text(
-                signal_strength_raw
-            )
+            signal_strength_raw: int | None = backhaul.get("wirelessConnectionInfo", {}).get("stationRSSI")
+            signal_strength: SignalStrength | None = self._signal_strength_to_text(signal_strength_raw)
             ret = {
                 "connection": backhaul.get("connectionType"),
                 "last_checked": backhaul.get("timestamp"),
                 "speed_mbps": speed_mbps,
                 "rssi_dbm": signal_strength_raw,
-                "signal_strength": (
-                    signal_strength.value.lower()
-                    if signal_strength is not None
-                    else None
-                ),
+                "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
             }
 
         return ret
@@ -1224,9 +1119,7 @@ class NodeEntity(MeshEntity):
 
         :return: List of connected devices in alphabetical order sorted by device name
         """
-        connected_devices: list[dict[str, Any]] = self._data.get(
-            "connected_devices", []
-        )
+        connected_devices: list[dict[str, Any]] = self._data.get("connected_devices", [])
         return sorted(connected_devices, key=lambda device: device.get("name", ""))
 
     @property
@@ -1242,9 +1135,7 @@ class NodeEntity(MeshEntity):
         if (unit_details := self._data.get("unit")) is not None:
             ret["version"] = unit_details.get("firmwareVersion")
             ret["date"] = unit_details.get("firmwareDate")
-        available_updates = self._data.get("firmware_updates", {}).get(
-            "availableUpdate", {}
-        )
+        available_updates = self._data.get("firmware_updates", {}).get("availableUpdate", {})
         if available_updates:
             ret["latest_version"] = available_updates["firmwareVersion"]
             ret["latest_date"] = available_updates["firmwareDate"]
