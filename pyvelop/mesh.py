@@ -395,6 +395,7 @@ class Mesh:
         # region #-- build the properties for the mesh entity types --#
         for entity in discovered_mesh_entities:
             entity_data: dict[str, Any] = {}
+            wireless_parent_id: str | None = None  # used to track parent id in case it is missing
             # stamp the gather time into each entity
             entity_data["results_time"] = self._last_gather_details.get("gather_end")
             entity_data.update(entity)
@@ -432,6 +433,7 @@ class Mesh:
                         for connection in conn_details.get("connections", {}):
                             if dev_mac == connection.get("macAddress"):
                                 entity_data["connection_details"] = connection
+                                wireless_parent_id = conn_details.get("deviceID")
                                 break
                     # endregion
                 # endregion
@@ -516,6 +518,16 @@ class Mesh:
                             ),
                             None,
                         )
+            # parent is still missing, see if we can find it for a wireless client
+            if parent_name is None and wireless_parent_id is not None:
+                parent_name = next(
+                    (
+                        NodeEntity(e, self._mesh_details).name
+                        for e in discovered_mesh_entities
+                        if e.get("deviceID") == wireless_parent_id
+                    ),
+                    None,
+                )
             entity_data["parent_name"] = parent_name
             # endregion
 
