@@ -518,6 +518,7 @@ class Mesh:
                             ),
                             None,
                         )
+            # parent is still missing, see if we can find it for a wireless client
             if parent_name is None and wireless_parent_id is not None:
                 parent_name = next(
                     (
