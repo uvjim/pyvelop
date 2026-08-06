@@ -55,45 +55,27 @@ class Actions(StrEnum):
     GET_BACKHAUL = "http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo"
     GET_CHANNEL_SCAN_STATUS = "http://linksys.com/jnap/nodes/setup/GetSelectedChannels"
     GET_DEVICES = "http://linksys.com/jnap/devicelist/GetDevices3"
-    GET_EXPRESS_FORWARDING = (
-        "http://linksys.com/jnap/router/GetExpressForwardingSettings"
-    )
-    GET_FIRMWARE_UPDATE_SETTINGS = (
-        "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
-    )
-    GET_GUEST_NETWORK_INFO = (
-        "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2"
-    )
+    GET_EXPRESS_FORWARDING = "http://linksys.com/jnap/router/GetExpressForwardingSettings"
+    GET_FIRMWARE_UPDATE_SETTINGS = "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
+    GET_GUEST_NETWORK_INFO = "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2"
     GET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/GetHomeKitSettings"
     GET_LAN_SETTINGS = "http://linksys.com/jnap/router/GetLANSettings"
     GET_LED_NIGHT_MODE = "http://linksys.com/jnap/routerleds/GetLedNightModeSetting"
-    GET_MAC_FILTERING_SETTINGS = (
-        "http://linksys.com/jnap/macfilter/GetMACFilterSettings"
-    )
+    GET_MAC_FILTERING_SETTINGS = "http://linksys.com/jnap/macfilter/GetMACFilterSettings"
     GET_MLO_SETTINGS = "http://linksys.com/jnap/wirelessap/GetMLOSettings"
     GET_NETWORK_CONNECTIONS = "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
-    GET_PARENTAL_CONTROL_INFO = (
-        "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
-    )
-    GET_SCHEDULED_REBOOT_SETTINGS = (
-        "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings"
-    )
-    GET_SPEEDTEST_TYPES = (
-        "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules"
-    )
+    GET_PARENTAL_CONTROL_INFO = "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
+    GET_SCHEDULED_REBOOT_SETTINGS = "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings"
+    GET_SPEEDTEST_TYPES = "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules"
     GET_SPEEDTEST_RESULTS = "http://linksys.com/jnap/healthcheck/GetHealthCheckResults"
     GET_SPEEDTEST_STATUS = "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus"
     GET_STORAGE_PARTITIONS = "http://linksys.com/jnap/nodes/storage/GetNodesPartitions"
-    GET_STORAGE_SMB_SERVER = (
-        "http://linksys.com/jnap/nodes/storage/GetSMBServerSettings"
+    GET_STORAGE_SMB_SERVER = "http://linksys.com/jnap/nodes/storage/GetSMBServerSettings"
+    GET_TOPOLOGY_OPTIMISATION_SETTINGS = (
+        "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
     )
-    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
-    GET_UPDATE_FIRMWARE_STATE = (
-        "http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus"
-    )
-    GET_UPDATE_SETTINGS = (
-        "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
-    )
+    GET_UPDATE_FIRMWARE_STATE = "http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus"
+    GET_UPDATE_SETTINGS = "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
     GET_UPNP_SETTINGS = "http://linksys.com/jnap/routerupnp/GetUPnPSettings"
     GET_WAN_INFO = "http://linksys.com/jnap/router/GetWANStatus3"
     GET_WPS_SERVER_SETTINGS = "http://linksys.com/jnap/wirelessap/GetWPSServerSettings"
@@ -102,12 +84,8 @@ class Actions(StrEnum):
     SET_GUEST_NETWORK = "http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2"
     SET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/SetHomeKitSettings"
     SET_LED_NIGHT_MODE = "http://linksys.com/jnap/routerleds/SetLedNightModeSetting2"
-    SET_PARENTAL_CONTROL_INFO = (
-        "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
-    )
-    SET_SCHEDULED_REBOOT_SETTINGS = (
-        "http://linksys.com/jnap/diagnostics/SetScheduledRebootSettings"
-    )
+    SET_PARENTAL_CONTROL_INFO = "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
+    SET_SCHEDULED_REBOOT_SETTINGS = "http://linksys.com/jnap/diagnostics/SetScheduledRebootSettings"
     SET_UPNP_SETTINGS = "http://linksys.com/jnap/routerupnp/SetUPnPSettings"
     SET_WPS_SERVER_SETTINGS = "http://linksys.com/jnap/wirelessap/SetWPSServerSettings"
     START_CHANNEL_SCAN = "http://linksys.com/jnap/nodes/setup/StartAutoChannelSelection"
@@ -174,21 +152,15 @@ class Request:
         :param username: the username required to communicate with the target
         """
         self._action: str = action
-        self._creds: str = base64.b64encode(
-            bytes(f"{username}:{password}", "utf-8")
-        ).decode("ascii")
+        self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
         self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._payload: list[dict[str, Any]] | dict[str, Any] | None = payload
         self._raise_on_error: bool = raise_on_error
         self._redact: bool = redact
         self._session: aiohttp.ClientSession = (
-            session
-            if session is not None
-            else aiohttp.ClientSession(raise_for_status=True)
+            session if session is not None else aiohttp.ClientSession(raise_for_status=True)
         )
-        self._supplementary_redactions: dict[str, set[str]] = (
-            supplementary_redactions or {}
-        )
+        self._supplementary_redactions: dict[str, set[str]] = supplementary_redactions or {}
 
         if self._payload is None:
             self._payload = []
@@ -215,9 +187,7 @@ class Request:
 
             if action is not None:
                 default_redactions = RESPONSE_REDACTIONS.get(action.value)
-                ret = default_redactions.union(
-                    self._supplementary_redactions.get(action.name, set())
-                )
+                ret = default_redactions.union(self._supplementary_redactions.get(action.name, set()))
 
             return ret
 
@@ -267,27 +237,15 @@ class Request:
                 )
         else:
             for idx, r_json in enumerate(to_log["response"].get("responses", [])):
-                action: str = (
-                    cast(list, self._payload)[idx].get("action", "")
-                    if self._payload is not None
-                    else ""
-                )
+                action: str = cast(list, self._payload)[idx].get("action", "") if self._payload is not None else ""
                 redactions = _build_redactions(action)
                 if self._redact and r_json.get("result") == "OK":
-                    r_json.update(
-                        {
-                            "output": self._log_formatter.redact(
-                                r_json.get("output", {}), redactions
-                            )
-                        }
-                    )
+                    r_json.update({"output": self._log_formatter.redact(r_json.get("output", {}), redactions)})
 
         _LOGGER_VERBOSE.debug(json.dumps(to_log))
         # endregion
 
-        ret = Response(
-            action=self.action, data=resp_json, raise_on_error=self._raise_on_error
-        )
+        ret = Response(action=self.action, data=resp_json, raise_on_error=self._raise_on_error)
 
         return ret
 
@@ -318,9 +276,7 @@ class Response:
     DATA_KEY_TRANSACTION: str = "responses"
     RESULT_KEY: str = "result"
 
-    def __init__(
-        self, action: str, data: JnapResponse | None, raise_on_error: bool = True
-    ) -> None:
+    def __init__(self, action: str, data: JnapResponse | None, raise_on_error: bool = True) -> None:
         """Initialise the response.
 
         :param action: The action that was issued in the request to cause the response
@@ -341,9 +297,7 @@ class Response:
 
         if self._data.get(self.RESULT_KEY) != "OK" and self._raise_on_error:
             responses = (
-                self._data.get(self.DATA_KEY_TRANSACTION, {})
-                if self.action == Actions.TRANSACTION
-                else [self._data]
+                self._data.get(self.DATA_KEY_TRANSACTION, {}) if self.action == Actions.TRANSACTION else [self._data]
             )
             if responses is None:
                 raise MeshException("error processing response")
@@ -366,17 +320,12 @@ class Response:
                         else f"Unknown action URI '{self.action}'"
                     )
                     err = MeshInvalidInput(action)
-                elif (
-                    resp.get(self.RESULT_KEY)
-                    == "ErrorAutoChannelSelectionAlreadyInProgress"
-                ):
+                elif resp.get(self.RESULT_KEY) == "ErrorAutoChannelSelectionAlreadyInProgress":
                     err = MeshAlreadyInProgress()
                 elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
                     err = MeshCannotDeleteDevice()
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceDBFailure":
-                    err = MeshDeviceDbFailure(
-                        resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", "")
-                    )
+                    err = MeshDeviceDbFailure(resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", ""))
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
                     err = MeshNodeNotPrimary()
                 elif resp.get(self.RESULT_KEY) == "ErrorInvalidWANSchedule":
@@ -386,9 +335,7 @@ class Response:
                 elif resp.get(self.RESULT_KEY) == "ErrorUnknownDevice":
                     err = MeshInvalidInput("Unknown Device")
                 elif resp.get(self.RESULT_KEY, "").startswith("_"):
-                    err = MeshInvalidInput(
-                        f"{resp.get(self.RESULT_KEY)}: '{self.action}'"
-                    )
+                    err = MeshInvalidInput(f"{resp.get(self.RESULT_KEY)}: '{self.action}'")
                 else:
                     err = MeshException(f"{resp}: '{self.action}'")
 

@@ -21,6 +21,12 @@ Homepage = "https://github.com/uvjim/pyvelop"
 Repository = "https://github.com/uvjim/pyvelop"
 Issues = "https://github.com/uvjim/pyvelop/issues"
 
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120
+
 [tool.ruff.lint]
 ignore = [
     "D202", # No blank lines allowed after function docstring
