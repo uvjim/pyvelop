@@ -395,7 +395,7 @@ class Mesh:
         # region #-- build the properties for the mesh entity types --#
         for entity in discovered_mesh_entities:
             entity_data: dict[str, Any] = {}
-            wireless_parent_id: str | None = None
+            wireless_parent_id: str | None = None  # used to track parent id in case it is missing
             # stamp the gather time into each entity
             entity_data["results_time"] = self._last_gather_details.get("gather_end")
             entity_data.update(entity)
