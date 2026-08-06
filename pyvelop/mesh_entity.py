@@ -23,6 +23,14 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 EMPTY_NAME: str = "Network Device"
 
 
+class ConnectionType(StrEnum):
+    """Connection types."""
+
+    UNKNOWN = "Unknown"
+    WIRED = "Wired"
+    WIRELESS = "Wireless"
+
+
 class DeviceProperty(StrEnum):
     """Property names for user device properties."""
 
@@ -594,6 +602,16 @@ class MeshEntity:
                 ),
                 "type": adapter.get("interfaceType"),
             }
+
+            # region #-- fix up the type --#
+            if props.get("type") == ConnectionType.UNKNOWN and props.get("connected"):
+                if (  # we know it's wireless
+                    props.get("rssi") is not None
+                    and props.get("signal_strength") is not None
+                ):
+                    props.update({"type": ConnectionType.WIRELESS.value})
+            # endregion
+
             ret.append(props)
 
         return ret
