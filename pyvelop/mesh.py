@@ -467,7 +467,7 @@ class Mesh:
                                 parent_node = n
                                 break
                 # endregion
-            elif isinstance(node_or_device, DeviceEntity):
+            elif isinstance(node_or_device, DeviceEntity) and node_or_device.status:
                 # region #-- check in the connections list for a parent ID --#
                 parent_node = next(
                     (conn.get("parentDeviceID") for conn in node_or_device.raw_details.get("connections", [])), None
@@ -495,7 +495,8 @@ class Mesh:
                 )
             if isinstance(parent_node, NodeEntity):
                 node_or_device._update_parent(parent_node)
-                parent_node._update_connected_devices(node_or_device)
+                if isinstance(node_or_device, DeviceEntity):
+                    parent_node._update_connected_devices(node_or_device)
 
         # endregion
 
