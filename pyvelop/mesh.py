@@ -27,7 +27,7 @@ from .exceptions import (
     MeshInvalidInput,
     MeshNeedsInitialise,
 )
-from .mesh_entity import DeviceEntity, NodeEntity
+from .mesh_entity import DeviceEntity, EntityDataProperties, NodeEntity
 from .types import MeshDetails, NodeType
 
 # endregion
@@ -324,6 +324,7 @@ class Mesh:
         ret: dict[str, Any] = {}
         payload: list[dict[str, Any]] = []
 
+        # region #-- establish available capabilities for the requests --#
         for capability in capabilities:
             jnap_action: api.Actions = api.Actions[capability.name]
             payload.append(
@@ -332,6 +333,7 @@ class Mesh:
                     "request": api.Defaults.get(jnap_action.name),
                 }
             )
+        # endregion
 
         if track_time:
             self._last_gather_details.update({"gather_start": time.time()})
@@ -378,15 +380,15 @@ class Mesh:
         # region #-- build the properties for the mesh entity types --#
         for entity in discovered_mesh_entities:
             entity_data: dict[str, Any] = {}
-            wireless_parent_id: str | None = None  # used to track parent id in case it is missing
             # stamp the gather time into each entity
-            entity_data["results_time"] = self._last_gather_details.get("gather_end")
+            entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get("gather_end")
             entity_data.update(entity)
             if "nodeType" not in entity:
                 # region #-- process MAC based information --#
                 dev_pc_schedule: list[dict[str, Any]] = []
                 dev_adapter_macs: list[str] = [
-                    dev_adapter.get("macAddress") for dev_adapter in entity.get("knownInterfaces", [])
+                    dev_adapter.get("macAddress")
+                    for dev_adapter in entity.get(EntityDataProperties.KNOWN_INTERFACES, [])
                 ]
                 for dev_mac in dev_adapter_macs:
                     # region #-- get parental control details --#
@@ -394,7 +396,7 @@ class Mesh:
                         if dev_mac in rule.get("macAddresses", []):
                             dev_pc_schedule.append(rule)
                             break
-                    entity_data["parental_controls"] = dev_pc_schedule
+                    entity_data[EntityDataProperties.PARENTAL_CONTROLS] = dev_pc_schedule
                     # endregion
                     # region #-- get reservation info --#
                     for reservation in (
@@ -403,7 +405,7 @@ class Mesh:
                         .get("reservations", [])
                     ):
                         if reservation.get("macAddress", "").lower() == dev_mac.lower():
-                            entity_data["reservation_details"] = reservation
+                            entity_data[EntityDataProperties.RESERVATION_DETAILS] = reservation
                             break
                     # endregion
                     # region #-- additional connection details --#
@@ -412,14 +414,13 @@ class Mesh:
                     ):
                         for connection in conn_details.get("connections", {}):
                             if dev_mac == connection.get("macAddress"):
-                                entity_data["connection_details"] = connection
-                                wireless_parent_id = conn_details.get("deviceID")
+                                entity_data[EntityDataProperties.CONNECTION_DETAILS] = connection
                                 break
                     # endregion
                 # endregion
             else:
                 # region #-- determine the backhaul information --#
-                entity_data["backhaul"] = next(
+                entity_data[EntityDataProperties.BACKHAUL] = next(
                     (
                         bi
                         for bi in ret.get(MeshCapability.GET_BACKHAUL.value, {}).get("backhaulDevices", [])
@@ -430,7 +431,7 @@ class Mesh:
                 # endregion
                 # region #-- calculate if there is a firmware update available --#
                 if MeshCapability.GET_UPDATE_FIRMWARE_STATE.value in ret:
-                    entity_data["firmware_updates"] = next(
+                    entity_data[EntityDataProperties.FIRMWARE_DETAILS] = next(
                         (
                             fds
                             for fds in ret[MeshCapability.GET_UPDATE_FIRMWARE_STATE.value].get(
@@ -441,65 +442,6 @@ class Mesh:
                         {},
                     )
                 # endregion
-                # region #-- get the connected devices --#
-                connected_devices: list[dict[str, Any]] = []
-                for device in discovered_mesh_entities:
-                    if "nodeType" not in device:  # don't class nodes as connected devices
-                        dev: DeviceEntity = DeviceEntity(device, self._mesh_details)
-                        connected_details: dict[str, Any] | None = next(
-                            (
-                                {
-                                    "name": dev.name,
-                                    "ip": adapter.get("ip"),
-                                    "type": adapter.get("type"),
-                                    "guest_network": adapter.get("guest_network"),
-                                }
-                                for adapter in dev.adapter_info
-                                if adapter.get("parent_id") == entity.get("deviceID")
-                            ),
-                            None,
-                        )
-                        if connected_details:
-                            connected_devices.append(connected_details)
-                entity_data["connected_devices"] = connected_devices
-                # endregion
-
-            # region #-- get the parent name --#
-            parent_name: str | None = None
-            entity_connections: dict[str, Any]
-            for entity_connections in entity_data.get("connections", {}):
-                if (parent_id := entity_connections.get("parentDeviceID")) is not None:
-                    parent_name = next(
-                        (
-                            NodeEntity(e, self._mesh_details).name
-                            for e in discovered_mesh_entities
-                            if e.get("deviceID") == parent_id
-                        ),
-                        None,
-                    )
-                else:  # need to check based on IP address because parentDeviceID is missing
-                    if "nodeType" in entity:  # only a valid method for a node
-                        parent_name = next(
-                            (
-                                NodeEntity(e, self._mesh_details).name
-                                for e in discovered_mesh_entities
-                                if entity_data.get("backhaul", {}).get("parentIPAddress")
-                                in [a.get("ipAddress") for a in e.get("connections", []) if a.get("ipAddress")]
-                            ),
-                            None,
-                        )
-            # parent is still missing, see if we can find it for a wireless client
-            if parent_name is None and wireless_parent_id is not None:
-                parent_name = next(
-                    (
-                        NodeEntity(e, self._mesh_details).name
-                        for e in discovered_mesh_entities
-                        if e.get("deviceID") == wireless_parent_id
-                    ),
-                    None,
-                )
-            entity_data["parent_name"] = parent_name
-            # endregion
 
             if "nodeType" not in entity:
                 mesh_entities.append(DeviceEntity(entity_data, self._mesh_details))
@@ -507,8 +449,59 @@ class Mesh:
                 mesh_entities.append(NodeEntity(entity_data, self._mesh_details))
         # endregion
 
+        # region #-- remedial work for the entities --#
+        # handle information here that needs a reference to the DeviceEntity or NodeEntity.
+        for node_or_device in mesh_entities:
+            # region #-- establish the parent/child relationship for entities
+            parent_node: str | NodeEntity | None = None
+            if isinstance(node_or_device, NodeEntity):
+                # region #-- use backhaul information to set for a node --#
+                parent_ip: str | None = node_or_device.raw_details.get("backhaul", {}).get("parentIPAddress")
+                if parent_ip is not None:
+                    for n in mesh_entities:
+                        if isinstance(n, NodeEntity):
+                            nadi: dict[str, Any] | None = next(
+                                (adi for adi in n.adapter_info if adi.get("primary")), None
+                            )
+                            if nadi is not None and parent_ip == nadi.get("ip"):
+                                parent_node = n
+                                break
+                # endregion
+            elif isinstance(node_or_device, DeviceEntity):
+                # region #-- check in the connections list for a parent ID --#
+                parent_node = next(
+                    (conn.get("parentDeviceID") for conn in node_or_device.raw_details.get("connections", [])), None
+                )
+                # endregion
+                if not parent_node:
+                    # region #-- let's look in the wireless node connections for a parent --#
+                    adi: dict[str, Any] | None = next((adi for adi in node_or_device.adapter_info), None)
+                    if adi is not None:
+                        for nwc in ret.get(MeshCapability.GET_NETWORK_CONNECTIONS.value, {}).get(
+                            "nodeWirelessConnections", []
+                        ):
+                            p_details: dict[str, Any] | None = next(
+                                (pd for pd in nwc.get("connections", []) if pd.get("macAddress") == adi.get("mac")),
+                                None,
+                            )
+                            if p_details is not None:
+                                parent_node = nwc.get("deviceID")
+                                break
+                    # endregion
+
+            if parent_node and not isinstance(parent_node, NodeEntity):  # we have the ID so let's get the NodeEntity
+                parent_node = cast(
+                    NodeEntity | None, next((n for n in mesh_entities if n.unique_id == parent_node), None)
+                )
+            if isinstance(parent_node, NodeEntity):
+                node_or_device._update_parent(parent_node)
+                parent_node._update_connected_devices(node_or_device)
+
+        # endregion
+
         ret[_ATTR_PROCESSED_DEVICES] = mesh_entities or []
         # endregion
+
         if track_time:
             self._last_gather_details.update({"process_end": time.time()})
 

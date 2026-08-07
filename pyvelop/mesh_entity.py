@@ -1,6 +1,8 @@
 """Representations of entities on the mesh."""
 
 # region #-- imports --#
+from __future__ import annotations
+
 import asyncio
 import base64
 import contextlib
@@ -42,6 +44,20 @@ class DeviceProperty(StrEnum):
     OPERATING_SYSTEM = "userDeviceOS"
     SHOW_IN_PC_LIST = "showInPCList"
     UI_TYPE = "userDeviceType"
+
+
+class EntityDataProperties(StrEnum):
+    """Property names to retrieve from raw data."""
+
+    BACKHAUL = "backhaul"
+    CONNECTED_ENTITIES = "connected_entities"
+    CONNECTION_DETAILS = "connection_details"
+    FIRMWARE_DETAILS = "firmware_details"
+    KNOWN_INTERFACES = "knownInterfaces"
+    PARENT_ENTITY = "parent_entity"
+    PARENTAL_CONTROLS = "parental_controls"
+    RESERVATION_DETAILS = "reservation_details"
+    RESULTS_TIME = "results_time"
 
 
 class ParentalControl:
@@ -477,6 +493,18 @@ class MeshEntity:
 
         return ret
 
+    def _update_connected_devices(self, new_device: MeshEntity) -> None:
+        """Update the connected devices."""
+
+        cur_devices: set[Any] = self._data.get(EntityDataProperties.CONNECTED_ENTITIES, set())
+        cur_devices.add(new_device)
+        self._data.update({EntityDataProperties.CONNECTED_ENTITIES: cur_devices})
+
+    def _update_parent(self, new_parent: NodeEntity | None) -> None:
+        """Set the parent entity for this entity."""
+
+        self._data.update({EntityDataProperties.PARENT_ENTITY: new_parent})
+
     async def _async_api_request(
         self,
         action: api.Actions,
@@ -512,7 +540,7 @@ class MeshEntity:
         ret = []
 
         # -- get the adapters --#
-        my_adapters: list[dict[str, Any]] = self._data.get("knownInterfaces", [])
+        my_adapters: list[dict[str, Any]] = self._data.get(EntityDataProperties.KNOWN_INTERFACES, [])
         for adapter in my_adapters:
             connection_info: list[dict[str, Any]] = [
                 c
@@ -520,14 +548,14 @@ class MeshEntity:
                 if c.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
             ]
             reservation_info: dict[str, Any] = (
-                self._data.get("reservation_details", {})
-                if self._data.get("reservation_details", {}).get("macAddress", "").lower()
+                self._data.get(EntityDataProperties.RESERVATION_DETAILS, {})
+                if self._data.get(EntityDataProperties.RESERVATION_DETAILS, {}).get("macAddress", "").lower()
                 == adapter.get("macAddress", "").lower()
                 else {}
             )
             wifi_info: dict[str, Any] = (
-                self._data.get("connection_details", {})
-                if self._data.get("connection_details", {}).get("macAddress", "").lower()
+                self._data.get(EntityDataProperties.CONNECTION_DETAILS, {})
+                if self._data.get(EntityDataProperties.CONNECTION_DETAILS, {}).get("macAddress", "").lower()
                 == adapter.get("macAddress", "").lower()
                 else {}
             )
@@ -575,7 +603,18 @@ class MeshEntity:
 
         :return: The parent node name or None if no node has been identified.
         """
-        return cast(str | None, self._data.get("parent_name"))
+
+        ret: str | None = None
+        if (parent := self._data.get(EntityDataProperties.PARENT_ENTITY)) is not None:
+            ret = cast(NodeEntity, parent).name
+
+        return ret
+
+    @property
+    def raw_details(self) -> dict[str, Any]:
+        """Return the raw details used to build the entity."""
+
+        return self._data
 
     @property
     def results_time(self) -> int | None:
@@ -583,7 +622,7 @@ class MeshEntity:
 
         :return: The time the scan was executed
         """
-        return cast(int | None, self._data.get("results_time"))
+        return cast(int | None, self._data.get(EntityDataProperties.RESULTS_TIME))
 
     @property
     def status(self) -> bool:
@@ -1021,7 +1060,7 @@ class DeviceEntity(MeshEntity):
         :return: dictionary containing the parental controls for the device.
         """
         ret: dict[str, Any] = {}
-        for rule in self._data.get("parental_controls", []):
+        for rule in self._data.get(EntityDataProperties.PARENTAL_CONTROLS, []):
             pc_details: ParentalControl = ParentalControl(rule)
             ret = {
                 "blocked_internet_access": pc_details.human_readable,
@@ -1083,7 +1122,7 @@ class NodeEntity(MeshEntity):
         """
 
         super_adapters: list[dict[str, Any]] = super().adapter_info
-        backhaul: dict[str, Any] = self._data.get("backhaul", {})
+        backhaul: dict[str, Any] = self._data.get(EntityDataProperties.BACKHAUL, {})
         for adapter in super_adapters:
             adapter["primary"] = (
                 True if adapter.get("ip") == backhaul.get("ipAddress") or self.type == NodeType.PRIMARY else False
@@ -1095,7 +1134,7 @@ class NodeEntity(MeshEntity):
     def backhaul(self) -> dict[str, Any]:
         """Get details about the backhaul."""
         ret = {}
-        backhaul = self._data.get("backhaul", {})
+        backhaul = self._data.get(EntityDataProperties.BACKHAUL, {})
         speed_mbps: float | None = None
         with contextlib.suppress(TypeError, ValueError):
             speed_mbps = float(backhaul.get("speedMbps"))
@@ -1114,13 +1153,16 @@ class NodeEntity(MeshEntity):
         return ret
 
     @property
-    def connected_devices(self) -> list[dict[str, Any]]:
+    def connected_devices(self) -> list[DeviceEntity]:
         """List of the devices that are connected to the node.
 
         :return: List of connected devices in alphabetical order sorted by device name
         """
-        connected_devices: list[dict[str, Any]] = self._data.get("connected_devices", [])
-        return sorted(connected_devices, key=lambda device: device.get("name", ""))
+
+        ret: list[DeviceEntity] = []
+        ret = sorted(self._data.get(EntityDataProperties.CONNECTED_ENTITIES, []), key=lambda device: device.name)
+
+        return ret
 
     @property
     def firmware(self) -> dict[str, Any]:
@@ -1186,7 +1228,13 @@ class NodeEntity(MeshEntity):
 
         :return: The IP of the parent node or None if no node has been identified.
         """
-        return cast(str | None, self._data.get("backhaul", {}).get("parentIPAddress"))
+
+        ret: str | None = None
+        if (parent := self._data.get(EntityDataProperties.PARENT_ENTITY)) is not None:
+            _LOGGER.debug(parent.adapter_info)
+            ret = next((adi.get("ip") for adi in cast(NodeEntity, parent).adapter_info if adi.get("primary")), None)
+
+        return ret
 
     @property
     def serial(self) -> str | None:

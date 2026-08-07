@@ -9,6 +9,7 @@ import json
 import logging
 import sys
 from datetime import datetime
+from enum import StrEnum, auto
 from typing import Any, cast
 
 import aiohttp
@@ -144,6 +145,13 @@ MESH_ALLOWED_ACTIONS: set[str] = {
     "wps_off",
     "wps_on",
 }
+
+
+class AllowedChecks(StrEnum):
+    """Possible checks that can be carried out by diagnostics."""
+
+    NETWORK_DETAILS = auto()
+
 
 _LOGGER = logging.getLogger(f"{__package__}.cli")
 
@@ -394,6 +402,58 @@ async def device_pc_set_urls(
                 )
             except Exception as exc:
                 _write_error(exc)
+
+
+@cli.group(name="diagnostics")
+@click.help_option()
+async def diagnostics_group() -> None:
+    """Carry out some diagnostic checks on the Mesh."""
+
+
+@diagnostics_group.command(cls=StandardCommand, name="check")
+@click.argument("check", type=click.Choice(tuple(check.value for check in AllowedChecks), case_sensitive=False))
+@click.pass_context
+async def diagnostics(
+    ctx: click.Context,
+    /,
+    check: AllowedChecks,
+    **_: Any,
+) -> None:
+    """Execute some diagnostics tests on the mesh results."""
+
+    # data: dict[str, Any] = {}
+    try:
+        if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
+            async with mesh_obj:
+                await mesh_obj.async_initialise()
+                await mesh_obj.async_gather_details()
+
+                devices: list[DeviceEntity] = mesh_obj.devices
+
+                if check == AllowedChecks.NETWORK_DETAILS:
+                    ret_devices: set[DeviceEntity] = {d for d in devices if d.status}
+                    ret: list[dict[str, Any]] = [
+                        {
+                            "id": d.unique_id,
+                            "name": d.name,
+                            "parent": d.parent_name,
+                            "parent_id": next(adi.get("parent_id") for adi in d.adapter_info),
+                            "connection_type": next(adi.get("type") for adi in d.adapter_info),
+                            "mac": next(adi.get("mac") for adi in d.adapter_info),
+                            "ip": next(adi.get("ip") for adi in d.adapter_info),
+                            "ipv6": next(adi.get("ipv6") for adi in d.adapter_info),
+                        }
+                        for d in ret_devices
+                    ]
+                    _display(
+                        None,
+                        pd.DataFrame(ret, index=pd.RangeIndex(start=1, stop=len(ret) + 1)),
+                        index=True,
+                        title="Devices Without a Parent",
+                    )
+
+    except Exception as exc:
+        _write_error(exc)
 
 
 @cli.group(name="example")
@@ -917,7 +977,7 @@ async def node_details(
                         _display(
                             outfile,
                             pd.DataFrame(
-                                [d.get("name", "") for d in found_node.connected_devices],
+                                [d.name for d in found_node.connected_devices],
                                 columns=["device"],
                                 index=pd.RangeIndex(
                                     start=1,
