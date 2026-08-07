@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 import contextlib
+import re
 from importlib.metadata import PackageNotFoundError, version
 
+# endregion
+
+__version__ = "from source"
 with contextlib.suppress(PackageNotFoundError):
     __version__ = version(__name__)
-
-import re
-
-# endregion
 
 
 def camel_to_snake(to_convert: str) -> str:
