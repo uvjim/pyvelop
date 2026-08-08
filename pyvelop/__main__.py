@@ -672,6 +672,7 @@ async def mesh_details(
                 if MeshCapability.GET_WAN_INFO in mesh_obj.capabilities:
                     data = {
                         "Internet connected": mesh_obj.wan_status,
+                        "Bridge mode": mesh_obj.is_in_bridge_mode,
                         "Public IP": mesh_obj.wan_ip,
                         "WAN MAC": mesh_obj.wan_mac,
                     }
@@ -789,7 +790,7 @@ async def mesh_details(
                     data = {
                         "Enabled": mesh_obj.upnp_enabled,
                         "allow_change_settings": mesh_obj.upnp_allow_change_settings,
-                        "allow_disable_Internet": mesh_obj.upnp_allow_disable_internet,
+                        "allow_disable_internet": mesh_obj.upnp_allow_disable_internet,
                     }
                     _display(
                         outfile,
@@ -842,9 +843,7 @@ async def mesh_details(
                         title="File Shares",
                     )
                 if MeshCapability.GET_DEVICES in mesh_obj.capabilities:
-                    data_list = [
-                        {"name": d.name, "ip": d.adapter_info[0].get("ip")} for d in mesh_obj.devices if d.status
-                    ]
+                    data_list = [{"name": d.name, "ip": d.adapter_info[0].ip} for d in mesh_obj.devices if d.status]
                     _display(
                         outfile,
                         pd.DataFrame(
