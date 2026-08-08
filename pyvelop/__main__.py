@@ -1209,9 +1209,10 @@ def _display(
         return s.astype(str)
 
     if title != "":
+        final_title: str = f" {title}" if not title.startswith("#") else title
         _output(
             dest,
-            f"\n##{f" {title}" if not title.startswith("#") else title}\n\n",
+            f"\n##{final_title}\n\n",
         )
 
     _output(
