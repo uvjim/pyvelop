@@ -7,11 +7,13 @@ import asyncio
 import base64
 import contextlib
 import datetime
+import datetime as dt
 import logging
 from collections import namedtuple
 from collections.abc import Awaitable, Callable
+from dataclasses import asdict, dataclass
 from enum import IntEnum, StrEnum, auto
-from typing import Any, TypeVar, cast, final
+from typing import Any, cast, final
 
 from . import jnap as api
 from .exceptions import MeshException, MeshInvalidInput
@@ -58,6 +60,189 @@ class EntityDataProperties(StrEnum):
     PARENTAL_CONTROLS = "parental_controls"
     RESERVATION_DETAILS = "reservation_details"
     RESULTS_TIME = "results_time"
+
+
+class ParentalControlActionType(StrEnum):
+    """Representation of parental control time actions."""
+
+    BLOCKED = "0"
+    UNBLOCKED = "1"
+
+
+class UiType(StrEnum):
+    """Available values for the device types used in the UI."""
+
+    AIR_PURIFIER = "air-purifier"
+    AMAZON_DOT = "amazon-dot"
+    AMAZON_ECHO = "amazon-echo"
+    AMAZON_FIRETV_CUBE = "amazon-firetv-cube"
+    AMAZON_SHOW = "amazon-show"
+    AMAZON_SPOT = "amazon-spot"
+    AMAZON_TAP = "amazon-tap"
+    ANDROID_WHITE = "android-white"
+    APPLE_HOMEPOD = "apple-homepod"
+    APPLE_TV = "apple-tv"
+    APPLE_WATCH = "apple-watch"
+    AUTOMATION_HUB = "automation-hub"
+    DESKTOP_MAC = "desktop-mac"
+    DESKTOP_PC = "desktop-pc"
+    DEVICE_ROUTER = "device-router"
+    DIGITAL_CAMERA = "digital-camera"
+    DIGITAL_MEDIA_PLAYER = "digital-media-player"
+    DOORBELL_CAM = "doorbell-cam"
+    DVR = "dvr"
+    EXTENDER_RE7000 = "extender-re7000"
+    FAN_CEILING = "fan-ceiling"
+    FAN_SMALL = "fan-small"
+    GAME_CONSOLES = "game-consoles"
+    GATEWAY = "gateway"
+    GENERIC_CAMERA = "generic-camera"
+    GENERIC_CELLPHONE = "generic-cellphone"
+    GENERIC_DEVICE = "generic-device"
+    GENERIC_DISPLAY = "generic-display"
+    GENERIC_DRONE = "generic-drone"
+    GENERIC_REMOTE = "generic-remote"
+    GENERIC_ROBOT = "generic-robot"
+    GENERIC_TABLET = "generic-tablet"
+    GENERIC_TABLET_WHITE = "generic-tablet-white"
+    GOOGLE_HOME = "google-home"
+    IPAD_PRO_BLACK = "ipad-pro-black"
+    IPAD_PRO_WHITE = "ipad-pro-white"
+    LAPTOP_MAC = "laptop-mac"
+    LAPTOP_PC = "laptop-pc"
+    LINKSYS_BRIDGE = "linksys-bridge"
+    LINKSYS_EXTENDER = "linksys-extender"
+    MEDIA_ADAPTER = "media-adapter"
+    MEDIA_STICK = "media-stick"
+    NEST_CAM = "nest-cam"
+    NEST_HELLO = "nest-hello"
+    NET_CAMERA = "net-camera"
+    NET_DRIVE = "net-drive"
+    PET_FEEDER = "pet-feeder"
+    PHOTO_FRAME = "photo-frame"
+    PHYN_ASSISTANT = "phyn_assistant"
+    PHYN_PLUS = "phyn-plus"
+    POWER_STRIP = "power-strip"
+    PRINT_SERVER = "print-server"
+    PRINTER_INKJET = "printer-inkjet"
+    PRINTER_LASER = "printer-laser"
+    PRINTER_PHOTO = "printer-photo"
+    ROUTER_DEFAULT = "router-default"
+    ROUTER_EA2700 = "router-ea2700"
+    ROUTER_EA3500 = "router-ea3500"
+    ROUTER_EA4500 = "router-ea4500"
+    ROUTER_EA6100 = "router-ea6100"
+    ROUTER_EA6200 = "router-ea6200"
+    ROUTER_EA6300 = "router-ea6300"
+    ROUTER_EA6350 = "router-ea6350"
+    ROUTER_EA6400 = "router-ea6400"
+    ROUTER_EA6500 = "router-ea6500"
+    ROUTER_EA6700 = "router-ea6700"
+    ROUTER_EA6900 = "router-ea6900"
+    ROUTER_EA7400 = "router-ea7400"
+    ROUTER_EA7500 = "router-ea7500"
+    ROUTER_EA8300 = "router-ea8300"
+    ROUTER_EA8500 = "router-ea8500"
+    ROUTER_EA9200 = "router-ea9200"
+    ROUTER_EA9300 = "router-ea9300"
+    ROUTER_EA9500 = "router-ea9500"
+    ROUTER_WHW03 = "router-whw03"
+    ROUTER_WRT1200AC = "router-wrt1200ac"
+    ROUTER_WRT1900AC = "router-wrt1900ac"
+    ROUTER_XAC1200 = "router-xac1200"
+    ROUTER_XAC1900 = "router-xac1900"
+    SECURITY_SYSTEM = "security-system"
+    SERVER_MAC = "server-mac"
+    SERVER_PC = "server-pc"
+    SET_TOP_BOX = "set-top-box"
+    SMART_CAR = "smart-car"
+    SMART_CROCKPOT = "smart-crockpot"
+    SMART_LOCK = "smart-lock"
+    SMART_MRCOFFEE = "smart-mrcoffee"
+    SMART_SCALE = "smart-scale"
+    SMART_SMOKE_DETECTOR = "smart-smoke-detector"
+    SMART_SPEAKER = "smart-speaker"
+    SMART_SPRINKLER = "smart-sprinkler"
+    SMART_THERMOSTAT = "smart-thermostat"
+    SMART_VACUUM = "smart-vacuum"
+    SMART_VALVE = "smart-valve"
+    SMART_WATCH = "smart-watch"
+    SMARTPHONE = "smartphone"
+    SOUND_BAR = "sound-bar"
+    SOUNDFORM_ELITE = "soundform-elite"
+    SOUNDFORM_ELITE_WHITE = "soundform-elite-white"
+    TABLET_EREADER = "tablet-ereader"
+    TABLET_PC = "tablet-pc"
+    THREE_D_PRINTER = "three-d-printer"
+    TV_HDTV = "tv-hdtv"
+    VOIP_PHONE = "voip-phone"
+    VR_HEADSET = "vr-headset"
+    WEMO_DEVICE = "wemo-device"
+    WEMO_INSIGHT = "wemo-insight"
+    WEMO_LEDBULB = "wemo-ledbulb"
+    WEMO_LIGHTSWITCH = "wemo-lightswitch"
+    WEMO_LINK = "wemo-link"
+    WEMO_MAKER = "wemo-maker"
+    WEMO_MINI = "wemo-mini"
+    WEMO_NETCAM = "wemo-netcam"
+    WEMO_OUTDOOR_PLUG = "wemo-outdoor-plug"
+    WEMO_SENSOR = "wemo-sensor"
+    WEMO_SOCKET = "wemo-socket"
+    WHIRLPOOL_FRIDGE = "whirlpool-fridge"
+    WIRED_BRIDGE = "wired-bridge"
+
+
+class Weekdays(IntEnum):
+    """Definition for weekdays."""
+
+    SUNDAY = 0
+    MONDAY = auto()
+    TUESDAY = auto()
+    WEDNESDAY = auto()
+    THURSDAY = auto()
+    FRIDAY = auto()
+    SATURDAY = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class AdapterInfo:
+    """Representation of adapter information."""
+
+    band: str | None = None
+    connected: bool = False
+    guest_network: bool | None = None
+    ip: str | None = None
+    ipv6: str | None = None
+    mac: str | None = None
+    parent_id: str | None = None
+    reservation: bool = False
+    reservation_description: str | None = None
+    rssi_dbm: int | None = None
+    signal_strength: SignalStrength | None = None
+    type: ConnectionType = ConnectionType.UNKNOWN
+
+
+@dataclass(frozen=True, slots=True)
+class NodeAdapterInfo(AdapterInfo):
+    """Representation of adapter information for a node."""
+
+    primary: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class BackhaulInfo:
+    """Representation of backhaul information."""
+
+    connection: ConnectionType | None
+    last_checked: dt.datetime | None
+    speed_mbps: float | None
+    rssi_dbm: int | None
+    signal_strength: SignalStrength | None
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the instance as a dictionary."""
+
+        return asdict(self)
 
 
 class ParentalControl:
@@ -304,148 +489,6 @@ class ParentalControl:
     # endregion
 
 
-class ParentalControlActionType(StrEnum):
-    """Representation of parental control time actions."""
-
-    BLOCKED = "0"
-    UNBLOCKED = "1"
-
-
-class UiType(StrEnum):
-    """Available values for the device types used in the UI."""
-
-    AIR_PURIFIER = "air-purifier"
-    AMAZON_DOT = "amazon-dot"
-    AMAZON_ECHO = "amazon-echo"
-    AMAZON_FIRETV_CUBE = "amazon-firetv-cube"
-    AMAZON_SHOW = "amazon-show"
-    AMAZON_SPOT = "amazon-spot"
-    AMAZON_TAP = "amazon-tap"
-    ANDROID_WHITE = "android-white"
-    APPLE_HOMEPOD = "apple-homepod"
-    APPLE_TV = "apple-tv"
-    APPLE_WATCH = "apple-watch"
-    AUTOMATION_HUB = "automation-hub"
-    DESKTOP_MAC = "desktop-mac"
-    DESKTOP_PC = "desktop-pc"
-    DEVICE_ROUTER = "device-router"
-    DIGITAL_CAMERA = "digital-camera"
-    DIGITAL_MEDIA_PLAYER = "digital-media-player"
-    DOORBELL_CAM = "doorbell-cam"
-    DVR = "dvr"
-    EXTENDER_RE7000 = "extender-re7000"
-    FAN_CEILING = "fan-ceiling"
-    FAN_SMALL = "fan-small"
-    GAME_CONSOLES = "game-consoles"
-    GATEWAY = "gateway"
-    GENERIC_CAMERA = "generic-camera"
-    GENERIC_CELLPHONE = "generic-cellphone"
-    GENERIC_DEVICE = "generic-device"
-    GENERIC_DISPLAY = "generic-display"
-    GENERIC_DRONE = "generic-drone"
-    GENERIC_REMOTE = "generic-remote"
-    GENERIC_ROBOT = "generic-robot"
-    GENERIC_TABLET = "generic-tablet"
-    GENERIC_TABLET_WHITE = "generic-tablet-white"
-    GOOGLE_HOME = "google-home"
-    IPAD_PRO_BLACK = "ipad-pro-black"
-    IPAD_PRO_WHITE = "ipad-pro-white"
-    LAPTOP_MAC = "laptop-mac"
-    LAPTOP_PC = "laptop-pc"
-    LINKSYS_BRIDGE = "linksys-bridge"
-    LINKSYS_EXTENDER = "linksys-extender"
-    MEDIA_ADAPTER = "media-adapter"
-    MEDIA_STICK = "media-stick"
-    NEST_CAM = "nest-cam"
-    NEST_HELLO = "nest-hello"
-    NET_CAMERA = "net-camera"
-    NET_DRIVE = "net-drive"
-    PET_FEEDER = "pet-feeder"
-    PHOTO_FRAME = "photo-frame"
-    PHYN_ASSISTANT = "phyn_assistant"
-    PHYN_PLUS = "phyn-plus"
-    POWER_STRIP = "power-strip"
-    PRINT_SERVER = "print-server"
-    PRINTER_INKJET = "printer-inkjet"
-    PRINTER_LASER = "printer-laser"
-    PRINTER_PHOTO = "printer-photo"
-    ROUTER_DEFAULT = "router-default"
-    ROUTER_EA2700 = "router-ea2700"
-    ROUTER_EA3500 = "router-ea3500"
-    ROUTER_EA4500 = "router-ea4500"
-    ROUTER_EA6100 = "router-ea6100"
-    ROUTER_EA6200 = "router-ea6200"
-    ROUTER_EA6300 = "router-ea6300"
-    ROUTER_EA6350 = "router-ea6350"
-    ROUTER_EA6400 = "router-ea6400"
-    ROUTER_EA6500 = "router-ea6500"
-    ROUTER_EA6700 = "router-ea6700"
-    ROUTER_EA6900 = "router-ea6900"
-    ROUTER_EA7400 = "router-ea7400"
-    ROUTER_EA7500 = "router-ea7500"
-    ROUTER_EA8300 = "router-ea8300"
-    ROUTER_EA8500 = "router-ea8500"
-    ROUTER_EA9200 = "router-ea9200"
-    ROUTER_EA9300 = "router-ea9300"
-    ROUTER_EA9500 = "router-ea9500"
-    ROUTER_WHW03 = "router-whw03"
-    ROUTER_WRT1200AC = "router-wrt1200ac"
-    ROUTER_WRT1900AC = "router-wrt1900ac"
-    ROUTER_XAC1200 = "router-xac1200"
-    ROUTER_XAC1900 = "router-xac1900"
-    SECURITY_SYSTEM = "security-system"
-    SERVER_MAC = "server-mac"
-    SERVER_PC = "server-pc"
-    SET_TOP_BOX = "set-top-box"
-    SMART_CAR = "smart-car"
-    SMART_CROCKPOT = "smart-crockpot"
-    SMART_LOCK = "smart-lock"
-    SMART_MRCOFFEE = "smart-mrcoffee"
-    SMART_SCALE = "smart-scale"
-    SMART_SMOKE_DETECTOR = "smart-smoke-detector"
-    SMART_SPEAKER = "smart-speaker"
-    SMART_SPRINKLER = "smart-sprinkler"
-    SMART_THERMOSTAT = "smart-thermostat"
-    SMART_VACUUM = "smart-vacuum"
-    SMART_VALVE = "smart-valve"
-    SMART_WATCH = "smart-watch"
-    SMARTPHONE = "smartphone"
-    SOUND_BAR = "sound-bar"
-    SOUNDFORM_ELITE = "soundform-elite"
-    SOUNDFORM_ELITE_WHITE = "soundform-elite-white"
-    TABLET_EREADER = "tablet-ereader"
-    TABLET_PC = "tablet-pc"
-    THREE_D_PRINTER = "three-d-printer"
-    TV_HDTV = "tv-hdtv"
-    VOIP_PHONE = "voip-phone"
-    VR_HEADSET = "vr-headset"
-    WEMO_DEVICE = "wemo-device"
-    WEMO_INSIGHT = "wemo-insight"
-    WEMO_LEDBULB = "wemo-ledbulb"
-    WEMO_LIGHTSWITCH = "wemo-lightswitch"
-    WEMO_LINK = "wemo-link"
-    WEMO_MAKER = "wemo-maker"
-    WEMO_MINI = "wemo-mini"
-    WEMO_NETCAM = "wemo-netcam"
-    WEMO_OUTDOOR_PLUG = "wemo-outdoor-plug"
-    WEMO_SENSOR = "wemo-sensor"
-    WEMO_SOCKET = "wemo-socket"
-    WHIRLPOOL_FRIDGE = "whirlpool-fridge"
-    WIRED_BRIDGE = "wired-bridge"
-
-
-class Weekdays(IntEnum):
-    """Definition for weekdays."""
-
-    SUNDAY = 0
-    MONDAY = auto()
-    TUESDAY = auto()
-    WEDNESDAY = auto()
-    THURSDAY = auto()
-    FRIDAY = auto()
-    SATURDAY = auto()
-
-
 class MeshEntity:
     """Represents a base level entity on the mesh."""
 
@@ -531,7 +574,7 @@ class MeshEntity:
         return resp
 
     @property
-    def adapter_info(self) -> list[dict[str, Any]]:
+    def adapter_info(self) -> list[AdapterInfo]:
         """Retrieve details about the entity's adapters.
 
         :return: Adapter details including reservation, Wi-Fi, IP and Guest details
@@ -572,7 +615,7 @@ class MeshEntity:
                 "parent_id": (None if not connection_info else connection_info[0].get("parentDeviceID")),
                 "reservation": bool(reservation_info),
                 "reservation_description": reservation_info.get("description"),
-                "rssi": wifi_info.get("wireless", {}).get("signalDecibels"),
+                "rssi_dbm": wifi_info.get("wireless", {}).get("signalDecibels"),
                 "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
                 "type": adapter.get("interfaceType"),
             }
@@ -583,7 +626,7 @@ class MeshEntity:
                     props.update({"type": ConnectionType.WIRELESS.value})
             # endregion
 
-            ret.append(props)
+            ret.append(AdapterInfo(**props))
 
         return ret
 
@@ -657,9 +700,6 @@ class MeshEntity:
     def unique_id(self) -> str | None:
         """Return the unique id of the entity."""
         return cast(str | None, self._data.get("deviceID"))
-
-
-MeshEntityType = TypeVar("MeshEntityType", bound=MeshEntity)
 
 
 class DeviceEntity(MeshEntity):
@@ -774,7 +814,7 @@ class DeviceEntity(MeshEntity):
         this_device_rules: list[dict[str, Any]] = []
 
         # region #-- get the device MAC --#
-        device_mac: str | None = self.adapter_info[0].get("mac")
+        device_mac: str | None = self.adapter_info[0].mac
         if device_mac is None:
             raise MeshException("No MAC available")
         # endregion
@@ -913,7 +953,7 @@ class DeviceEntity(MeshEntity):
         this_device_rules: list[dict[str, Any]] = []
 
         # region #-- get the MAC address details --#
-        device_mac: str | None = self.adapter_info[0].get("mac")
+        device_mac: str | None = self.adapter_info[0].mac
         if device_mac is None:
             raise MeshException("No MAC available")
         # endregion
@@ -1100,7 +1140,7 @@ class NodeEntity(MeshEntity):
 
         # region #-- establish the correct IP to use --#
         target_ip: str | None = next(
-            (adapter.get("ip") for adapter in self.adapter_info if adapter.get("ip") and adapter.get("primary")),
+            (adapter.ip for adapter in self.adapter_info if adapter.ip and adapter.primary),
             None,
         )
         if not target_ip:
@@ -1114,26 +1154,29 @@ class NodeEntity(MeshEntity):
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     @property
-    def adapter_info(self) -> list[dict[str, Any]]:
+    def adapter_info(self) -> list[NodeAdapterInfo]:
         """Retrieve details about the entity's adapters.
 
         :return: Adapter details including reservation, Wi-Fi, IP and Guest details.
             Additionally includes whether it is the primary adapter or not.
         """
 
-        super_adapters: list[dict[str, Any]] = super().adapter_info
+        ret: list[NodeAdapterInfo] = []
+        super_adapters: list[AdapterInfo] = super().adapter_info
         backhaul: dict[str, Any] = self._data.get(EntityDataProperties.BACKHAUL, {})
         for adapter in super_adapters:
-            adapter["primary"] = (
-                True if adapter.get("ip") == backhaul.get("ipAddress") or self.type == NodeType.PRIMARY else False
+            props: dict[str, Any] = asdict(adapter)
+            props.update(
+                {"primary": True if adapter.ip == backhaul.get("ipAddress") or self.type == NodeType.PRIMARY else False}
             )
+            ret.append(NodeAdapterInfo(**props))
 
-        return super_adapters
+        return ret
 
     @property
-    def backhaul(self) -> dict[str, Any]:
+    def backhaul(self) -> BackhaulInfo | None:
         """Get details about the backhaul."""
-        ret = {}
+        ret: BackhaulInfo | None = None
         backhaul = self._data.get(EntityDataProperties.BACKHAUL, {})
         speed_mbps: float | None = None
         with contextlib.suppress(TypeError, ValueError):
@@ -1141,14 +1184,19 @@ class NodeEntity(MeshEntity):
 
         if backhaul:
             signal_strength_raw: int | None = backhaul.get("wirelessConnectionInfo", {}).get("stationRSSI")
-            signal_strength: SignalStrength | None = self._signal_strength_to_text(signal_strength_raw)
-            ret = {
-                "connection": backhaul.get("connectionType"),
-                "last_checked": backhaul.get("timestamp"),
-                "speed_mbps": speed_mbps,
-                "rssi_dbm": signal_strength_raw,
-                "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
-            }
+            ret = BackhaulInfo(
+                **{
+                    "connection": ConnectionType(backhaul.get("connectionType", "unknown")),
+                    "last_checked": (
+                        dt.datetime.fromisoformat(backhaul.get("timestamp"))
+                        if backhaul.get("timestamp") is not None
+                        else None
+                    ),
+                    "speed_mbps": speed_mbps,
+                    "rssi_dbm": signal_strength_raw,
+                    "signal_strength": self._signal_strength_to_text(signal_strength_raw),
+                }
+            )
 
         return ret
 
@@ -1231,8 +1279,7 @@ class NodeEntity(MeshEntity):
 
         ret: str | None = None
         if (parent := self._data.get(EntityDataProperties.PARENT_ENTITY)) is not None:
-            _LOGGER.debug(parent.adapter_info)
-            ret = next((adi.get("ip") for adi in cast(NodeEntity, parent).adapter_info if adi.get("primary")), None)
+            ret = next((adi.ip for adi in cast(NodeEntity, parent).adapter_info if adi.primary), None)
 
         return ret
 
