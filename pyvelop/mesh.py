@@ -27,7 +27,12 @@ from .exceptions import (
     MeshInvalidInput,
     MeshNeedsInitialise,
 )
-from .mesh_entity import DeviceEntity, EntityDataProperties, NodeEntity
+from .mesh_entity import (
+    AdapterInfo,
+    DeviceEntity,
+    EntityDataProperties,
+    NodeEntity,
+)
 from .types import MeshDetails, NodeType
 
 # endregion
@@ -460,10 +465,8 @@ class Mesh:
                 if parent_ip is not None:
                     for n in mesh_entities:
                         if isinstance(n, NodeEntity):
-                            nadi: dict[str, Any] | None = next(
-                                (adi for adi in n.adapter_info if adi.get("primary")), None
-                            )
-                            if nadi is not None and parent_ip == nadi.get("ip"):
+                            nadi: AdapterInfo | None = next((adi for adi in n.adapter_info if adi.primary), None)
+                            if nadi is not None and parent_ip == nadi.ip:
                                 parent_node = n
                                 break
                 # endregion
@@ -475,13 +478,13 @@ class Mesh:
                 # endregion
                 if not parent_node:
                     # region #-- let's look in the wireless node connections for a parent --#
-                    adi: dict[str, Any] | None = next((adi for adi in node_or_device.adapter_info), None)
+                    adi: AdapterInfo | None = next((adi for adi in node_or_device.adapter_info), None)
                     if adi is not None:
                         for nwc in ret.get(MeshCapability.GET_NETWORK_CONNECTIONS.value, {}).get(
                             "nodeWirelessConnections", []
                         ):
                             p_details: dict[str, Any] | None = next(
-                                (pd for pd in nwc.get("connections", []) if pd.get("macAddress") == adi.get("mac")),
+                                (pd for pd in nwc.get("connections", []) if pd.get("macAddress") == adi.mac),
                                 None,
                             )
                             if p_details is not None:
@@ -663,11 +666,7 @@ class Mesh:
                             for dev in all_devices
                             if type(dev) is DeviceEntity
                             and next(
-                                (
-                                    adapter
-                                    for adapter in dev.adapter_info
-                                    if adapter.get("mac", "").strip().lower() == ident
-                                ),
+                                (adapter for adapter in dev.adapter_info if str(adapter.mac).strip().lower() == ident),
                                 None,
                             )
                         )
@@ -1514,7 +1513,7 @@ class Mesh:
                             {
                                 "available_kb": partition.get("availableKB"),
                                 "ip": next(
-                                    (adapter.get("ip") for adapter in node.adapter_info if adapter.get("ip")),
+                                    (adapter.ip for adapter in node.adapter_info if adapter.ip),
                                     None,
                                 ),
                                 "label": partition.get("label"),

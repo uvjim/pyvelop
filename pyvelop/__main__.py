@@ -437,11 +437,11 @@ async def diagnostics(
                             "id": d.unique_id,
                             "name": d.name,
                             "parent": d.parent_name,
-                            "parent_id": next(adi.get("parent_id") for adi in d.adapter_info),
-                            "connection_type": next(adi.get("type") for adi in d.adapter_info),
-                            "mac": next(adi.get("mac") for adi in d.adapter_info),
-                            "ip": next(adi.get("ip") for adi in d.adapter_info),
-                            "ipv6": next(adi.get("ipv6") for adi in d.adapter_info),
+                            "parent_id": next(adi.parent_id for adi in d.adapter_info),
+                            "connection_type": next(adi.type for adi in d.adapter_info),
+                            "mac": next(adi.mac for adi in d.adapter_info),
+                            "ip": next(adi.ip for adi in d.adapter_info),
+                            "ipv6": next(adi.ipv6 for adi in d.adapter_info),
                         }
                         for d in ret_devices
                     ]
@@ -966,7 +966,7 @@ async def node_details(
                         if found_node.type == "secondary":
                             data: dict[str, Any] = {
                                 "parent": f"{found_node.parent_name} ({found_node.parent_ip})",
-                                **found_node.backhaul,
+                                **found_node.backhaul.as_dict(),
                             }
                             _display(
                                 outfile,
