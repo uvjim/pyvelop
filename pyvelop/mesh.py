@@ -1254,6 +1254,21 @@ class Mesh:
         return cast(bool | None, attr.get("isRunning"))
 
     @property
+    @needs_initialise
+    def is_in_bridge_mode(self) -> bool:
+        """Return whether the mesh is in bridge mode or not."""
+
+        attr = cast(
+            dict[str, Any],
+            self._mesh_attributes.get(
+                MeshCapability.GET_WAN_INFO.value,
+                {},
+            ),
+        )
+
+        return cast(str, attr.get("detectedWANType", "")).lower() == "bridge"
+
+    @property
     def last_gather_details(self) -> dict[str, float | None]:
         """Return some timings about when the details were gathered.
 
