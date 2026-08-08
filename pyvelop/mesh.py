@@ -467,7 +467,7 @@ class Mesh:
                                 parent_node = n
                                 break
                 # endregion
-            elif isinstance(node_or_device, DeviceEntity) and node_or_device.status:
+            elif isinstance(node_or_device, DeviceEntity):
                 # region #-- check in the connections list for a parent ID --#
                 parent_node = next(
                     (conn.get("parentDeviceID") for conn in node_or_device.raw_details.get("connections", [])), None
@@ -475,16 +475,14 @@ class Mesh:
                 # endregion
                 if not parent_node:
                     # region #-- let's look in the wireless node connections for a parent --#
-                    adi: dict[str, Any] | None = next((adi for adi in node_or_device.adapter_info), None)
-                    if adi is not None:
+                    adapter_macs: set[str] = {
+                        adi.get("mac") for adi in node_or_device.adapter_info if adi.get("mac") is not None
+                    }
+                    if adapter_macs:
                         for nwc in ret.get(MeshCapability.GET_NETWORK_CONNECTIONS.value, {}).get(
                             "nodeWirelessConnections", []
                         ):
-                            p_details: dict[str, Any] | None = next(
-                                (pd for pd in nwc.get("connections", []) if pd.get("macAddress") == adi.get("mac")),
-                                None,
-                            )
-                            if p_details is not None:
+                            if any(pd.get("macAddress") in adapter_macs for pd in nwc.get("connections", [])):
                                 parent_node = nwc.get("deviceID")
                                 break
                     # endregion
@@ -495,7 +493,7 @@ class Mesh:
                 )
             if isinstance(parent_node, NodeEntity):
                 node_or_device._update_parent(parent_node)
-                if isinstance(node_or_device, DeviceEntity):
+                if isinstance(node_or_device, DeviceEntity) and node_or_device.status:
                     parent_node._update_connected_devices(node_or_device)
 
         # endregion
