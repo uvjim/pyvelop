@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import json
 import logging
 import sys
-from datetime import datetime
 from enum import StrEnum, auto
 from typing import Any, cast
 
@@ -26,7 +26,14 @@ from .exceptions import (
 )
 from .jnap import RESPONSE_REDACTIONS, Actions
 from .logger import set_logging_format
-from .mesh import Mesh, MeshCapability, NightModeState, ScheduledRebootInterval
+from .mesh import (
+    Mesh,
+    MeshCapability,
+    NightModeState,
+    ScheduledRebootInterval,
+    SpeedtestExitCode,
+    SpeedtestResult,
+)
 from .mesh_entity import DeviceEntity, ParentalControl, Weekdays
 
 # endregion
@@ -138,7 +145,6 @@ MESH_ALLOWED_ACTIONS: set[str] = {
     "parental_control_on",
     "speedtest_results",
     "speedtest_start",
-    "speedtest_state",
     "update_check_start",
     "upnp_off",
     "upnp_on",
@@ -546,20 +552,18 @@ async def mesh_action(
                 elif action == "speedtest_start":
                     await mesh_obj.async_initialise()
                     await mesh_obj.async_start_speedtest()
-                    res: str = await mesh_obj.async_get_speedtest_state()
-                    click.echo(f"{datetime.now()} state, {res}")
-                    prev_res: str = res
-                    ret = await mesh_obj.async_get_speedtest_results(count=1, only_latest=True)
-                    while ret[0].get("exit_code") == "Unavailable":
+                    res: SpeedtestResult = await mesh_obj.async_get_speedtest_state()
+                    click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
+                    prev_res: SpeedtestResult = res
+                    while res.exit_code == SpeedtestExitCode.UNAVAILABLE:
                         await asyncio.sleep(1)
                         res = await mesh_obj.async_get_speedtest_state()
-                        if res != prev_res:
-                            click.echo(f"{datetime.now()} state, {res}")
+                        if res.friendly_status != prev_res.friendly_status:
+                            click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
                             prev_res = res
-                        ret = await mesh_obj.async_get_speedtest_results(count=1, only_latest=True)
-                elif action == "speedtest_state":
-                    await mesh_obj.async_initialise()
-                    ret = await mesh_obj.async_get_speedtest_state()
+                    ret = await mesh_obj.async_get_speedtest_results(only_latest=True, only_completed=True)
+                    ret = ret[0].as_dict()
+                    ret["timestamp"] = str(ret["timestamp"])
                 elif action == "update_check_start":
                     await mesh_obj.async_check_for_updates()
                 elif action == "upnp_off":
@@ -583,6 +587,7 @@ async def mesh_action(
                 elif action == "wps_on":
                     await mesh_obj.async_set_wps_state(state=True)
     except Exception as exc:
+        raise exc
         _write_error(exc)
     else:
         _output(None, json.dumps(ret))
@@ -612,22 +617,22 @@ async def mesh_details(
                 _output(outfile, "# Mesh Details\n")
                 data = {
                     "Gather started": (
-                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
                         if (val := mesh_obj.last_gather_details.get("gather_start", 0)) != 0
                         else "unknown"
                     ),
                     "Gather finished": (
-                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
                         if (val := mesh_obj.last_gather_details.get("gather_end", 0)) != 0
                         else "unknown"
                     ),
                     "Processing started": (
-                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
                         if (val := mesh_obj.last_gather_details.get("process_start", 0)) != 0
                         else "unknown"
                     ),
                     "Processing finished": (
-                        datetime.fromtimestamp(float(val if val is not None else 0))
+                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
                         if (val := mesh_obj.last_gather_details.get("process_end", 0)) != 0
                         else "unknown"
                     ),
@@ -813,13 +818,12 @@ async def mesh_details(
                 if MeshCapability.GET_SPEEDTEST_RESULTS in mesh_obj.capabilities:
                     _display(
                         outfile,
-                        pd.DataFrame.from_dict(
-                            cast(dict[str, Any], mesh_obj.latest_speedtest_result),
-                            orient="index",
-                            columns=[""],
+                        pd.DataFrame(
+                            mesh_obj.speedtest_results,
+                            index=pd.RangeIndex(start=1, stop=len(mesh_obj.speedtest_results) + 1),
                         ),
                         index=True,
-                        title="Speedtest Results (Latest)",
+                        title="Speedtest Results",
                     )
                 if MeshCapability.GET_GUEST_NETWORK_INFO in mesh_obj.capabilities:
                     data = {

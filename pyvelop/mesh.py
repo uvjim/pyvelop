@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import functools
 import logging
 import re
 import time
 import uuid
 from collections.abc import Coroutine
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
 from types import MappingProxyType
 from typing import Any, cast
@@ -39,7 +41,6 @@ from .types import MeshDetails, NodeType
 # endregion
 
 type _ApiResponse = tuple[api.Request, api.Response]
-type _SpeedtestResult = dict[str, Any]
 
 _ATTR_PROCESSED_DEVICES: str = "processed_devices"
 _LOGGER = logging.getLogger(__name__)
@@ -91,6 +92,14 @@ class ScheduledRebootInterval(StrEnum):
     WEEKLY = "Weekly"
 
 
+class SpeedtestExitCode(StrEnum):
+    """Possible exit codes for speedtest."""
+
+    EXCECUTION_ERROR = "SpeedTestExecutionError"
+    SUCCESS = "Success"
+    UNAVAILABLE = "Unavailable"
+
+
 class SpeedtestStatus(StrEnum):
     """Possible Speedtest statuses."""
 
@@ -103,65 +112,41 @@ class SpeedtestStatus(StrEnum):
     UNKNOWN = auto()
 
 
-def _get_speedtest_state(
-    speedtest_results: dict[str, Any] | None = None,
-) -> SpeedtestStatus:
-    """Process the Speedtest results to get a textual state."""
+@dataclass(frozen=True, slots=True)
+class SpeedtestResult:
+    """Representation of the results of a speedtest."""
 
-    ret: SpeedtestStatus = SpeedtestStatus.UNKNOWN
-    if speedtest_results is not None:
-        if not speedtest_results:
-            ret = SpeedtestStatus.NOT_RUNNING
-        elif speedtest_results.get("uploadBandwidth", 0):
-            ret = SpeedtestStatus.CHECKING_UPLOAD_SPEED
-        elif speedtest_results.get("downloadBandwidth", 0):
-            ret = SpeedtestStatus.CHECKING_DOWNLOAD_SPEED
-        elif speedtest_results.get("latency"):
-            ret = SpeedtestStatus.CHECKING_LATENCY
-        elif speedtest_results.get("serverID", "") == "0":
-            ret = SpeedtestStatus.DETECTING_SERVER
-        else:
-            ret = SpeedtestStatus.FINISHED
+    timestamp: dt.datetime
+    download_bandwidth: int
+    exit_code: SpeedtestExitCode
+    friendly_status: SpeedtestStatus = field(init=False)
+    latency: int
+    result_id: int
+    server_id: str
+    upload_bandwidth: int
 
-    return ret
+    def __post_init__(self):
+        """Derive a friendly status from the available results."""
 
+        _friendly_status: SpeedtestStatus = SpeedtestStatus.UNKNOWN
+        if self.exit_code == SpeedtestExitCode.SUCCESS:
+            _friendly_status = SpeedtestStatus.NOT_RUNNING
+        elif self.server_id == "0":
+            _friendly_status = SpeedtestStatus.DETECTING_SERVER
+        elif self.latency == 0:
+            _friendly_status = SpeedtestStatus.CHECKING_LATENCY
+        elif self.download_bandwidth == 0:
+            _friendly_status = SpeedtestStatus.CHECKING_DOWNLOAD_SPEED
+        elif self.upload_bandwidth == 0:
+            _friendly_status = SpeedtestStatus.CHECKING_UPLOAD_SPEED
 
-def _process_speedtest_results(
-    speedtest_results: list[_SpeedtestResult],
-    *,
-    only_latest: bool = False,
-    only_completed: bool = False,
-) -> list[_SpeedtestResult]:
-    """Take the results from the API for a Speedtest instance and convert to something usable/more compact.
+        object.__setattr__(self, "friendly_status", _friendly_status)
 
-    :param speedtest_results: The results as they were returned from the API
-    :param only_latest: True if you only want to return the latest result
-    :param only_completed: True if you only want to return completed tests, i.e. not ones currently running
-    :return: A list of dictionaries containing the relevant information
-    """
-    if speedtest_results is None:
-        speedtest_results = []
+    def as_dict(self) -> dict[str, Any]:
+        """Representation of the class."""
 
-    ret = [
-        {
-            "timestamp": result.get("timestamp", None),
-            "exit_code": result.get("speedTestResult", {}).get("exitCode", None),
-            "latency": result.get("speedTestResult", {}).get("latency", None),
-            "upload_bandwidth": result.get("speedTestResult", {}).get("uploadBandwidth", None),
-            "download_bandwidth": result.get("speedTestResult", {}).get("downloadBandwidth", None),
-            "result_id": result.get("speedTestResult", {}).get("resultID", None),
-        }
-        for result in speedtest_results
-    ]
-
-    if only_completed:
-        ret = [result for result in ret if result.get("exit_code", "").lower() not in ["unavailable"]]
-
-    if only_latest:
-        if ret:
-            ret = [ret[0]]
-
-    return ret
+        ret: dict[str, Any] = asdict(self)
+        return ret
 
 
 def needs_initialise(func: Any) -> Any:
@@ -289,6 +274,31 @@ class Mesh:
         """
         session = ClientSession(raise_for_status=True)
         return session
+
+    def _process_speedtest_results(self, results: dict[str, Any]) -> SpeedtestResult:
+        """Build a SpeedtestResult object from the provisded results."""
+
+        if "speedTestResult" not in results:
+            raise ValueError
+
+        result_set: dict[str, Any] | None = results.get("speedTestResult")
+        props: dict[str, Any] = {}
+        if result_set is not None:
+            props = {
+                "download_bandwidth": result_set.get("downloadBandwidth"),
+                "exit_code": SpeedtestExitCode(result_set.get("exitCode")),
+                "latency": result_set.get("latency"),
+                "result_id": result_set.get("resultID"),
+                "server_id": result_set.get("serverID"),
+                "timestamp": (
+                    dt.datetime.fromisoformat(results.get("timestamp", ""))
+                    if results.get("timestamp") is not None
+                    else dt.datetime.min
+                ),
+                "upload_bandwidth": result_set.get("uploadBandwidth"),
+            }
+
+        return SpeedtestResult(**props)
 
     async def _async_make_request(
         self,
@@ -725,7 +735,7 @@ class Mesh:
     @needs_initialise
     async def async_get_speedtest_results(
         self, count: int = 1, only_latest: bool = False, only_completed: bool = False
-    ) -> list[_SpeedtestResult]:
+    ) -> list[SpeedtestResult]:
         """Retrieve Speedtest results.
 
         :param count: the number of results to return; defaults to 1
@@ -752,18 +762,20 @@ class Mesh:
         }
         _, resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload)
 
-        ret = []
+        ret: list[SpeedtestResult] = []
         if resp.data is not None and not isinstance(resp.data, list):
             speedtest_results = resp.data.get("healthCheckResults", [])
-            ret = _process_speedtest_results(
-                speedtest_results,
-                only_latest=only_latest,
-                only_completed=only_completed,
-            )
+            for res in speedtest_results:
+                ret.append(self._process_speedtest_results(res))
+            if only_completed:
+                ret = [result for result in ret if result.exit_code not in (None, SpeedtestExitCode.UNAVAILABLE)]
+            if only_latest:
+                ret = [sorted(ret, key=lambda itm: itm.timestamp, reverse=True)[0]]
+
         return ret
 
     @needs_initialise
-    async def async_get_speedtest_state(self) -> SpeedtestStatus:
+    async def async_get_speedtest_state(self) -> SpeedtestResult:
         """Return a textual representation of the stage of a Speedtest.
 
         The API does not return a stage so this has to be inferred by the results.
@@ -772,9 +784,7 @@ class Mesh:
         """
 
         resp = await self._async_gather_details([MeshCapability.GET_SPEEDTEST_STATUS])
-        ret = _get_speedtest_state(
-            speedtest_results=resp[MeshCapability.GET_SPEEDTEST_STATUS.value].get("speedTestResult", {})
-        )
+        ret = self._process_speedtest_results(resp.get(MeshCapability.GET_SPEEDTEST_STATUS.value, {}))
 
         return ret
 
@@ -1304,32 +1314,6 @@ class Mesh:
 
     @property
     @needs_initialise
-    def latest_speedtest_result(self) -> _SpeedtestResult | None:
-        """Get the Speedtest results.
-
-        N.B. If you need more results see the async_get_speedtest_results method
-
-        :return: the Speedtest results
-        """
-
-        ret: _SpeedtestResult | None = None
-
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_RESULTS.value, {}),
-        )
-        results: list[_SpeedtestResult] = _process_speedtest_results(
-            attr.get("healthCheckResults", []),
-            only_completed=True,
-            only_latest=True,
-        )
-        if len(results) > 0:
-            ret = results[0]
-
-        return ret or None
-
-    @property
-    @needs_initialise
     def mac_filtering_addresses(self) -> list[str]:
         """Get addresses that are configured for MAC filtering.
 
@@ -1501,15 +1485,16 @@ class Mesh:
 
     @property
     @needs_initialise
-    def speedtest_status(self) -> SpeedtestStatus:
-        """Return the current status of the Speedtest.
+    def speedtest_results(self) -> list[SpeedtestResult]:
+        """Return the available speedtest results."""
 
-        :return: Textual representation of the Speedtest state
-        """
+        ret: list[SpeedtestResult] = []
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_STATUS.value, {})
-
-        ret = _get_speedtest_state(attr.get("speedTestResult", {}))
+        speedtest_results: list[dict[str, Any]] = cast(
+            dict[str, Any], self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_RESULTS.value, {})
+        ).get("healthCheckResults", [])
+        for res in speedtest_results:
+            ret.append(self._process_speedtest_results(res))
 
         return ret
 
