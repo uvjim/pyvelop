@@ -554,6 +554,11 @@ class Mesh:
         if not self.__passed_session:
             await self._mesh_details.session.close()
 
+    async def async_clear_speedtest_results(self) -> None:
+        """Clear the speedtest results."""
+
+        await self._async_make_request(api.Actions.CLEAR_SPEEDTEST_RESULTS.value)
+
     async def async_detect_capabilities(self) -> list[MeshCapability]:
         """Attempt to detect the capabilities of the Mesh.
 

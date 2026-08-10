@@ -143,6 +143,7 @@ MESH_ALLOWED_ACTIONS: set[str] = {
     "night_mode_on",
     "parental_control_off",
     "parental_control_on",
+    "speedtest_clear_results",
     "speedtest_results",
     "speedtest_start",
     "update_check_start",
@@ -546,6 +547,8 @@ async def mesh_action(
                     await mesh_obj.async_set_parental_control_state(state=False)
                 elif action == "parental_control_on":
                     await mesh_obj.async_set_parental_control_state(state=True)
+                elif action == "speedtest_clear_results":
+                    await mesh_obj.async_clear_speedtest_results()
                 elif action == "speedtest_results":
                     await mesh_obj.async_initialise()
                     ret = await mesh_obj.async_get_speedtest_results()
