@@ -63,7 +63,9 @@ class Actions(StrEnum):
     GET_LED_NIGHT_MODE = "http://linksys.com/jnap/routerleds/GetLedNightModeSetting"
     GET_MAC_FILTERING_SETTINGS = "http://linksys.com/jnap/macfilter/GetMACFilterSettings"
     GET_MLO_SETTINGS = "http://linksys.com/jnap/wirelessap/GetMLOSettings"
-    GET_NETWORK_CONNECTIONS = "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
+    GET_NODE_WIRELESS_CONNECTIONS = (
+        "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
+    )
     GET_PARENTAL_CONTROL_INFO = "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
     GET_SCHEDULED_REBOOT_SETTINGS = "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings"
     GET_SPEEDTEST_TYPES = "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules"
@@ -398,7 +400,7 @@ RESPONSE_REDACTIONS = Redactions(
         Actions.GET_MAC_FILTERING_SETTINGS.value: {
             "macAddresses",
         },
-        Actions.GET_NETWORK_CONNECTIONS.value: {
+        Actions.GET_NODE_WIRELESS_CONNECTIONS.value: {
             "nodeWirelessConnections.connections.wireless.bssid",
             "nodeWirelessConnections.connections.macAddress",
         },

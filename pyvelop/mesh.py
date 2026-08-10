@@ -60,7 +60,7 @@ class MeshCapability(StrEnum):
     GET_LED_NIGHT_MODE = "led_night_mode"
     GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
     GET_MLO_SETTINGS = "mlo_settings"
-    GET_NETWORK_CONNECTIONS = "network_connections"
+    GET_NODE_WIRELESS_CONNECTIONS = "node_wireless_connections"
     GET_PARENTAL_CONTROL_INFO = "parental_control_info"
     GET_SCHEDULED_REBOOT_SETTINGS = "scheduled_reboot_settings"
     GET_SPEEDTEST_RESULTS = "speedtest_results"
@@ -414,7 +414,7 @@ class Mesh:
                             break
                     # endregion
                     # region #-- additional connection details --#
-                    for conn_details in ret.get(MeshCapability.GET_NETWORK_CONNECTIONS.value, {}).get(
+                    for conn_details in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
                         "nodeWirelessConnections", []
                     ):
                         for connection in conn_details.get("connections", {}):
@@ -480,7 +480,7 @@ class Mesh:
                     # region #-- let's look in the wireless node connections for a parent --#
                     adi: AdapterInfo | None = next((adi for adi in node_or_device.adapter_info), None)
                     if adi is not None:
-                        for nwc in ret.get(MeshCapability.GET_NETWORK_CONNECTIONS.value, {}).get(
+                        for nwc in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
                             "nodeWirelessConnections", []
                         ):
                             p_details: dict[str, Any] | None = next(
@@ -790,7 +790,7 @@ class Mesh:
             for capability in [
                 MeshCapability.GET_DEVICES,
                 MeshCapability.GET_LAN_SETTINGS,
-                MeshCapability.GET_NETWORK_CONNECTIONS,
+                MeshCapability.GET_NODE_WIRELESS_CONNECTIONS,
                 MeshCapability.GET_PARENTAL_CONTROL_INFO,
             ]
             if capability in self._mesh_capabilities
