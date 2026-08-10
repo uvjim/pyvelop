@@ -8,8 +8,8 @@ import contextlib
 import copy
 import json
 import logging
-from dataclasses import dataclass
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, cast
 
 import aiohttp
@@ -97,22 +97,15 @@ class Actions(StrEnum):
     UPDATE_FIRMWARE = "http://linksys.com/jnap/nodes/firmwareupdate/UpdateFirmwareNow"
 
 
-@dataclass
-class Defaults:
-    """Represents the default payloads required for requests."""
-
-    @staticmethod
-    def get(api_name: str) -> dict[str, Any]:
-        """Return the default payload for the given API name."""
-
-        if api_name == Actions.GET_SPEEDTEST_RESULTS.name:
-            return {
-                "healthCheckModule": "SpeedTest",
-                "includeModuleResults": True,
-                "lastNumberOfResults": 10,
-            }
-
-        return {}
+Defaults = MappingProxyType(
+    {
+        Actions.GET_SPEEDTEST_RESULTS.name: {
+            "healthCheckModule": "SpeedTest",
+            "includeModuleResults": True,
+            "lastNumberOfResults": 10,
+        }
+    }
+)
 
 
 class Redactions:
@@ -121,7 +114,7 @@ class Redactions:
     def __init__(self, redactions: dict[str, set[str]]) -> None:
         """Initialise."""
 
-        self._redactions: dict[str, set[str]] = redactions
+        self._redactions: MappingProxyType[str, set[str]] = MappingProxyType(redactions)
 
     def get(self, key: str) -> set[str]:
         """Return the redactions for the given key."""

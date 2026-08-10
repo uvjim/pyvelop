@@ -364,7 +364,7 @@ class Mesh:
             payload.append(
                 {
                     "action": jnap_action.value,
-                    "request": api.Defaults.get(jnap_action.name),
+                    "request": api.Defaults.get(jnap_action.name, {}),
                 }
             )
         # endregion
@@ -572,7 +572,7 @@ class Mesh:
             requests.append(
                 self._async_make_request(
                     action=getattr(api.Actions, action_name),
-                    payload=api.Defaults.get(action_name),
+                    payload=api.Defaults.get(action_name, {}),
                     raise_on_error=False,
                 )
             )
@@ -761,7 +761,7 @@ class Mesh:
             raise MeshInvalidArguments
 
         payload = {
-            **api.Defaults.get(api.Actions.GET_SPEEDTEST_RESULTS.name),
+            **api.Defaults.get(api.Actions.GET_SPEEDTEST_RESULTS.name, {}),
             "healthCheckModule": "SpeedTest",
             "lastNumberOfResults": count,
         }
