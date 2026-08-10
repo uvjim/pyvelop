@@ -404,6 +404,9 @@ RESPONSE_REDACTIONS = Redactions(
             "nodeWirelessConnections.connections.wireless.bssid",
             "nodeWirelessConnections.connections.macAddress",
         },
+        Actions.GET_PARENTAL_CONTROL_INFO: {
+            "rules.macAddresses",
+        },
         Actions.GET_WAN_INFO.value: {
             "linkLocalIPv6Address",
             "macAddress",
