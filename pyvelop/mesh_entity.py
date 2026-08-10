@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import datetime
 import datetime as dt
 import logging
 from collections import namedtuple
@@ -287,17 +286,17 @@ class ParentalControl:
                     if sched is not None and ParentalControlActionType.UNBLOCKED.value in sched[block_start + 1 :]
                     else None
                 )
-                start_time = datetime.time(
+                start_time = dt.time(
                     hour=int(block_start / 2),
                     minute=(30 if block_start % 2 == 1 else 0),
                 )
                 end_time = (
-                    datetime.time(
+                    dt.time(
                         hour=int(block_end / 2),
                         minute=(30 if block_end % 2 == 1 else 0),
                     )
                     if block_end
-                    else datetime.time(hour=0, minute=0)
+                    else dt.time(hour=0, minute=0)
                 )
                 ret[day.lower()].append(f"{start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')}")
                 if block_end is not None:
@@ -382,8 +381,8 @@ class ParentalControl:
                 for schedule in time_schedules:
                     times: list[str] = schedule.split("-")
                     time_block: TimeBlock = TimeBlock(
-                        datetime.datetime.strptime(times[0].strip(), "%H:%M"),
-                        datetime.datetime.strptime(times[1].strip(), "%H:%M"),
+                        dt.datetime.strptime(times[0].strip(), "%H:%M"),
+                        dt.datetime.strptime(times[1].strip(), "%H:%M"),
                     )
                     if (  # midnight to midnight
                         time_block.start == time_block.end
