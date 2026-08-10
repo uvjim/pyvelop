@@ -1264,5 +1264,4 @@ async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> li
 
 
 if __name__ == "__main__":
-    with contextlib.suppress(Exception):
-        cli()
+    cli()
