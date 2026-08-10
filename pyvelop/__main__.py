@@ -114,7 +114,7 @@ class StandardCommand(click.Command):
                 ("-v", "--verbose"),
                 callback=_setup_logging,
                 count=True,
-                help="Set the verbosity of logging.",
+                help="Set the verbosity of logging. Adding more increases the level.",
             ),
         ]
 
