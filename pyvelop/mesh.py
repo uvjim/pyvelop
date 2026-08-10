@@ -12,6 +12,7 @@ import time
 import uuid
 from collections.abc import Coroutine
 from enum import StrEnum, auto
+from types import MappingProxyType
 from typing import Any, cast
 
 from aiohttp import ClientSession
@@ -176,6 +177,25 @@ def needs_initialise(func: Any) -> Any:
     return wrapped
 
 
+FeatureCapabilities: MappingProxyType[str, set[MeshCapability]] = MappingProxyType(
+    {
+        "devices": {
+            MeshCapability.GET_DEVICES,
+            MeshCapability.GET_LAN_SETTINGS,
+            MeshCapability.GET_NODE_WIRELESS_CONNECTIONS,
+            MeshCapability.GET_PARENTAL_CONTROL_INFO,
+        },
+        "parental_control": {
+            MeshCapability.GET_PARENTAL_CONTROL_INFO,
+        },
+        "speedtest": {
+            MeshCapability.GET_SPEEDTEST_RESULTS,
+            MeshCapability.GET_SPEEDTEST_STATUS,
+        },
+    }
+)
+
+
 class Mesh:
     """Representation of the Velop Mesh.
 
@@ -223,7 +243,6 @@ class Mesh:
             user=username,
         )
         self._mesh_capabilities: list[MeshCapability] = []
-        self._mesh_capabilities_device_details: list[MeshCapability] = []
         self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
         self.__passed_session: bool = isinstance(session, ClientSession)
 
@@ -530,6 +549,7 @@ class Mesh:
 
         :return: list of capabilities for the mesh.
         """
+        _is_bridge_mode: bool = False
         ret: list[MeshCapability] = []
         requests: list[Coroutine[Any, Any, _ApiResponse]] = []
         for qry in MeshCapability:
@@ -552,28 +572,41 @@ class Mesh:
                     jnap_response.data,
                 )
                 continue
+
+            if jnap_response.action == MeshCapability.GET_WAN_INFO:
+                _is_bridge_mode = (
+                    cast(dict[str, Any], jnap_response.data).get("detectedWANType", "").lower() == "bridge"
+                )
             ret.append(list(MeshCapability)[idx])
 
-        # region #-- remove speedtest related capabilities if they aren't really available --#
-        # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
-        _LOGGER.debug("establishing if speedtest is actually available")
-        speedtest_capabilities: set[MeshCapability] = {
-            MeshCapability.GET_SPEEDTEST_RESULTS,
-            MeshCapability.GET_SPEEDTEST_STATUS,
-        }
+        # region #-- tidy up capabilities --#
+        # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
+        capabilities_to_remove: set[MeshCapability] = set()
         for resp in responses:
             if resp[0].action == api.Actions.GET_SPEEDTEST_TYPES.value:
+                # region #-- remove speedtest related capabilities if they aren't really available --#
+                # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
+                _LOGGER.debug("establishing if speedtest is actually available")
                 healthcheck_modules: set[str] = set(
                     cast(api.JnapResponse, resp[1].data).get("supportedHealthCheckModules", [])
                 )
-                break
 
-        valid_onboard_speedtest: set[str] = {"SpeedTest"}
-        if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
-            _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
-            for capability in speedtest_capabilities:
-                if capability in ret:
-                    ret.remove(capability)
+                valid_onboard_speedtest: set[str] = {"SpeedTest"}
+                if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
+                    _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
+                    capabilities_to_remove = capabilities_to_remove.union(FeatureCapabilities.get("speedtest", set()))
+                # endregion
+            elif resp[0].action == api.Actions.GET_PARENTAL_CONTROL_INFO:
+                # region #-- tidy up for bridge mode --#
+                if _is_bridge_mode:
+                    _LOGGER.debug("in bridge mode so removing parental control capability")
+                    capabilities_to_remove = capabilities_to_remove.union(
+                        FeatureCapabilities.get("parental_control", set())
+                    )
+                # endregion
+        for capability in capabilities_to_remove:
+            if capability in ret:
+                ret.remove(capability)
         # endregion
 
         self._mesh_capabilities = ret
@@ -621,7 +654,9 @@ class Mesh:
         ret: list[DeviceEntity] = []
 
         if force_refresh:
-            gathered_devices = await self._async_gather_details(self._mesh_capabilities_device_details)
+            gathered_devices = await self._async_gather_details(
+                [cap for cap in FeatureCapabilities.get("devices", {}) if cap in self._mesh_capabilities]
+            )
             all_devices = [
                 dev for dev in gathered_devices.get(_ATTR_PROCESSED_DEVICES, []) if type(dev) is DeviceEntity
             ]
@@ -779,19 +814,7 @@ class Mesh:
         """
 
         await self.async_detect_capabilities()
-        # flag here so that async_gather_details will run
-        self._initialise_executed = True
-        self._mesh_capabilities_device_details = [
-            capability
-            for capability in [
-                MeshCapability.GET_DEVICES,
-                MeshCapability.GET_LAN_SETTINGS,
-                MeshCapability.GET_NODE_WIRELESS_CONNECTIONS,
-                MeshCapability.GET_PARENTAL_CONTROL_INFO,
-            ]
-            if capability in self._mesh_capabilities
-        ]
-
+        self._initialise_executed = True  # flag here so that async_gather_details will run
         await self.async_gather_details()
 
     async def async_reboot_mesh(self) -> None:
