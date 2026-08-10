@@ -214,6 +214,7 @@ class AdapterInfo:
     ip: str | None = None
     ipv6: str | None = None
     mac: str | None = None
+    negotiated_mbps: int | None = None
     parent_id: str | None = None
     reservation: bool = False
     reservation_description: str | None = None
@@ -306,7 +307,6 @@ class ParentalControl:
 
         return ret
 
-    # region #-- public methods --#
     @staticmethod
     def backup_to_binary(schedule: str) -> dict[str, str]:
         """Decode the schedule for restoring to the device."""
@@ -436,9 +436,6 @@ class ParentalControl:
 
         return ret
 
-    # endregion
-
-    # region #-- properties --#
     @property
     def blocked_urls(self) -> list[str]:
         """Return blocked URLs."""
@@ -485,8 +482,6 @@ class ParentalControl:
     def schedule(self) -> dict[str, str]:
         """Return the current internet access schedule used in the rule."""
         return cast(dict[str, str], self._rule.get("wanSchedule", {}))
-
-    # endregion
 
 
 class MeshEntity:
@@ -623,6 +618,7 @@ class MeshEntity:
                 "ip": (None if not connection_info else connection_info[0].get("ipAddress")),
                 "ipv6": (None if not connection_info else connection_info[0].get("ipv6Address")),
                 "mac": adapter.get("macAddress"),
+                "negotiated_mbps": wifi_info.get("negotiatedMbps"),
                 "parent_id": (
                     cast(NodeEntity, self._data.get(EntityDataProperties.PARENT_ENTITY)).unique_id
                     if self._data.get(EntityDataProperties.PARENT_ENTITY) is not None
@@ -634,12 +630,6 @@ class MeshEntity:
                 "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
                 "type": adapter_conn_type,
             }
-
-            # region #-- fix up the type --#
-            if props.get("type") == ConnectionType.UNKNOWN and props.get("connected"):
-                if props.get("rssi") is not None and props.get("signal_strength") is not None:  # we know it's wireless
-                    props.update({"type": ConnectionType.WIRELESS.value})
-            # endregion
 
             ret.append(AdapterInfo(**props))
 
