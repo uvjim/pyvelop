@@ -414,12 +414,12 @@ class Mesh:
                             break
                     # endregion
                     # region #-- additional connection details --#
-                    for conn_details in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
+                    for nwc in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
                         "nodeWirelessConnections", []
                     ):
-                        for connection in conn_details.get("connections", {}):
+                        for connection in nwc.get("connections", {}):
                             if dev_mac == connection.get("macAddress"):
-                                entity_data[EntityDataProperties.CONNECTION_DETAILS] = connection
+                                entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = connection
                                 break
                     # endregion
                 # endregion
@@ -478,16 +478,12 @@ class Mesh:
                 # endregion
                 if not parent_node:
                     # region #-- let's look in the wireless node connections for a parent --#
-                    adi: AdapterInfo | None = next((adi for adi in node_or_device.adapter_info), None)
-                    if adi is not None:
+                    adapter_macs: set[str] = {adi.mac for adi in node_or_device.adapter_info if adi.mac is not None}
+                    if adapter_macs:
                         for nwc in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
                             "nodeWirelessConnections", []
                         ):
-                            p_details: dict[str, Any] | None = next(
-                                (pd for pd in nwc.get("connections", []) if pd.get("macAddress") == adi.mac),
-                                None,
-                            )
-                            if p_details is not None:
+                            if any(pd.get("macAddress") in adapter_macs for pd in nwc.get("connections", [])):
                                 parent_node = nwc.get("deviceID")
                                 break
                     # endregion
