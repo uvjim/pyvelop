@@ -573,7 +573,7 @@ class Mesh:
                 )
                 continue
 
-            if jnap_response.action == MeshCapability.GET_WAN_INFO:
+            if jnap_response.action == api.Actions.GET_WAN_INFO:
                 _is_bridge_mode = (
                     cast(dict[str, Any], jnap_response.data).get("detectedWANType", "").lower() == "bridge"
                 )
