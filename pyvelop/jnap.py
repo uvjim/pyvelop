@@ -50,6 +50,7 @@ class Actions(StrEnum):
     """Represents the available actions."""
 
     CHECK_PASSWORD = "http://linksys.com/jnap/core/CheckAdminPassword"
+    CLEAR_SPEEDTEST_RESULTS = "http://linksys.com/jnap/healthcheck/ClearHealthCheckHistory"
     DELETE_DEVICE = "http://linksys.com/jnap/devicelist/DeleteDevice"
     GET_ALG_SETTINGS = "http://linksys.com/jnap/firewall/GetALGSettings"
     GET_BACKHAUL = "http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo"
