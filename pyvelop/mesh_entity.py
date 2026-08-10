@@ -53,13 +53,13 @@ class EntityDataProperties(StrEnum):
 
     BACKHAUL = "backhaul"
     CONNECTED_ENTITIES = "connected_entities"
-    CONNECTION_DETAILS = "connection_details"
     FIRMWARE_DETAILS = "firmware_details"
     KNOWN_INTERFACES = "knownInterfaces"
     PARENT_ENTITY = "parent_entity"
     PARENTAL_CONTROLS = "parental_controls"
     RESERVATION_DETAILS = "reservation_details"
     RESULTS_TIME = "results_time"
+    WIRELESS_CONNECTION_DETAILS = "wireless_connection_details"
 
 
 class ParentalControlActionType(StrEnum):
@@ -577,7 +577,7 @@ class MeshEntity:
     def adapter_info(self) -> list[AdapterInfo]:
         """Retrieve details about the entity's adapters.
 
-        :return: Adapter details including reservation, Wi-Fi, IP and Guest details
+        :return: Adapter details
         """
 
         ret = []
@@ -597,27 +597,42 @@ class MeshEntity:
                 else {}
             )
             wifi_info: dict[str, Any] = (
-                self._data.get(EntityDataProperties.CONNECTION_DETAILS, {})
-                if self._data.get(EntityDataProperties.CONNECTION_DETAILS, {}).get("macAddress", "").lower()
+                self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {})
+                if self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {}).get("macAddress", "").lower()
                 == adapter.get("macAddress", "").lower()
                 else {}
             )
             signal_strength: SignalStrength | None = self._signal_strength_to_text(
                 wifi_info.get("wireless", {}).get("signalDecibels")
             )
+
+            # region #-- infer the adapter connection type if we can --#
+            adapter_conn_type: ConnectionType = ConnectionType(adapter.get("interfaceType", "Unknown"))
+            if adapter_conn_type == ConnectionType.UNKNOWN and wifi_info:
+                adapter_conn_type = ConnectionType.WIRELESS
+            # endregion
+
+            # region #-- infer the adapter connected state if we can --#
+            adapter_conn_state: bool = bool(connection_info) or bool(wifi_info)
+            # endregion
+
             props = {
                 "band": adapter.get("band"),
-                "connected": bool(connection_info),
+                "connected": adapter_conn_state,
                 "guest_network": (None if not connection_info else connection_info[0].get("isGuest", False)),
                 "ip": (None if not connection_info else connection_info[0].get("ipAddress")),
                 "ipv6": (None if not connection_info else connection_info[0].get("ipv6Address")),
                 "mac": adapter.get("macAddress"),
-                "parent_id": (None if not connection_info else connection_info[0].get("parentDeviceID")),
+                "parent_id": (
+                    cast(NodeEntity, self._data.get(EntityDataProperties.PARENT_ENTITY)).unique_id
+                    if self._data.get(EntityDataProperties.PARENT_ENTITY) is not None
+                    else None
+                ),
                 "reservation": bool(reservation_info),
                 "reservation_description": reservation_info.get("description"),
                 "rssi_dbm": wifi_info.get("wireless", {}).get("signalDecibels"),
                 "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
-                "type": adapter.get("interfaceType"),
+                "type": adapter_conn_type,
             }
 
             # region #-- fix up the type --#
@@ -672,10 +687,14 @@ class MeshEntity:
         """Get whether the device is currently connected to the mesh or not.
 
         Assumes that if there are no connections specified for the device then it is offline.
+        Will also check if there are wireless connection details because these shouldn't exist if the device is offline.
 
         :return: True if connected. False if not.
         """
-        conns = self._data.get("connections", [])
+        conns: dict[str, Any] = self._data.get("connections", [])
+        if not conns:  # check if there are wireless connection details
+            conns = self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {})
+
         ret = True if conns else False
         return ret
 
