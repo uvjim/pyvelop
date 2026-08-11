@@ -802,8 +802,11 @@ class Mesh:
         :return: Details about the current stage of the Speedtest.
         """
 
+        ret: SpeedtestResult | None = None
         resp = await self._async_gather_details([MeshCapability.GET_SPEEDTEST_STATUS])
-        ret = self._process_speedtest_results(resp.get(MeshCapability.GET_SPEEDTEST_STATUS.value, {}))
+        result: dict[str, Any] = resp.get(MeshCapability.GET_SPEEDTEST_STATUS.value, {})
+        if result:
+            ret = self._process_speedtest_results(resp.get(MeshCapability.GET_SPEEDTEST_STATUS.value, {}))
 
         return ret
 

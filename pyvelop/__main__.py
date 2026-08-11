@@ -145,6 +145,7 @@ MESH_ALLOWED_ACTIONS: set[str] = {
     "parental_control_on",
     "speedtest_clear_results",
     "speedtest_results",
+    "speedtest_status",
     "speedtest_start",
     "update_check_start",
     "upnp_off",
@@ -552,6 +553,9 @@ async def mesh_action(
                 elif action == "speedtest_results":
                     await mesh_obj.async_initialise()
                     ret = await mesh_obj.async_get_speedtest_results()
+                elif action == "speedtest_status":
+                    await mesh_obj.async_initialise()
+                    ret = await mesh_obj.async_get_speedtest_state()
                 elif action == "speedtest_start":
                     await mesh_obj.async_initialise()
                     await mesh_obj.async_start_speedtest()
