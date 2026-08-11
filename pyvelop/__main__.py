@@ -83,7 +83,7 @@ class StandardCommand(click.Command):
             click.Option(
                 ("-c", "--create-session"),
                 callback=_create_session,
-                default=False,
+                default=True,
                 help="Supply this argument to create a session to pass into the library.",
                 hidden=True,
                 is_flag=True,
