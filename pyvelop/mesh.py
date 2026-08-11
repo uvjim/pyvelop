@@ -790,8 +790,8 @@ class Mesh:
                     ret.append(sres)
             if only_completed:
                 ret = [result for result in ret if result.exit_code not in (None, SpeedtestExitCode.UNAVAILABLE)]
-            if only_latest:
-                ret = [sorted(ret, key=lambda itm: itm.timestamp, reverse=True)[0]]
+            if only_latest and len(ret) != 0:
+                ret = [sorted(ret, key=lambda itm: itm.timestamp, reverse=True)][0]
 
         return ret
 
