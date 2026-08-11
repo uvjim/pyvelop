@@ -308,7 +308,7 @@ class Mesh:
             "timestamp": (
                 dt.datetime.fromisoformat(results.get("timestamp", ""))
                 if results.get("timestamp") is not None
-                else dt.datetime.min
+                else dt.datetime.min.replace(tzinfo=dt.UTC)
             ),
             "upload_bandwidth": result_set.get("uploadBandwidth"),
         }
