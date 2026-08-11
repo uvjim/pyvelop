@@ -405,6 +405,7 @@ RESPONSE_REDACTIONS = Redactions(
             "macAddress",
             "wanConnection.dnsServer1",
             "wanConnection.dnsServer2",
+            "wanConnection.dnsServer3",
             "wanConnection.gateway",
             "wanConnection.ipAddress",
         },
