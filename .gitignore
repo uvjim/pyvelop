@@ -136,6 +136,7 @@ tests/
 .vscode/
 cli_output/
 doco_package.py
+jnap_responses/
 logo.ico
 *.code-workspace
 .mypy_*.txt
