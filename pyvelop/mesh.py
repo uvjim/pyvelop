@@ -55,7 +55,6 @@ class MeshCapability(StrEnum):
     GET_CHANNEL_SCAN_STATUS = "channel_scan_status"
     GET_DEVICES = "devices"
     GET_EXPRESS_FORWARDING = "express_forwarding"
-    GET_FIRMWARE_UPDATE_SETTINGS = "firmware_update_settings"
     GET_GUEST_NETWORK_INFO = "guest_network_info"
     GET_HOMEKIT_SETTINGS = "homekit_settings"
     GET_LAN_SETTINGS = "lan_setting"
@@ -72,6 +71,7 @@ class MeshCapability(StrEnum):
     GET_STORAGE_SMB_SERVER = "storage_smb_server"
     GET_TOPOLOGY_OPTIMISATION_SETTINGS = "topology_optimisation_settings"
     GET_UPDATE_FIRMWARE_STATE = "update_firmware_state"
+    GET_UPDATE_SETTINGS = "firmware_update_settings"
     GET_UPNP_SETTINGS = "upnp_settings"
     GET_WAN_INFO = "wan_info"
     GET_WPS_SERVER_SETTINGS = "wps_server_settings"
@@ -1203,7 +1203,7 @@ class Mesh:
         :return: a lowercase string representing the update method
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_FIRMWARE_UPDATE_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_UPDATE_SETTINGS.value, {})
 
         return attr.get("updatePolicy", "").lower() or None
 

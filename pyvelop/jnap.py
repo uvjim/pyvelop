@@ -57,7 +57,6 @@ class Actions(StrEnum):
     GET_CHANNEL_SCAN_STATUS = "http://linksys.com/jnap/nodes/setup/GetSelectedChannels"
     GET_DEVICES = "http://linksys.com/jnap/devicelist/GetDevices3"
     GET_EXPRESS_FORWARDING = "http://linksys.com/jnap/router/GetExpressForwardingSettings"
-    GET_FIRMWARE_UPDATE_SETTINGS = "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
     GET_GUEST_NETWORK_INFO = "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2"
     GET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/GetHomeKitSettings"
     GET_LAN_SETTINGS = "http://linksys.com/jnap/router/GetLANSettings"
