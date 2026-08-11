@@ -12,12 +12,14 @@ from collections import namedtuple
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from enum import IntEnum, StrEnum, auto
-from typing import Any, cast, final
+from typing import TYPE_CHECKING, Any, cast, final
 
 from . import jnap as api
 from .exceptions import MeshException, MeshInvalidInput
 from .logger import Logger
-from .types import MeshDetails, NodeType, SignalStrength
+
+if TYPE_CHECKING:
+    from .mesh import MeshDetails
 
 # endregion
 
@@ -61,11 +63,28 @@ class EntityDataProperties(StrEnum):
     WIRELESS_CONNECTION_DETAILS = "wireless_connection_details"
 
 
+class NodeType(StrEnum):
+    """Enumeration for node types."""
+
+    PRIMARY = auto()
+    SECONDARY = auto()
+    UNKNOWN = auto()
+
+
 class ParentalControlActionType(StrEnum):
     """Representation of parental control time actions."""
 
     BLOCKED = "0"
     UNBLOCKED = "1"
+
+
+class SignalStrength(StrEnum):
+    """Enumeration for signal strength."""
+
+    EXCELLENT = auto()
+    FAIR = auto()
+    GOOD = auto()
+    WEAK = auto()
 
 
 class UiType(StrEnum):
