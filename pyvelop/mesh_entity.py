@@ -240,6 +240,11 @@ class AdapterInfo:
     signal_strength: SignalStrength | None = None
     type: ConnectionType = ConnectionType.UNKNOWN
 
+    def as_dict(self) -> dict[str, Any]:
+        """Return the instance as a dictionary."""
+
+        return asdict(self)
+
 
 @dataclass(frozen=True, slots=True)
 class NodeAdapterInfo(AdapterInfo):
