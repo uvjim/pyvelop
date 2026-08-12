@@ -16,7 +16,7 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
-from .action_registry import Actions, ActionScope
+from .action_registry import ActionScope
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -25,7 +25,7 @@ from .exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from .jnap import Response
+from .jnap import Actions, Response
 from .logger import set_logging_format
 from .mesh import (
     Mesh,
