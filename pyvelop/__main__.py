@@ -16,6 +16,7 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
+from .action_registry import Actions, ActionScope
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -24,7 +25,7 @@ from .exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from .jnap import Actions
+from .jnap import Response
 from .logger import set_logging_format
 from .mesh import (
     Mesh,
@@ -34,7 +35,7 @@ from .mesh import (
     SpeedtestExitCode,
     SpeedtestResult,
 )
-from .mesh_entity import DeviceEntity, ParentalControl, Weekdays
+from .mesh_entity import DeviceEntity, NodeEntity, ParentalControl, Weekdays
 
 # endregion
 
@@ -995,6 +996,42 @@ async def node_details(
                             index=True,
                             title="Connected Devices",
                         )
+                    except Exception as exc:
+                        _write_error(exc)
+
+
+@node_group.command(cls=StandardCommand, name="execute")
+@click.argument("node_name")
+@click.argument(
+    "action",
+    type=click.Choice(
+        list(map(str.lower, (a.key for a in Actions.values() if a.scope == ActionScope.NODE))), case_sensitive=False
+    ),
+)
+@click.pass_context
+async def node_execute(
+    ctx: click.Context,
+    /,
+    node_name: str,
+    action: str,
+    **_: Any,
+) -> None:
+    """Execute the given action against the node."""
+
+    if mesh_obj := await _async_mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_initialise()
+            nodes: list[NodeEntity] = mesh_obj.nodes
+            if not nodes:
+                click.echo("No nodes found")
+            else:
+                found_node: NodeEntity | None = next((node for node in nodes if node.name == node_name), None)
+                if found_node is None:
+                    click.echo("Node not found")
+                else:
+                    try:
+                        resp: Response = await found_node.async_execute_action(action)
+                        _output(None, json.dumps(resp.data))
                     except Exception as exc:
                         _write_error(exc)
 
