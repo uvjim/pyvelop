@@ -372,7 +372,7 @@ class Mesh:
         ret: dict[str, Any] = {}
         payload: list[dict[str, Any]] = []
 
-        # region #-- establish available capabilities for the requests --#
+        # region #-- only make requests for the discovered capabilities --#
         for capability in capabilities:
             jnap_action: api.ActionDefinition = api.Actions[capability.name]
             payload.append({"action": jnap_action.action, "request": jnap_action.payload})
@@ -390,8 +390,10 @@ class Mesh:
             self._last_gather_details.update({"process_start": time.time()})
 
         # region #-- prepare all the raw details --#
+        # this ensures that the data from a singular request or a transaction is made available
+        # in the return.
         def _set_raw_value(action: str, data: api.JnapResponse | None) -> None:
-            """Set the raw values."""
+            """Set the return value with all the raw data as returned by the api."""
             try:
                 api_response: api.Response = api.Response(action=action, data=data)
             except MeshException as err:
@@ -418,25 +420,27 @@ class Mesh:
                 _set_raw_value(action=req.action, data=getattr(resp, "_data", {}))
         # endregion
 
-        # region #-- handle mesh entities --#
+        # region #-- process mesh entities --#
         mesh_entities: list[DeviceEntity | NodeEntity] = []
-        discovered_mesh_entities: list[dict[str, Any]] = cast(
-            list[dict[str, Any]],
-            ret.get(MeshCapability.GET_DEVICES.value, {}).get("devices", []),
-        )
         # region #-- build the properties for the mesh entity types --#
-        for entity in discovered_mesh_entities:
+        # we'll treat the information from GET_DEVICES as our starting point.
+        for entity in ret.get(MeshCapability.GET_DEVICES.value, {}).get("devices", []):
+            # entity_data will be used to store all the information needed to build the appropriate MeshEntity object.
             entity_data: dict[str, Any] = {}
             # stamp the gather time into each entity
             entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get("gather_end")
+            # all details as per the API response get added
             entity_data.update(entity)
+            # region #-- process additional information --#
+            # this is gathered, infered and linked from other API calls
             if "nodeType" not in entity:
-                # region #-- process MAC based information --#
-                dev_pc_schedule: list[dict[str, Any]] = []
+                # region #-- process end devices connected to the mesh --#
+                # region #-- link up MAC based information --#
                 dev_adapter_macs: list[str] = [
                     dev_adapter.get("macAddress")
                     for dev_adapter in entity.get(EntityDataProperties.KNOWN_INTERFACES, [])
                 ]
+                dev_pc_schedule: list[dict[str, Any]] = []
                 for dev_mac in dev_adapter_macs:
                     # region #-- get parental control details --#
                     for rule in ret.get(MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {}).get("rules", []):
@@ -445,7 +449,8 @@ class Mesh:
                             break
                     entity_data[EntityDataProperties.PARENTAL_CONTROLS] = dev_pc_schedule
                     # endregion
-                    # region #-- get reservation info --#
+
+                    # region #-- get DHCP reservation info --#
                     for reservation in (
                         ret.get(MeshCapability.GET_LAN_SETTINGS.value, {})
                         .get("dhcpSettings", {})
@@ -455,17 +460,23 @@ class Mesh:
                             entity_data[EntityDataProperties.RESERVATION_DETAILS] = reservation
                             break
                     # endregion
-                    # region #-- additional connection details --#
+
+                    # region #-- wireless connection details --#
                     for nwc in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
                         "nodeWirelessConnections", []
                     ):
-                        for connection in nwc.get("connections", {}):
-                            if dev_mac == connection.get("macAddress"):
-                                entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = connection
-                                break
+                        if (
+                            connection := next(
+                                (c for c in nwc.get("connections", {}) if c.get("macAddress") == dev_mac), None
+                            )
+                        ) is not None:
+                            entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = connection
+                            break
                     # endregion
                 # endregion
+                # endregion
             else:
+                # region #-- process nodes connected to the mesh --#
                 # region #-- determine the backhaul information --#
                 entity_data[EntityDataProperties.BACKHAUL] = next(
                     (
@@ -476,6 +487,7 @@ class Mesh:
                     {},
                 )
                 # endregion
+
                 # region #-- calculate if there is a firmware update available --#
                 if MeshCapability.GET_UPDATE_FIRMWARE_STATE.value in ret:
                     entity_data[EntityDataProperties.FIRMWARE_DETAILS] = next(
@@ -489,11 +501,14 @@ class Mesh:
                         {},
                     )
                 # endregion
+                # endregion
 
+            # region #-- build the MeshEntity objects --#
             if "nodeType" not in entity:
                 mesh_entities.append(DeviceEntity(entity_data, self._mesh_details, self._supplementary_redactions))
             else:
                 mesh_entities.append(NodeEntity(entity_data, self._mesh_details, self._supplementary_redactions))
+            # endregion
         # endregion
 
         # region #-- remedial work for the entities --#
@@ -502,8 +517,10 @@ class Mesh:
             # region #-- establish the parent/child relationship for entities
             parent_node: str | NodeEntity | None = None
             if isinstance(node_or_device, NodeEntity):
-                # region #-- use backhaul information to set for a node --#
-                parent_ip: str | None = node_or_device.raw_details.get("backhaul", {}).get("parentIPAddress")
+                # region #-- use backhaul information to set parent for a node --#
+                parent_ip: str | None = node_or_device.raw_details.get(EntityDataProperties.BACKHAUL, {}).get(
+                    "parentIPAddress"
+                )
                 if parent_ip is not None:
                     for n in mesh_entities:
                         if isinstance(n, NodeEntity):
