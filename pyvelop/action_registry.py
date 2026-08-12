@@ -169,6 +169,15 @@ Actions: ActionRegistry = ActionRegistry(
             "http://linksys.com/jnap/wirelessap/GetMLOSettings",
         ),
         ActionDefinition(
+            "GET_NETWORK_CONNECTIONS",
+            "http://linksys.com/jnap/networkconnections/GetNetworkConnections2",
+            scope=ActionScope.NODE,
+            redactions={
+                "connections.macAddress",
+                "connections.wireless.bssid",
+            },
+        ),
+        ActionDefinition(
             "GET_NODE_WIRELESS_CONNECTIONS",
             "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections",
             redactions={
