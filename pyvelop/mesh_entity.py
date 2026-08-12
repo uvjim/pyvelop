@@ -15,7 +15,7 @@ from enum import IntEnum, StrEnum, auto
 from typing import TYPE_CHECKING, Any, cast, final
 
 from . import jnap as api
-from .action_registry import Actions, ActionScope
+from .action_registry import ActionScope
 from .exceptions import MeshException, MeshInvalidInput
 from .logger import Logger
 
@@ -1155,9 +1155,9 @@ class NodeEntity(MeshEntity):
         """Execute the given action against the node."""
 
         action_key = action_key.upper()
-        if action_key not in Actions:
+        if action_key not in api.Actions:
             raise ValueError(f"Invalid action key passed in ({action_key})")
-        if Actions[action_key].scope != ActionScope.NODE:
+        if api.Actions[action_key].scope != ActionScope.NODE:
             raise ValueError(f"Not a valid node action ({action_key})")
 
         # region #-- establish the correct IP to use --#
@@ -1169,7 +1169,9 @@ class NodeEntity(MeshEntity):
             raise MeshInvalidInput(f"{self.name}: no valid address found")
         # endregion
 
-        return await self._async_api_request(Actions[action_key].action, Actions[action_key].payload, ip=target_ip)
+        return await self._async_api_request(
+            api.Actions[action_key].action, api.Actions[action_key].payload, ip=target_ip
+        )
 
     async def async_reboot(self, force: bool = False) -> None:
         """Reboot the node.
