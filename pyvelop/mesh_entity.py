@@ -511,12 +511,18 @@ class ParentalControl:
 class MeshEntity:
     """Represents a base level entity on the mesh."""
 
-    def __init__(self, data: dict[str, Any], mesh_details: MeshDetails) -> None:
+    def __init__(
+        self,
+        data: dict[str, Any],
+        mesh_details: MeshDetails,
+        supplementary_redactions: dict[str, set[str]] | None = None,
+    ) -> None:
         """Initialise."""
 
         self._data: dict[str, Any] = data
         self._log_formatter = Logger()
         self._mesh_details: MeshDetails = mesh_details
+        self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
 
     def __repr__(self) -> str:
         """Make a pretty string representation of the class.
@@ -584,6 +590,7 @@ class MeshEntity:
             session=self._mesh_details.session,
             target=ip or self._mesh_details.host,
             username=self._mesh_details.user,
+            supplementary_redactions=self._supplementary_redactions,
         )
         try:
             resp = await req.execute(timeout=self._mesh_details.request_timeout)
