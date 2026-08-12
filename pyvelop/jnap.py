@@ -4,16 +4,14 @@
 from __future__ import annotations
 
 import base64
-import contextlib
 import copy
 import json
 import logging
-from enum import StrEnum
-from types import MappingProxyType
 from typing import Any, cast
 
 import aiohttp
 
+from .action_registry import ActionDefinition, Actions
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshBadResponse,
@@ -44,81 +42,6 @@ def jnap_url(target: str) -> str:
     :return: string containing the base URL for all JNAP requests
     """
     return f"http://{target}/JNAP/"
-
-
-class Actions(StrEnum):
-    """Represents the available actions."""
-
-    CHECK_PASSWORD = "http://linksys.com/jnap/core/CheckAdminPassword"
-    CLEAR_SPEEDTEST_RESULTS = "http://linksys.com/jnap/healthcheck/ClearHealthCheckHistory"
-    DELETE_DEVICE = "http://linksys.com/jnap/devicelist/DeleteDevice"
-    GET_ALG_SETTINGS = "http://linksys.com/jnap/firewall/GetALGSettings"
-    GET_BACKHAUL = "http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo"
-    GET_CHANNEL_SCAN_STATUS = "http://linksys.com/jnap/nodes/setup/GetSelectedChannels"
-    GET_DEVICES = "http://linksys.com/jnap/devicelist/GetDevices3"
-    GET_EXPRESS_FORWARDING = "http://linksys.com/jnap/router/GetExpressForwardingSettings"
-    GET_GUEST_NETWORK_INFO = "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2"
-    GET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/GetHomeKitSettings"
-    GET_LAN_SETTINGS = "http://linksys.com/jnap/router/GetLANSettings"
-    GET_LED_NIGHT_MODE = "http://linksys.com/jnap/routerleds/GetLedNightModeSetting"
-    GET_MAC_FILTERING_SETTINGS = "http://linksys.com/jnap/macfilter/GetMACFilterSettings"
-    GET_MLO_SETTINGS = "http://linksys.com/jnap/wirelessap/GetMLOSettings"
-    GET_NODE_WIRELESS_CONNECTIONS = (
-        "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections"
-    )
-    GET_PARENTAL_CONTROL_INFO = "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings"
-    GET_SCHEDULED_REBOOT_SETTINGS = "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings"
-    GET_SPEEDTEST_TYPES = "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules"
-    GET_SPEEDTEST_RESULTS = "http://linksys.com/jnap/healthcheck/GetHealthCheckResults"
-    GET_SPEEDTEST_STATUS = "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus"
-    GET_STORAGE_PARTITIONS = "http://linksys.com/jnap/nodes/storage/GetNodesPartitions"
-    GET_STORAGE_SMB_SERVER = "http://linksys.com/jnap/nodes/storage/GetSMBServerSettings"
-    GET_TOPOLOGY_OPTIMISATION_SETTINGS = (
-        "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2"
-    )
-    GET_UPDATE_FIRMWARE_STATE = "http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus"
-    GET_UPDATE_SETTINGS = "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings"
-    GET_UPNP_SETTINGS = "http://linksys.com/jnap/routerupnp/GetUPnPSettings"
-    GET_WAN_INFO = "http://linksys.com/jnap/router/GetWANStatus3"
-    GET_WPS_SERVER_SETTINGS = "http://linksys.com/jnap/wirelessap/GetWPSServerSettings"
-    REBOOT = "http://linksys.com/jnap/core/Reboot"
-    SET_DEVICE_PROPERTY = "http://linksys.com/jnap/devicelist/SetDeviceProperties"
-    SET_GUEST_NETWORK = "http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2"
-    SET_HOMEKIT_SETTINGS = "http://linksys.com/jnap/homekit/SetHomeKitSettings"
-    SET_LED_NIGHT_MODE = "http://linksys.com/jnap/routerleds/SetLedNightModeSetting2"
-    SET_PARENTAL_CONTROL_INFO = "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings"
-    SET_SCHEDULED_REBOOT_SETTINGS = "http://linksys.com/jnap/diagnostics/SetScheduledRebootSettings"
-    SET_UPNP_SETTINGS = "http://linksys.com/jnap/routerupnp/SetUPnPSettings"
-    SET_WPS_SERVER_SETTINGS = "http://linksys.com/jnap/wirelessap/SetWPSServerSettings"
-    START_CHANNEL_SCAN = "http://linksys.com/jnap/nodes/setup/StartAutoChannelSelection"
-    START_SPEEDTEST = "http://linksys.com/jnap/healthcheck/RunHealthCheck"
-    TRANSACTION = "http://linksys.com/jnap/core/Transaction"
-    UPDATE_FIRMWARE = "http://linksys.com/jnap/nodes/firmwareupdate/UpdateFirmwareNow"
-
-
-Defaults = MappingProxyType(
-    {
-        Actions.GET_SPEEDTEST_RESULTS.name: {
-            "healthCheckModule": "SpeedTest",
-            "includeModuleResults": True,
-            "lastNumberOfResults": 10,
-        }
-    }
-)
-
-
-class Redactions:
-    """Represents the redactions that should be applied to requests and responses."""
-
-    def __init__(self, redactions: dict[str, set[str]]) -> None:
-        """Initialise."""
-
-        self._redactions: MappingProxyType[str, set[str]] = MappingProxyType(redactions)
-
-    def get(self, key: str) -> set[str]:
-        """Return the redactions for the given key."""
-
-        return self._redactions.get(key, set())
 
 
 class Request:
@@ -168,21 +91,15 @@ class Request:
         :return: a Response object representing the returned results
         """
 
-        def _build_redactions(action_name_or_value: str) -> set[str]:
+        def _build_redactions(key: str) -> set[str]:
 
-            action: Actions | None = None
             ret: set[str] = set()
             default_redactions: set[str]
-
-            if action_name_or_value in Actions:
-                action = Actions(action_name_or_value)
-            else:
-                with contextlib.suppress(KeyError):
-                    action = Actions[action_name_or_value]
+            action: ActionDefinition | None = next((a for a in Actions.values() if a.action == key), None)
 
             if action is not None:
-                default_redactions = RESPONSE_REDACTIONS.get(action.value)
-                ret = default_redactions.union(self._supplementary_redactions.get(action.name, set()))
+                default_redactions = action.redactions
+                ret = default_redactions.union(self._supplementary_redactions.get(action.key, set()))
 
             return ret
 
@@ -220,7 +137,7 @@ class Request:
             "payload": self._payload,
             "response": copy.deepcopy(resp_json),
         }
-        if self._action != Actions.TRANSACTION:
+        if self._action != Actions.TRANSACTION.action:
             if self._redact and to_log["response"].get("result") == "OK":
                 to_log["response"].update(
                     {
@@ -292,7 +209,9 @@ class Response:
 
         if self._data.get(self.RESULT_KEY) != "OK" and self._raise_on_error:
             responses = (
-                self._data.get(self.DATA_KEY_TRANSACTION, {}) if self.action == Actions.TRANSACTION else [self._data]
+                self._data.get(self.DATA_KEY_TRANSACTION, {})
+                if self.action == Actions.TRANSACTION.action
+                else [self._data]
             )
             if responses is None:
                 raise MeshException("error processing response")
@@ -311,7 +230,7 @@ class Response:
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
                     action = (
                         resp.get("error")
-                        if self.action == Actions.TRANSACTION
+                        if self.action == Actions.TRANSACTION.action
                         else f"Unknown action URI '{self.action}'"
                     )
                     err = MeshInvalidInput(action)
@@ -364,50 +283,10 @@ class Response:
 
         ret = (
             self._data.get(self.DATA_KEY_TRANSACTION)
-            if self.action == Actions.TRANSACTION
+            if self.action == Actions.TRANSACTION.action
             else self._data.get(self.DATA_KEY_SINGLE, self._data)
         )
 
         return ret
 
     # endregion
-
-
-RESPONSE_REDACTIONS = Redactions(
-    {
-        Actions.GET_DEVICES.value: {
-            "devices.connections.macAddress",
-            "devices.friendlyName",  # the name identified by the Mesh
-            "devices.knownInterfaces.macAddress",
-            "devices.properties",  # user supplied information and cache for parental control
-            "devices.unit.serialNumber",
-        },
-        Actions.GET_GUEST_NETWORK_INFO.value: {
-            "radios.guestSSID",
-            "radios.guestWPAPassphrase",
-        },
-        Actions.GET_LAN_SETTINGS.value: {
-            "hostName",
-            "reservations",
-        },
-        Actions.GET_MAC_FILTERING_SETTINGS.value: {
-            "macAddresses",
-        },
-        Actions.GET_NODE_WIRELESS_CONNECTIONS.value: {
-            "nodeWirelessConnections.connections.wireless.bssid",
-            "nodeWirelessConnections.connections.macAddress",
-        },
-        Actions.GET_PARENTAL_CONTROL_INFO: {
-            "rules.macAddresses",
-        },
-        Actions.GET_WAN_INFO.value: {
-            "linkLocalIPv6Address",
-            "macAddress",
-            "wanConnection.dnsServer1",
-            "wanConnection.dnsServer2",
-            "wanConnection.dnsServer3",
-            "wanConnection.gateway",
-            "wanConnection.ipAddress",
-        },
-    }
-)

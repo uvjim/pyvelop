@@ -331,7 +331,7 @@ class Mesh:
 
         :return: tuple containing the request and response objects or raises an error if need be
         """
-        if node_address is not None and action != api.Actions.REBOOT:
+        if node_address is not None and action != api.Actions.REBOOT.action:
             raise MeshInvalidArguments
 
         if payload is None:
@@ -341,7 +341,7 @@ class Mesh:
             self._mesh_details.session = self.__create_session()
 
         req = api.Request(
-            action=action if not isinstance(action, api.Actions) else action.value,
+            action=action,
             password=self._mesh_details.password,
             payload=payload,
             raise_on_error=raise_on_error,
@@ -374,20 +374,15 @@ class Mesh:
 
         # region #-- establish available capabilities for the requests --#
         for capability in capabilities:
-            jnap_action: api.Actions = api.Actions[capability.name]
-            payload.append(
-                {
-                    "action": jnap_action.value,
-                    "request": api.Defaults.get(jnap_action.name, {}),
-                }
-            )
+            jnap_action: api.ActionDefinition = api.Actions[capability.name]
+            payload.append({"action": jnap_action.action, "request": jnap_action.payload})
         # endregion
 
         if track_time:
             self._last_gather_details.update({"gather_start": time.time()})
 
         responses: tuple[_ApiResponse, ...] = await asyncio.gather(
-            self._async_make_request(api.Actions.TRANSACTION, payload=payload)
+            self._async_make_request(api.Actions.TRANSACTION.action, payload=payload)
         )
 
         if track_time:
@@ -402,12 +397,16 @@ class Mesh:
             except MeshException as err:
                 _LOGGER.debug("%s", err)
             else:
-                capability: MeshCapability = MeshCapability[api.Actions(action).name]
-                ret[capability.value] = api_response.data
+                _action: api.ActionDefinition | None = next(
+                    (a for a in api.Actions.values() if a.action == action), None
+                )
+                if _action is not None:
+                    capability: MeshCapability = MeshCapability[_action.key]
+                    ret[capability.value] = api_response.data
 
         for response in responses:
             req, resp = response
-            if req.action == api.Actions.TRANSACTION:
+            if req.action == api.Actions.TRANSACTION.action:
                 if resp.data is not None and isinstance(resp.data, list):
                     for idx, action_response in enumerate(resp.data):
                         if isinstance(req.payload, list):
@@ -558,7 +557,7 @@ class Mesh:
         :return: None
         """
 
-        await self._async_make_request(action=api.Actions.UPDATE_FIRMWARE, payload={"onlyCheck": True})
+        await self._async_make_request(action=api.Actions.UPDATE_FIRMWARE.action, payload={"onlyCheck": True})
 
     async def async_close(self) -> None:
         """Close the session to the mesh.
@@ -571,7 +570,7 @@ class Mesh:
     async def async_clear_speedtest_results(self) -> None:
         """Clear the speedtest results."""
 
-        await self._async_make_request(api.Actions.CLEAR_SPEEDTEST_RESULTS.value)
+        await self._async_make_request(api.Actions.CLEAR_SPEEDTEST_RESULTS.action)
 
     async def async_detect_capabilities(self) -> list[MeshCapability]:
         """Attempt to detect the capabilities of the Mesh.
@@ -585,8 +584,8 @@ class Mesh:
             action_name: str = qry.name
             requests.append(
                 self._async_make_request(
-                    action=getattr(api.Actions, action_name),
-                    payload=api.Defaults.get(action_name, {}),
+                    action=api.Actions[action_name].action,
+                    payload=api.Actions[action_name].payload,
                     raise_on_error=False,
                 )
             )
@@ -602,7 +601,7 @@ class Mesh:
                 )
                 continue
 
-            if jnap_response.action == api.Actions.GET_WAN_INFO:
+            if jnap_response.action == api.Actions.GET_WAN_INFO.action:
                 _is_bridge_mode = (
                     cast(dict[str, Any], jnap_response.data).get("detectedWANType", "").lower() == "bridge"
                 )
@@ -612,7 +611,7 @@ class Mesh:
         # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
         capabilities_to_remove: set[MeshCapability] = set()
         for resp in responses:
-            if resp[0].action == api.Actions.GET_SPEEDTEST_TYPES.value:
+            if resp[0].action == api.Actions.GET_SPEEDTEST_TYPES.action:
                 # region #-- remove speedtest related capabilities if they aren't really available --#
                 # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
                 _LOGGER.debug("establishing if speedtest is actually available")
@@ -775,11 +774,11 @@ class Mesh:
             raise MeshInvalidArguments
 
         payload = {
-            **api.Defaults.get(api.Actions.GET_SPEEDTEST_RESULTS.name, {}),
+            **api.Actions.GET_SPEEDTEST_RESULTS.payload,
             "healthCheckModule": "SpeedTest",
             "lastNumberOfResults": count,
         }
-        _, resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS, payload=payload)
+        _, resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS.action, payload=payload)
 
         ret: list[SpeedtestResult] = []
         if resp.data is not None and not isinstance(resp.data, list):
@@ -886,7 +885,7 @@ class Mesh:
             "isGuestNetworkEnabled": state,
             "radios": radios,
         }
-        await self._async_make_request(action=api.Actions.SET_GUEST_NETWORK, payload=payload)
+        await self._async_make_request(action=api.Actions.SET_GUEST_NETWORK.action, payload=payload)
 
     async def async_set_homekit_state(self, state: bool) -> None:
         """Set the state of the HomeKit feature.
@@ -895,7 +894,7 @@ class Mesh:
 
         :return: None
         """
-        await self._async_make_request(action=api.Actions.SET_HOMEKIT_SETTINGS, payload={"isEnabled": state})
+        await self._async_make_request(action=api.Actions.SET_HOMEKIT_SETTINGS.action, payload={"isEnabled": state})
 
     async def async_set_night_mode_state(self, state: NightModeState) -> None:
         """Set the state of the the night mode functionality.
@@ -916,7 +915,7 @@ class Mesh:
                 payload["StartingTime"] = 20
                 payload["EndingTime"] = 8
 
-        await self._async_make_request(action=api.Actions.SET_LED_NIGHT_MODE, payload=payload)
+        await self._async_make_request(action=api.Actions.SET_LED_NIGHT_MODE.action, payload=payload)
 
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature. Rules are left intact.
@@ -933,7 +932,7 @@ class Mesh:
             "isParentalControlEnabled": state,
             "rules": rules,
         }
-        await self._async_make_request(action=api.Actions.SET_PARENTAL_CONTROL_INFO, payload=payload)
+        await self._async_make_request(action=api.Actions.SET_PARENTAL_CONTROL_INFO.action, payload=payload)
 
     async def async_set_scheduled_reboot_interval(self, interval: ScheduledRebootInterval) -> None:
         """Set the reboot interval for the Scheduled Reboot feature and enable it.
@@ -948,7 +947,7 @@ class Mesh:
             "rebootInterval": interval.value,
         }
         await self._async_make_request(
-            action=api.Actions.SET_SCHEDULED_REBOOT_SETTINGS,
+            action=api.Actions.SET_SCHEDULED_REBOOT_SETTINGS.action,
             payload=payload,
         )
 
@@ -973,7 +972,7 @@ class Mesh:
             "rebootInterval": interval,
         }
         await self._async_make_request(
-            action=api.Actions.SET_SCHEDULED_REBOOT_SETTINGS,
+            action=api.Actions.SET_SCHEDULED_REBOOT_SETTINGS.action,
             payload=payload,
         )
 
@@ -994,7 +993,7 @@ class Mesh:
             "canUsersConfigure": allow_change_settings,
             "canUsersDisableWANAccess": allow_disable_internet,
         }
-        await self._async_make_request(action=api.Actions.SET_UPNP_SETTINGS, payload=payload)
+        await self._async_make_request(action=api.Actions.SET_UPNP_SETTINGS.action, payload=payload)
 
     async def async_set_wps_state(self, state: bool) -> None:
         """Set the state of the WPS feature.
@@ -1004,7 +1003,7 @@ class Mesh:
         :return: None
         """
 
-        await self._async_make_request(action=api.Actions.SET_WPS_SERVER_SETTINGS, payload={"enabled": state})
+        await self._async_make_request(action=api.Actions.SET_WPS_SERVER_SETTINGS.action, payload={"enabled": state})
 
     async def async_start_channel_scan(self) -> None:
         """Start a channel scan on the mesh.
@@ -1013,7 +1012,7 @@ class Mesh:
         """
 
         try:
-            await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN)
+            await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN.action)
         except MeshAlreadyInProgress as err:
             _LOGGER.debug(err)
         except MeshInvalidInput as err:
@@ -1044,7 +1043,7 @@ class Mesh:
 
         payload: dict[str, Any] = {"runHealthCheckModule": "SpeedTest"}
 
-        await self._async_make_request(action=api.Actions.START_SPEEDTEST, payload=payload)
+        await self._async_make_request(action=api.Actions.START_SPEEDTEST.action, payload=payload)
 
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid.
@@ -1054,7 +1053,7 @@ class Mesh:
 
         ret: bool = False
         try:
-            await self._async_make_request(action=api.Actions.CHECK_PASSWORD)
+            await self._async_make_request(action=api.Actions.CHECK_PASSWORD.action)
             ret = True
         except MeshInvalidCredentials:
             pass
