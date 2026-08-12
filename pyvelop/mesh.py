@@ -491,9 +491,9 @@ class Mesh:
                 # endregion
 
             if "nodeType" not in entity:
-                mesh_entities.append(DeviceEntity(entity_data, self._mesh_details))
+                mesh_entities.append(DeviceEntity(entity_data, self._mesh_details, self._supplementary_redactions))
             else:
-                mesh_entities.append(NodeEntity(entity_data, self._mesh_details))
+                mesh_entities.append(NodeEntity(entity_data, self._mesh_details, self._supplementary_redactions))
         # endregion
 
         # region #-- remedial work for the entities --#
