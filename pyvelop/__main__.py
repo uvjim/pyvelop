@@ -24,7 +24,7 @@ from .exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from .jnap import RESPONSE_REDACTIONS, Actions
+from .jnap import Actions
 from .logger import set_logging_format
 from .mesh import (
     Mesh,
@@ -494,9 +494,7 @@ def create(example: str, path: str) -> None:
                 "The defaults have been detailed in this file.",
             ]
         }
-        output.update(
-            {capability.name: list(RESPONSE_REDACTIONS.get(Actions[capability.name])) for capability in MeshCapability}
-        )
+        output.update({capability.name: list(Actions[capability.name].redactions) for capability in MeshCapability})
 
     with open(path, "w") as fp:
         fp.write(json.dumps(output, indent=4))
