@@ -568,7 +568,7 @@ class MeshEntity:
 
     async def _async_api_request(
         self,
-        action: api.Actions,
+        action: str,
         payload: list[dict[str, Any]] | dict[str, Any] | None = None,
         *,
         ip: str | None = None,
@@ -576,7 +576,7 @@ class MeshEntity:
     ) -> api.Response:
         """Make a request to the API."""
         req = api.Request(
-            action=action.value,
+            action=action,
             password=self._mesh_details.password,
             payload=payload,
             raise_on_error=raise_on_error,
@@ -777,7 +777,7 @@ class DeviceEntity(MeshEntity):
         :return: None
         """
 
-        await self._async_api_request(api.Actions.DELETE_DEVICE, {"deviceID": self.unique_id})
+        await self._async_api_request(api.Actions.DELETE_DEVICE.action, {"deviceID": self.unique_id})
 
     async def async_rename(self, name: str) -> None:
         """Set the name of the device.
@@ -797,7 +797,7 @@ class DeviceEntity(MeshEntity):
             ],
         }
 
-        await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY, payload)
+        await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY.action, payload)
 
     async def async_set_icon(self, icon: UiType | str) -> None:
         """Set the icon for the device.
@@ -826,7 +826,7 @@ class DeviceEntity(MeshEntity):
             ],
         }
 
-        await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY, payload)
+        await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY.action, payload)
 
     async def async_set_parental_control_rules(self, rules: dict[str, Any], force_enable: bool = False) -> None:
         """Set the parental control schedule for the given device.
@@ -852,7 +852,7 @@ class DeviceEntity(MeshEntity):
         # endregion
 
         # -- get the current rules as they may have changed --#
-        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO)
+        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO.action)
 
         # region #-- determine the rules --#
         if live_pc_info and isinstance(live_pc_info.data, dict):
@@ -901,7 +901,7 @@ class DeviceEntity(MeshEntity):
 
         requests = [  # build a list of requests to send
             self._async_api_request(
-                api.Actions.SET_PARENTAL_CONTROL_INFO,
+                api.Actions.SET_PARENTAL_CONTROL_INFO.action,
                 {
                     "isParentalControlEnabled": (
                         True
@@ -938,7 +938,7 @@ class DeviceEntity(MeshEntity):
         if device_properties["modify"]:
             requests.append(
                 self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY,
+                    api.Actions.SET_DEVICE_PROPERTY.action,
                     {
                         "deviceID": self.unique_id,
                         "propertiesToModify": device_properties["modify"],
@@ -949,7 +949,7 @@ class DeviceEntity(MeshEntity):
         if device_properties["remove"]:
             requests.append(
                 self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY,
+                    api.Actions.SET_DEVICE_PROPERTY.action,
                     {
                         "deviceID": self.unique_id,
                         "propertiesToRemove": device_properties["remove"],
@@ -991,7 +991,7 @@ class DeviceEntity(MeshEntity):
         # endregion
 
         # -- get the current rules as they may have changed --#
-        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO)
+        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO.action)
 
         # region #-- determine the rules --#
         if live_pc_info and isinstance(live_pc_info.data, dict):
@@ -1032,7 +1032,7 @@ class DeviceEntity(MeshEntity):
 
         requests: list[Awaitable[api.Response]] = [
             self._async_api_request(
-                api.Actions.SET_PARENTAL_CONTROL_INFO,
+                api.Actions.SET_PARENTAL_CONTROL_INFO.action,
                 {
                     "isParentalControlEnabled": (
                         True
@@ -1056,7 +1056,7 @@ class DeviceEntity(MeshEntity):
         if device_properties["modify"]:
             requests.append(
                 self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY,
+                    api.Actions.SET_DEVICE_PROPERTY.action,
                     {
                         "deviceID": self.unique_id,
                         "propertiesToModify": device_properties["modify"],
@@ -1066,7 +1066,7 @@ class DeviceEntity(MeshEntity):
         if device_properties["remove"]:
             requests.append(
                 self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY,
+                    api.Actions.SET_DEVICE_PROPERTY.action,
                     {
                         "deviceID": self.unique_id,
                         "propertiesToRemove": device_properties["remove"],
@@ -1180,7 +1180,7 @@ class NodeEntity(MeshEntity):
         # endregion
 
         # region #-- do the reboot --#
-        await self._async_api_request(api.Actions.REBOOT, ip=target_ip)
+        await self._async_api_request(api.Actions.REBOOT.action, ip=target_ip)
         # endregion
 
         _LOGGER.debug(self._log_formatter.format("exited"))
