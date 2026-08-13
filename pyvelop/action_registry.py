@@ -65,9 +65,9 @@ class ActionDefinition:
 
     key: ActionKey
     action: str
-    scope: ActionScope = ActionScope.MESH
     payload: dict[str, Any] = field(default_factory=dict, kw_only=True)
     redactions: set[str] = field(default_factory=set, kw_only=True)
+    scope: ActionScope = field(default=ActionScope.MESH, kw_only=True)
 
 
 @dataclass(slots=True)
