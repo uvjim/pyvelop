@@ -16,7 +16,7 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
-from .action_registry import ActionKey, ActionScope
+from .action_registry import ActionDefinition, ActionKey, ActionScope
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -29,7 +29,6 @@ from .jnap import Actions, Response
 from .logger import set_logging_format
 from .mesh import (
     Mesh,
-    MeshCapability,
     NightModeState,
     ScheduledRebootInterval,
     SpeedtestExitCode,
@@ -495,7 +494,8 @@ def create(example: str, path: str) -> None:
                 "The defaults have been detailed in this file.",
             ]
         }
-        output.update({capability.name: list(Actions[capability.name].redactions) for capability in MeshCapability})
+        possible_capabilities: list[ActionDefinition] = [a for a in Actions.values() if a.is_capability]
+        output.update({capability.key: list(capability.redactions) for capability in possible_capabilities})
 
     with open(path, "w") as fp:
         fp.write(json.dumps(output, indent=4))
@@ -657,7 +657,7 @@ async def mesh_details(
                     pd.DataFrame(mesh_obj.capabilities, columns=[""]),
                     title="Capabilities",
                 )
-                if MeshCapability.GET_LED_NIGHT_MODE in mesh_obj.capabilities:
+                if Actions.GET_LED_NIGHT_MODE.key in mesh_obj.capabilities:
                     data = {"Night mode": mesh_obj.night_mode}
                     _display(
                         outfile,
@@ -665,7 +665,7 @@ async def mesh_details(
                         index=True,
                         title="Night mode",
                     )
-                if MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_SCHEDULED_REBOOT_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.scheduled_reboot_enabled,
                         "Interval": (
@@ -680,7 +680,7 @@ async def mesh_details(
                         index=True,
                         title="Scheduled Reboot Settings",
                     )
-                if MeshCapability.GET_WAN_INFO in mesh_obj.capabilities:
+                if Actions.GET_WAN_INFO.key in mesh_obj.capabilities:
                     data = {
                         "Internet connected": mesh_obj.wan_status,
                         "Bridge mode": mesh_obj.is_in_bridge_mode,
@@ -693,7 +693,7 @@ async def mesh_details(
                         index=True,
                         title="WAN Info",
                     )
-                if MeshCapability.GET_LAN_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_LAN_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "DHCP enabled": mesh_obj.dhcp_enabled,
                     }
@@ -712,7 +712,7 @@ async def mesh_details(
                         index=True,
                         title="DHCP Reservations",
                     )
-                if MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Client steering enabled": mesh_obj.client_steering_enabled,
                         "Node steering enabled": mesh_obj.node_steering_enabled,
@@ -723,7 +723,7 @@ async def mesh_details(
                         index=True,
                         title="Topology Optimisation Settings",
                     )
-                if MeshCapability.GET_MLO_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_MLO_SETTINGS.key in mesh_obj.capabilities:
                     data = {"Enabled": (mesh_obj.mlo_state if mesh_obj.mlo_state is not None else "Unsupported")}
                     _display(
                         outfile,
@@ -731,7 +731,7 @@ async def mesh_details(
                         index=True,
                         title="Multi-Link Operation (MLO)",
                     )
-                if MeshCapability.GET_EXPRESS_FORWARDING in mesh_obj.capabilities:
+                if Actions.GET_EXPRESS_FORWARDING.key in mesh_obj.capabilities:
                     data = {
                         "Supported": mesh_obj.express_forwarding_supported,
                         "Enabled": mesh_obj.express_forwarding_enabled,
@@ -742,7 +742,7 @@ async def mesh_details(
                         index=True,
                         title="Express Forwarding",
                     )
-                if MeshCapability.GET_PARENTAL_CONTROL_INFO in mesh_obj.capabilities:
+                if Actions.GET_PARENTAL_CONTROL_INFO.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.parental_control_enabled,
                     }
@@ -752,7 +752,7 @@ async def mesh_details(
                         index=True,
                         title="Parental Control",
                     )
-                if MeshCapability.GET_MAC_FILTERING_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_MAC_FILTERING_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.mac_filtering_enabled,
                         "Mode": mesh_obj.mac_filtering_mode,
@@ -766,7 +766,7 @@ async def mesh_details(
                         index=True,
                         title="MAC Filtering",
                     )
-                if MeshCapability.GET_WPS_SERVER_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_WPS_SERVER_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.wps_state,
                     }
@@ -776,7 +776,7 @@ async def mesh_details(
                         index=True,
                         title="WPS Settings",
                     )
-                if MeshCapability.GET_ALG_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_ALG_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.sip_enabled,
                     }
@@ -786,7 +786,7 @@ async def mesh_details(
                         index=True,
                         title="SIP Settings",
                     )
-                if MeshCapability.GET_HOMEKIT_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_HOMEKIT_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.homekit_enabled,
                         "Paired": mesh_obj.homekit_paired,
@@ -797,7 +797,7 @@ async def mesh_details(
                         index=True,
                         title="HomeKit Settings",
                     )
-                if MeshCapability.GET_UPNP_SETTINGS in mesh_obj.capabilities:
+                if Actions.GET_UPNP_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.upnp_enabled,
                         "allow_change_settings": mesh_obj.upnp_allow_change_settings,
@@ -809,7 +809,7 @@ async def mesh_details(
                         index=True,
                         title="UPnP Settings",
                     )
-                if MeshCapability.GET_DEVICES in mesh_obj.capabilities:
+                if Actions.GET_DEVICES.key in mesh_obj.capabilities:
                     data_list: list[str | dict[str, Any]] = [n.name for n in mesh_obj.nodes]
                     _display(
                         outfile,
@@ -821,7 +821,7 @@ async def mesh_details(
                         index=True,
                         title="Nodes",
                     )
-                if MeshCapability.GET_SPEEDTEST_RESULTS in mesh_obj.capabilities:
+                if Actions.GET_SPEEDTEST_RESULTS.key in mesh_obj.capabilities:
                     _display(
                         outfile,
                         pd.DataFrame(
@@ -831,7 +831,7 @@ async def mesh_details(
                         index=True,
                         title="Speedtest Results",
                     )
-                if MeshCapability.GET_GUEST_NETWORK_INFO in mesh_obj.capabilities:
+                if Actions.GET_GUEST_NETWORK_INFO.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.guest_wifi_enabled,
                     }
@@ -846,13 +846,13 @@ async def mesh_details(
                         pd.DataFrame.from_dict(cast(dict[str, Any], mesh_obj.guest_wifi_details)),
                         title="# Networks",
                     )
-                if MeshCapability.GET_STORAGE_PARTITIONS in mesh_obj.capabilities:
+                if Actions.GET_STORAGE_PARTITIONS.key in mesh_obj.capabilities:
                     _display(
                         outfile,
                         pd.DataFrame(mesh_obj.storage_available),
                         title="File Shares",
                     )
-                if MeshCapability.GET_DEVICES in mesh_obj.capabilities:
+                if Actions.GET_DEVICES.key in mesh_obj.capabilities:
                     data_list = [{"name": d.name, "ip": d.adapter_info[0].ip} for d in mesh_obj.devices if d.status]
                     _display(
                         outfile,
