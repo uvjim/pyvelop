@@ -11,7 +11,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Iterable
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
 from types import MappingProxyType
@@ -21,6 +21,7 @@ from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
+from .action_registry import ActionDefinition, ActionKey
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
@@ -45,36 +46,6 @@ type _ApiResponse = tuple[api.Request, api.Response]
 _ATTR_PROCESSED_DEVICES: str = "processed_devices"
 _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
-
-
-class MeshCapability(StrEnum):
-    """The possible capabilities available to the Mesh."""
-
-    GET_ALG_SETTINGS = "alg_settings"
-    GET_BACKHAUL = "backhaul"
-    GET_CHANNEL_SCAN_STATUS = "channel_scan_status"
-    GET_DEVICES = "devices"
-    GET_EXPRESS_FORWARDING = "express_forwarding"
-    GET_GUEST_NETWORK_INFO = "guest_network_info"
-    GET_HOMEKIT_SETTINGS = "homekit_settings"
-    GET_LAN_SETTINGS = "lan_setting"
-    GET_LED_NIGHT_MODE = "led_night_mode"
-    GET_MAC_FILTERING_SETTINGS = "mac_filtering_settings"
-    GET_MLO_SETTINGS = "mlo_settings"
-    GET_NODE_WIRELESS_CONNECTIONS = "node_wireless_connections"
-    GET_PARENTAL_CONTROL_INFO = "parental_control_info"
-    GET_SCHEDULED_REBOOT_SETTINGS = "scheduled_reboot_settings"
-    GET_SPEEDTEST_RESULTS = "speedtest_results"
-    GET_SPEEDTEST_STATUS = "speedtest_status"
-    GET_SPEEDTEST_TYPES = "speedtest_types"
-    GET_STORAGE_PARTITIONS = "storage_partitions"
-    GET_STORAGE_SMB_SERVER = "storage_smb_server"
-    GET_TOPOLOGY_OPTIMISATION_SETTINGS = "topology_optimisation_settings"
-    GET_UPDATE_FIRMWARE_STATE = "update_firmware_state"
-    GET_UPDATE_SETTINGS = "firmware_update_settings"
-    GET_UPNP_SETTINGS = "upnp_settings"
-    GET_WAN_INFO = "wan_info"
-    GET_WPS_SERVER_SETTINGS = "wps_server_settings"
 
 
 class NightModeState(StrEnum):
@@ -176,20 +147,20 @@ def needs_initialise(func: Any) -> Any:
     return wrapped
 
 
-FeatureCapabilities: MappingProxyType[str, set[MeshCapability]] = MappingProxyType(
+FeatureCapabilities: MappingProxyType[str, set[ActionKey]] = MappingProxyType(
     {
         "devices": {
-            MeshCapability.GET_DEVICES,
-            MeshCapability.GET_LAN_SETTINGS,
-            MeshCapability.GET_NODE_WIRELESS_CONNECTIONS,
-            MeshCapability.GET_PARENTAL_CONTROL_INFO,
+            "GET_DEVICES",
+            "GET_LAN_SETTINGS",
+            "GET_NODE_WIRELESS_CONNECTIONS",
+            "GET_PARENTAL_CONTROL_INFO",
         },
         "parental_control": {
-            MeshCapability.GET_PARENTAL_CONTROL_INFO,
+            "GET_PARENTAL_CONTROL_INFO",
         },
         "speedtest": {
-            MeshCapability.GET_SPEEDTEST_RESULTS,
-            MeshCapability.GET_SPEEDTEST_STATUS,
+            "GET_SPEEDTEST_RESULTS",
+            "GET_SPEEDTEST_STATUS",
         },
     }
 )
@@ -241,7 +212,7 @@ class Mesh:
             session=_session,
             user=username,
         )
-        self._mesh_capabilities: list[MeshCapability] = []
+        self._mesh_capabilities: set[ActionKey] = set()
         self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
         self.__passed_session: bool = isinstance(session, ClientSession)
 
@@ -360,7 +331,7 @@ class Mesh:
 
     async def _async_gather_details(  # noqa: C901
         self,
-        capabilities: list[MeshCapability],
+        capabilities: Iterable[ActionKey],
         *,
         track_time: bool = False,
     ) -> dict[str, Any]:
@@ -374,7 +345,7 @@ class Mesh:
 
         # region #-- only make requests for the discovered capabilities --#
         for capability in capabilities:
-            jnap_action: api.ActionDefinition = api.Actions[capability.name]
+            jnap_action: ActionDefinition = api.Actions[capability]
             payload.append({"action": jnap_action.action, "request": jnap_action.payload})
         # endregion
 
@@ -403,8 +374,7 @@ class Mesh:
                     (a for a in api.Actions.values() if a.action == action), None
                 )
                 if _action is not None:
-                    capability: MeshCapability = MeshCapability[_action.key]
-                    ret[capability.value] = api_response.data
+                    ret[_action.key] = api_response.data
 
         for response in responses:
             req, resp = response
@@ -424,7 +394,7 @@ class Mesh:
         mesh_entities: list[DeviceEntity | NodeEntity] = []
         # region #-- build the properties for the mesh entity types --#
         # we'll treat the information from GET_DEVICES as our starting point.
-        for entity in ret.get(MeshCapability.GET_DEVICES.value, {}).get("devices", []):
+        for entity in ret.get(api.Actions.GET_DEVICES.key, {}).get("devices", []):
             # entity_data will be used to store all the information needed to build the appropriate MeshEntity object.
             entity_data: dict[str, Any] = {}
             # stamp the gather time into each entity
@@ -443,7 +413,7 @@ class Mesh:
                 dev_pc_schedule: list[dict[str, Any]] = []
                 for dev_mac in dev_adapter_macs:
                     # region #-- get parental control details --#
-                    for rule in ret.get(MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {}).get("rules", []):
+                    for rule in ret.get(api.Actions.GET_PARENTAL_CONTROL_INFO.key, {}).get("rules", []):
                         if dev_mac in rule.get("macAddresses", []):
                             dev_pc_schedule.append(rule)
                             break
@@ -452,9 +422,7 @@ class Mesh:
 
                     # region #-- get DHCP reservation info --#
                     for reservation in (
-                        ret.get(MeshCapability.GET_LAN_SETTINGS.value, {})
-                        .get("dhcpSettings", {})
-                        .get("reservations", [])
+                        ret.get(api.Actions.GET_LAN_SETTINGS.key, {}).get("dhcpSettings", {}).get("reservations", [])
                     ):
                         if reservation.get("macAddress", "").lower() == dev_mac.lower():
                             entity_data[EntityDataProperties.RESERVATION_DETAILS] = reservation
@@ -462,7 +430,7 @@ class Mesh:
                     # endregion
 
                     # region #-- wireless connection details --#
-                    for nwc in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
+                    for nwc in ret.get(api.Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get(
                         "nodeWirelessConnections", []
                     ):
                         if (
@@ -481,7 +449,7 @@ class Mesh:
                 entity_data[EntityDataProperties.BACKHAUL] = next(
                     (
                         bi
-                        for bi in ret.get(MeshCapability.GET_BACKHAUL.value, {}).get("backhaulDevices", [])
+                        for bi in ret.get(api.Actions.GET_BACKHAUL.key, {}).get("backhaulDevices", [])
                         if bi.get("deviceUUID") == entity.get("deviceID")
                     ),
                     {},
@@ -489,13 +457,11 @@ class Mesh:
                 # endregion
 
                 # region #-- calculate if there is a firmware update available --#
-                if MeshCapability.GET_UPDATE_FIRMWARE_STATE.value in ret:
+                if api.Actions.GET_UPDATE_FIRMWARE_STATE.key in ret:
                     entity_data[EntityDataProperties.FIRMWARE_DETAILS] = next(
                         (
                             fds
-                            for fds in ret[MeshCapability.GET_UPDATE_FIRMWARE_STATE.value].get(
-                                "firmwareUpdateStatus", []
-                            )
+                            for fds in ret[api.Actions.GET_UPDATE_FIRMWARE_STATE.key].get("firmwareUpdateStatus", [])
                             if fds.get("deviceUUID") == entity.get("deviceID")
                         ),
                         {},
@@ -539,7 +505,7 @@ class Mesh:
                     # region #-- let's look in the wireless node connections for a parent --#
                     adapter_macs: set[str] = {adi.mac for adi in node_or_device.adapter_info if adi.mac is not None}
                     if adapter_macs:
-                        for nwc in ret.get(MeshCapability.GET_NODE_WIRELESS_CONNECTIONS.value, {}).get(
+                        for nwc in ret.get(api.Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get(
                             "nodeWirelessConnections", []
                         ):
                             if any(pd.get("macAddress") in adapter_macs for pd in nwc.get("connections", [])):
@@ -589,20 +555,20 @@ class Mesh:
 
         await self._async_make_request(api.Actions.CLEAR_SPEEDTEST_RESULTS.action)
 
-    async def async_detect_capabilities(self) -> list[MeshCapability]:
+    async def async_detect_capabilities(self) -> set[ActionKey]:
         """Attempt to detect the capabilities of the Mesh.
 
         :return: list of capabilities for the mesh.
         """
         _is_bridge_mode: bool = False
-        ret: list[MeshCapability] = []
+        ret: set[ActionKey] = set()
         requests: list[Coroutine[Any, Any, _ApiResponse]] = []
-        for qry in MeshCapability:
-            action_name: str = qry.name
+        possible_capabilities: list[ActionDefinition] = [a for a in api.Actions.values() if a.is_capability]
+        for qry in possible_capabilities:
             requests.append(
                 self._async_make_request(
-                    action=api.Actions[action_name].action,
-                    payload=api.Actions[action_name].payload,
+                    action=qry.action,
+                    payload=qry.payload,
                     raise_on_error=False,
                 )
             )
@@ -613,7 +579,7 @@ class Mesh:
             if isinstance(jnap_response.data, dict) and "result" in jnap_response.data:
                 _LOGGER.debug(
                     "capability not found: %s, response: %s",
-                    list(MeshCapability)[idx],
+                    possible_capabilities[idx].key,
                     jnap_response.data,
                 )
                 continue
@@ -622,11 +588,11 @@ class Mesh:
                 _is_bridge_mode = (
                     cast(dict[str, Any], jnap_response.data).get("detectedWANType", "").lower() == "bridge"
                 )
-            ret.append(list(MeshCapability)[idx])
+            ret.add(possible_capabilities[idx].key)
 
         # region #-- tidy up capabilities --#
         # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
-        capabilities_to_remove: set[MeshCapability] = set()
+        capabilities_to_remove: set[ActionKey] = set()
         for resp in responses:
             if resp[0].action == api.Actions.GET_SPEEDTEST_TYPES.action:
                 # region #-- remove speedtest related capabilities if they aren't really available --#
@@ -654,7 +620,7 @@ class Mesh:
                 ret.remove(capability)
         # endregion
 
-        self._mesh_capabilities = ret
+        self._mesh_capabilities = set(ret)
         return self._mesh_capabilities
 
     @needs_initialise
@@ -676,8 +642,8 @@ class Mesh:
 
         :return: dictionary containing the channel scan results
         """
-        resp = await self._async_gather_details([MeshCapability.GET_CHANNEL_SCAN_STATUS])
-        return resp.get(MeshCapability.GET_CHANNEL_SCAN_STATUS.value)
+        resp = await self._async_gather_details([api.Actions.GET_CHANNEL_SCAN_STATUS.key])
+        return resp.get(api.Actions.GET_CHANNEL_SCAN_STATUS.key)
 
     @needs_initialise
     async def async_get_devices(
@@ -783,7 +749,7 @@ class Mesh:
         healthcheck_modules: set[str] | None = set(
             cast(
                 api.JnapResponse,
-                self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_TYPES.value, {}),
+                self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_TYPES.key, {}),
             ).get("supportedHealthCheckModules", [])
         )
 
@@ -819,10 +785,10 @@ class Mesh:
         """
 
         ret: SpeedtestResult | None = None
-        resp = await self._async_gather_details([MeshCapability.GET_SPEEDTEST_STATUS])
-        result: dict[str, Any] = resp.get(MeshCapability.GET_SPEEDTEST_STATUS.value, {})
+        resp = await self._async_gather_details([api.Actions.GET_SPEEDTEST_STATUS.key])
+        result: dict[str, Any] = resp.get(api.Actions.GET_SPEEDTEST_STATUS.key, {})
         if result:
-            ret = self._process_speedtest_results(resp.get(MeshCapability.GET_SPEEDTEST_STATUS.value, {}))
+            ret = self._process_speedtest_results(resp.get(api.Actions.GET_SPEEDTEST_STATUS.key, {}))
 
         return ret
 
@@ -832,9 +798,9 @@ class Mesh:
         :return: True if still running, False if not
         """
 
-        resp = await self._async_gather_details([MeshCapability.GET_UPDATE_FIRMWARE_STATE])
+        resp = await self._async_gather_details([api.Actions.GET_UPDATE_FIRMWARE_STATE.key])
 
-        node_results = resp.get(MeshCapability.GET_UPDATE_FIRMWARE_STATE.value, {}).get("firmwareUpdateStatus", [])
+        node_results = resp.get(api.Actions.GET_UPDATE_FIRMWARE_STATE.key, {}).get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
 
         ret: bool = any(all_states)
@@ -847,9 +813,9 @@ class Mesh:
         :return: dictionary containing information about the state of UPnP functionality
         """
 
-        resp = await self._async_gather_details([MeshCapability.GET_UPNP_SETTINGS])
+        resp = await self._async_gather_details([api.Actions.GET_UPNP_SETTINGS.key])
 
-        ret = cast(dict[str, bool], resp.get(MeshCapability.GET_UPNP_SETTINGS.value, {}))
+        ret = cast(dict[str, bool], resp.get(api.Actions.GET_UPNP_SETTINGS.key, {}))
 
         return ret
 
@@ -891,8 +857,8 @@ class Mesh:
         """
 
         # get the current radio settings from the API; they may have changed
-        resp = await self._async_gather_details([MeshCapability.GET_GUEST_NETWORK_INFO])
-        radios = resp.get(MeshCapability.GET_GUEST_NETWORK_INFO.value, {}).get("radios", [])
+        resp = await self._async_gather_details([api.Actions.GET_GUEST_NETWORK_INFO.key])
+        radios = resp.get(api.Actions.GET_GUEST_NETWORK_INFO.key, {}).get("radios", [])
 
         for radio_details in radios:
             radio_details["isEnabled"] = state
@@ -942,7 +908,7 @@ class Mesh:
         :return: None
         """
         # get the current rules from the API because they may be different
-        resp = await self._async_gather_details([MeshCapability.GET_PARENTAL_CONTROL_INFO])
+        resp = await self._async_gather_details([api.Actions.GET_PARENTAL_CONTROL_INFO.key])
         rules = resp.get("rules", [])
 
         payload = {
@@ -977,9 +943,9 @@ class Mesh:
         """
 
         # get the current interval from the API because they may be different
-        resp = await self._async_gather_details([MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS])
+        resp = await self._async_gather_details([api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key])
 
-        interval: str | None = resp.get(MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS.value, {}).get("rebootInterval")
+        interval: str | None = resp.get(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {}).get("rebootInterval")
 
         if interval is None:
             raise MeshException("Interval setting not found")
@@ -1051,7 +1017,7 @@ class Mesh:
         healthcheck_modules: set[str] | None = set(
             cast(
                 api.JnapResponse,
-                self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_TYPES.value, {}),
+                self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_TYPES.key, {}),
             ).get("supportedHealthCheckModules", [])
         )
 
@@ -1085,7 +1051,7 @@ class Mesh:
 
     @property
     @needs_initialise
-    def capabilities(self) -> list[MeshCapability]:
+    def capabilities(self) -> set[ActionKey]:
         """Get the list of capabilities that the Mesh supports.
 
         :return: list of mesh capabilities
@@ -1102,7 +1068,7 @@ class Mesh:
         :return: True if checking
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_UPDATE_FIRMWARE_STATE.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPDATE_FIRMWARE_STATE.key, {})
 
         node_results = attr.get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
@@ -1120,7 +1086,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {}),
         )
 
         return cast(bool | None, attr.get("isClientSteeringEnabled"))
@@ -1161,7 +1127,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_LAN_SETTINGS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_LAN_SETTINGS.key, {}),
         )
 
         return cast(bool | None, attr.get("isDHCPEnabled"))
@@ -1178,7 +1144,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_LAN_SETTINGS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_LAN_SETTINGS.key, {}),
         )
 
         for reservation in attr.get("dhcpSettings", {}).get("reservations", []):
@@ -1197,7 +1163,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_EXPRESS_FORWARDING.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_EXPRESS_FORWARDING.key, {})
 
         return attr.get("isExpressForwardingEnabled")
 
@@ -1209,7 +1175,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_EXPRESS_FORWARDING.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_EXPRESS_FORWARDING.key, {})
 
         return attr.get("isExpressForwardingSupported")
 
@@ -1221,7 +1187,7 @@ class Mesh:
         :return: a lowercase string representing the update method
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_UPDATE_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPDATE_SETTINGS.key, {})
 
         return attr.get("updatePolicy", "").lower() or None
 
@@ -1235,7 +1201,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_GUEST_NETWORK_INFO.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_GUEST_NETWORK_INFO.key, {}),
         )
 
         return cast(bool | None, attr.get("isGuestNetworkEnabled"))
@@ -1250,7 +1216,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_GUEST_NETWORK_INFO.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_GUEST_NETWORK_INFO.key, {}),
         )
         radios = cast(list[dict[str, Any]], attr.get("radios", []))
 
@@ -1285,7 +1251,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_HOMEKIT_SETTINGS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_HOMEKIT_SETTINGS.key, {}),
         )
 
         return cast(bool | None, attr.get("isEnabled"))
@@ -1300,7 +1266,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_HOMEKIT_SETTINGS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_HOMEKIT_SETTINGS.key, {}),
         )
 
         return cast(bool | None, attr.get("isPaired"))
@@ -1315,7 +1281,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_CHANNEL_SCAN_STATUS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_CHANNEL_SCAN_STATUS.key, {}),
         )
 
         return cast(bool | None, attr.get("isRunning"))
@@ -1328,7 +1294,7 @@ class Mesh:
         attr = cast(
             dict[str, Any],
             self._mesh_attributes.get(
-                MeshCapability.GET_WAN_INFO.value,
+                api.Actions.GET_WAN_INFO.key,
                 {},
             ),
         )
@@ -1360,7 +1326,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}),
         )
 
         return cast(list[str], attr.get("macAddresses", []))
@@ -1375,7 +1341,7 @@ class Mesh:
 
         attr = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}),
         )
 
         return cast(str, attr.get("macFilterMode", "")).lower() != "disabled"
@@ -1390,7 +1356,7 @@ class Mesh:
         if self.mac_filtering_enabled:
             attr = cast(
                 dict[str, Any],
-                self._mesh_attributes.get(MeshCapability.GET_MAC_FILTERING_SETTINGS.value, {}),
+                self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}),
             )
 
             return cast(str, attr.get("macFilterMode", "")).lower()
@@ -1410,7 +1376,7 @@ class Mesh:
         ret: bool | None = None
         mlo_state: dict[str, bool] | None = cast(
             dict[str, bool] | None,
-            self._mesh_attributes.get(MeshCapability.GET_MLO_SETTINGS.value),
+            self._mesh_attributes.get(api.Actions.GET_MLO_SETTINGS.key),
         )
         if mlo_state is not None:
             ret = None if not mlo_state.get("isMLOSupported") else mlo_state.get("isMLOEnabled")
@@ -1426,7 +1392,7 @@ class Mesh:
         """
 
         ret: NightModeState | None = None
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_LED_NIGHT_MODE.value)
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_LED_NIGHT_MODE.key)
 
         if attr is not None:
             if not attr.get("Enable", False):
@@ -1447,9 +1413,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(
-            MeshCapability.GET_TOPOLOGY_OPTIMISATION_SETTINGS.value, {}
-        )
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {})
 
         return attr.get("isNodeSteeringEnabled")
 
@@ -1477,7 +1441,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_PARENTAL_CONTROL_INFO.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_PARENTAL_CONTROL_INFO.key, {})
 
         return attr.get("isParentalControlEnabled")
 
@@ -1489,7 +1453,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {})
 
         return attr.get("isScheduledRebootEnabled")
 
@@ -1502,7 +1466,7 @@ class Mesh:
         """
 
         ret: ScheduledRebootInterval | None = None
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_SCHEDULED_REBOOT_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {})
         val: str | None = attr.get("rebootInterval")
         if val is not None:
             ret = ScheduledRebootInterval(val)
@@ -1517,7 +1481,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_ALG_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_ALG_SETTINGS.key, {})
 
         return attr.get("isSIPEnabled")
 
@@ -1529,7 +1493,7 @@ class Mesh:
         ret: list[SpeedtestResult] = []
 
         speedtest_results: list[dict[str, Any]] = cast(
-            dict[str, Any], self._mesh_attributes.get(MeshCapability.GET_SPEEDTEST_RESULTS.value, {})
+            dict[str, Any], self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_RESULTS.key, {})
         ).get("healthCheckResults", [])
         for res in speedtest_results:
             sres: SpeedtestResult | None = self._process_speedtest_results(res)
@@ -1550,7 +1514,7 @@ class Mesh:
         device: dict[str, Any]
         storage_available = cast(
             dict[str, Any],
-            self._mesh_attributes.get(MeshCapability.GET_STORAGE_PARTITIONS.value, {}),
+            self._mesh_attributes.get(api.Actions.GET_STORAGE_PARTITIONS.key, {}),
         )
 
         for storage_node in storage_available.get("storageNodes", []):
@@ -1595,7 +1559,7 @@ class Mesh:
         attr = cast(
             dict[str, Any],
             self._mesh_attributes.get(
-                MeshCapability.GET_STORAGE_SMB_SERVER.value,
+                api.Actions.GET_STORAGE_SMB_SERVER.key,
                 {},
             ),
         )
@@ -1630,7 +1594,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_UPNP_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {})
 
         return attr.get("isUPnPEnabled")
 
@@ -1642,7 +1606,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_UPNP_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {})
 
         return attr.get("canUsersConfigure")
 
@@ -1654,7 +1618,7 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_UPNP_SETTINGS.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {})
 
         return attr.get("canUsersDisableWANAccess")
 
@@ -1666,7 +1630,7 @@ class Mesh:
         :return: A list containing the IP addresses of the WAN DNS servers
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(MeshCapability.GET_WAN_INFO.value, {})
+        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_WAN_INFO.key, {})
 
         ret = [
             cast(str, val)
@@ -1687,7 +1651,7 @@ class Mesh:
         attr = cast(
             dict[str, Any],
             self._mesh_attributes.get(
-                MeshCapability.GET_WAN_INFO.value,
+                api.Actions.GET_WAN_INFO.key,
                 {},
             ),
         )
@@ -1707,7 +1671,7 @@ class Mesh:
         attr = cast(
             dict[str, Any],
             self._mesh_attributes.get(
-                MeshCapability.GET_WAN_INFO.value,
+                api.Actions.GET_WAN_INFO.key,
                 {},
             ),
         )
@@ -1725,7 +1689,7 @@ class Mesh:
         attr = cast(
             dict[str, Any],
             self._mesh_attributes.get(
-                MeshCapability.GET_WAN_INFO.value,
+                api.Actions.GET_WAN_INFO.key,
                 {},
             ),
         )
@@ -1743,7 +1707,7 @@ class Mesh:
         attr = cast(
             dict[str, Any],
             self._mesh_attributes.get(
-                MeshCapability.GET_WPS_SERVER_SETTINGS.value,
+                api.Actions.GET_WPS_SERVER_SETTINGS.key,
                 {},
             ),
         )

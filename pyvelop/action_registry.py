@@ -65,6 +65,7 @@ class ActionDefinition:
 
     key: ActionKey
     action: str
+    is_capability: bool = field(default=False, kw_only=True)
     payload: dict[str, Any] = field(default_factory=dict, kw_only=True)
     redactions: set[str] = field(default_factory=set, kw_only=True)
     scope: ActionScope = field(default=ActionScope.MESH, kw_only=True)
@@ -154,18 +155,22 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_ALG_SETTINGS",
             "http://linksys.com/jnap/firewall/GetALGSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_BACKHAUL",
             "http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_CHANNEL_SCAN_STATUS",
             "http://linksys.com/jnap/nodes/setup/GetSelectedChannels",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_DEVICES",
             "http://linksys.com/jnap/devicelist/GetDevices3",
+            is_capability=True,
             redactions={
                 "devices.connections.macAddress",
                 "devices.friendlyName",  # the name identified by the Mesh
@@ -177,10 +182,12 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_EXPRESS_FORWARDING",
             "http://linksys.com/jnap/router/GetExpressForwardingSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_GUEST_NETWORK_INFO",
             "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2",
+            is_capability=True,
             redactions={
                 "radios.guestSSID",
                 "radios.guestWPAPassphrase",
@@ -189,10 +196,12 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_HOMEKIT_SETTINGS",
             "http://linksys.com/jnap/homekit/GetHomeKitSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_LAN_SETTINGS",
             "http://linksys.com/jnap/router/GetLANSettings",
+            is_capability=True,
             redactions={
                 "hostName",
                 "reservations",
@@ -201,10 +210,12 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_LED_NIGHT_MODE",
             "http://linksys.com/jnap/routerleds/GetLedNightModeSetting",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_MAC_FILTERING_SETTINGS",
             "http://linksys.com/jnap/macfilter/GetMACFilterSettings",
+            is_capability=True,
             redactions={
                 "macAddresses",
             },
@@ -212,6 +223,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_MLO_SETTINGS",
             "http://linksys.com/jnap/wirelessap/GetMLOSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_NETWORK_CONNECTIONS",
@@ -225,6 +237,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_NODE_WIRELESS_CONNECTIONS",
             "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections",
+            is_capability=True,
             redactions={
                 "nodeWirelessConnections.connections.wireless.bssid",
                 "nodeWirelessConnections.connections.macAddress",
@@ -233,6 +246,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_PARENTAL_CONTROL_INFO",
             "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings",
+            is_capability=True,
             redactions={
                 "rules.macAddresses",
             },
@@ -240,14 +254,12 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_SCHEDULED_REBOOT_SETTINGS",
             "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings",
-        ),
-        ActionDefinition(
-            "GET_SPEEDTEST_TYPES",
-            "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_SPEEDTEST_RESULTS",
             "http://linksys.com/jnap/healthcheck/GetHealthCheckResults",
+            is_capability=True,
             payload={
                 "healthCheckModule": "SpeedTest",
                 "includeModuleResults": True,
@@ -257,34 +269,47 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_SPEEDTEST_STATUS",
             "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus",
+            is_capability=True,
+        ),
+        ActionDefinition(
+            "GET_SPEEDTEST_TYPES",
+            "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_STORAGE_PARTITIONS",
             "http://linksys.com/jnap/nodes/storage/GetNodesPartitions",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_STORAGE_SMB_SERVER",
             "http://linksys.com/jnap/nodes/storage/GetSMBServerSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_TOPOLOGY_OPTIMISATION_SETTINGS",
             "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_UPDATE_FIRMWARE_STATE",
             "http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_UPDATE_SETTINGS",
             "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_UPNP_SETTINGS",
             "http://linksys.com/jnap/routerupnp/GetUPnPSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "GET_WAN_INFO",
             "http://linksys.com/jnap/router/GetWANStatus3",
+            is_capability=True,
             redactions={
                 "linkLocalIPv6Address",
                 "macAddress",
@@ -298,6 +323,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_WPS_SERVER_SETTINGS",
             "http://linksys.com/jnap/wirelessap/GetWPSServerSettings",
+            is_capability=True,
         ),
         ActionDefinition(
             "REBOOT",
