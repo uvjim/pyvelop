@@ -4,7 +4,52 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import IntEnum, auto
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
+
+ActionKey = Literal[
+    "CHECK_PASSWORD",
+    "CLEAR_SPEEDTEST_RESULTS",
+    "DELETE_DEVICE",
+    "GET_ALG_SETTINGS",
+    "GET_BACKHAUL",
+    "GET_CHANNEL_SCAN_STATUS",
+    "GET_DEVICES",
+    "GET_EXPRESS_FORWARDING",
+    "GET_GUEST_NETWORK_INFO",
+    "GET_HOMEKIT_SETTINGS",
+    "GET_LAN_SETTINGS",
+    "GET_LED_NIGHT_MODE",
+    "GET_MAC_FILTERING_SETTINGS",
+    "GET_MLO_SETTINGS",
+    "GET_NETWORK_CONNECTIONS",
+    "GET_NODE_WIRELESS_CONNECTIONS",
+    "GET_PARENTAL_CONTROL_INFO",
+    "GET_SCHEDULED_REBOOT_SETTINGS",
+    "GET_SPEEDTEST_TYPES",
+    "GET_SPEEDTEST_RESULTS",
+    "GET_SPEEDTEST_STATUS",
+    "GET_STORAGE_PARTITIONS",
+    "GET_STORAGE_SMB_SERVER",
+    "GET_TOPOLOGY_OPTIMISATION_SETTINGS",
+    "GET_UPDATE_FIRMWARE_STATE",
+    "GET_UPDATE_SETTINGS",
+    "GET_UPNP_SETTINGS",
+    "GET_WAN_INFO",
+    "GET_WPS_SERVER_SETTINGS",
+    "REBOOT",
+    "SET_DEVICE_PROPERTY",
+    "SET_GUEST_NETWORK",
+    "SET_HOMEKIT_SETTINGS",
+    "SET_LED_NIGHT_MODE",
+    "SET_PARENTAL_CONTROL_INFO",
+    "SET_SCHEDULED_REBOOT_SETTINGS",
+    "SET_UPNP_SETTINGS",
+    "SET_WPS_SERVER_SETTINGS",
+    "START_CHANNEL_SCAN",
+    "START_SPEEDTEST",
+    "TRANSACTION",
+    "UPDATE_FIRMWARE",
+]
 
 
 class ActionScope(IntEnum):
@@ -18,7 +63,7 @@ class ActionScope(IntEnum):
 class ActionDefinition:
     """Representation of the API action."""
 
-    key: str
+    key: ActionKey
     action: str
     scope: ActionScope = ActionScope.MESH
     payload: dict[str, Any] = field(default_factory=dict, kw_only=True)
@@ -39,11 +84,11 @@ class ActionRegistry:
         for action in actions:
             # region #-- validate the key --#
             if not action.key:
-                raise ValueError
+                raise ValueError("No action key has been provided, %s", action.key)
             if action.key in _store:
-                raise ValueError
+                raise ValueError("Duplicate action key has been provided, %s", action.key)
             if not action.key.isidentifier():
-                raise ValueError
+                raise ValueError("Invalid identifier supplied, %s", action.key)
             # endregion
 
             _store[action.key] = action
@@ -51,12 +96,12 @@ class ActionRegistry:
         object.__setattr__(self, "_storage", MappingProxyType(_store))
         object.__setattr__(self, "_frozen", True)
 
-    def __getitem__(self, key: str) -> ActionDefinition:
+    def __getitem__(self, key: ActionKey) -> ActionDefinition:
         """Allow [] access to the registry."""
 
         return self._storage[key]
 
-    def __getattr__(self, name: str) -> ActionDefinition:
+    def __getattr__(self, name: ActionKey) -> ActionDefinition:
         """Allow . access to the registry."""
 
         try:
@@ -90,3 +135,221 @@ class ActionRegistry:
         """Return the registry values."""
 
         return self._storage.values()
+
+
+Actions: ActionRegistry = ActionRegistry(
+    (
+        ActionDefinition(
+            "CHECK_PASSWORD",
+            "http://linksys.com/jnap/core/CheckAdminPassword",
+        ),
+        ActionDefinition(
+            "CLEAR_SPEEDTEST_RESULTS",
+            "http://linksys.com/jnap/healthcheck/ClearHealthCheckHistory",
+        ),
+        ActionDefinition(
+            "DELETE_DEVICE",
+            "http://linksys.com/jnap/devicelist/DeleteDevice",
+        ),
+        ActionDefinition(
+            "GET_ALG_SETTINGS",
+            "http://linksys.com/jnap/firewall/GetALGSettings",
+        ),
+        ActionDefinition(
+            "GET_BACKHAUL",
+            "http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo",
+        ),
+        ActionDefinition(
+            "GET_CHANNEL_SCAN_STATUS",
+            "http://linksys.com/jnap/nodes/setup/GetSelectedChannels",
+        ),
+        ActionDefinition(
+            "GET_DEVICES",
+            "http://linksys.com/jnap/devicelist/GetDevices3",
+            redactions={
+                "devices.connections.macAddress",
+                "devices.friendlyName",  # the name identified by the Mesh
+                "devices.knownInterfaces.macAddress",
+                "devices.properties",  # user supplied information and cache for parental control
+                "devices.unit.serialNumber",
+            },
+        ),
+        ActionDefinition(
+            "GET_EXPRESS_FORWARDING",
+            "http://linksys.com/jnap/router/GetExpressForwardingSettings",
+        ),
+        ActionDefinition(
+            "GET_GUEST_NETWORK_INFO",
+            "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings2",
+            redactions={
+                "radios.guestSSID",
+                "radios.guestWPAPassphrase",
+            },
+        ),
+        ActionDefinition(
+            "GET_HOMEKIT_SETTINGS",
+            "http://linksys.com/jnap/homekit/GetHomeKitSettings",
+        ),
+        ActionDefinition(
+            "GET_LAN_SETTINGS",
+            "http://linksys.com/jnap/router/GetLANSettings",
+            redactions={
+                "hostName",
+                "reservations",
+            },
+        ),
+        ActionDefinition(
+            "GET_LED_NIGHT_MODE",
+            "http://linksys.com/jnap/routerleds/GetLedNightModeSetting",
+        ),
+        ActionDefinition(
+            "GET_MAC_FILTERING_SETTINGS",
+            "http://linksys.com/jnap/macfilter/GetMACFilterSettings",
+            redactions={
+                "macAddresses",
+            },
+        ),
+        ActionDefinition(
+            "GET_MLO_SETTINGS",
+            "http://linksys.com/jnap/wirelessap/GetMLOSettings",
+        ),
+        ActionDefinition(
+            "GET_NETWORK_CONNECTIONS",
+            "http://linksys.com/jnap/networkconnections/GetNetworkConnections2",
+            scope=ActionScope.NODE,
+            redactions={
+                "connections.macAddress",
+                "connections.wireless.bssid",
+            },
+        ),
+        ActionDefinition(
+            "GET_NODE_WIRELESS_CONNECTIONS",
+            "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections",
+            redactions={
+                "nodeWirelessConnections.connections.wireless.bssid",
+                "nodeWirelessConnections.connections.macAddress",
+            },
+        ),
+        ActionDefinition(
+            "GET_PARENTAL_CONTROL_INFO",
+            "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings",
+            redactions={
+                "rules.macAddresses",
+            },
+        ),
+        ActionDefinition(
+            "GET_SCHEDULED_REBOOT_SETTINGS",
+            "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings",
+        ),
+        ActionDefinition(
+            "GET_SPEEDTEST_TYPES",
+            "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules",
+        ),
+        ActionDefinition(
+            "GET_SPEEDTEST_RESULTS",
+            "http://linksys.com/jnap/healthcheck/GetHealthCheckResults",
+            payload={
+                "healthCheckModule": "SpeedTest",
+                "includeModuleResults": True,
+                "lastNumberOfResults": 10,
+            },
+        ),
+        ActionDefinition(
+            "GET_SPEEDTEST_STATUS",
+            "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus",
+        ),
+        ActionDefinition(
+            "GET_STORAGE_PARTITIONS",
+            "http://linksys.com/jnap/nodes/storage/GetNodesPartitions",
+        ),
+        ActionDefinition(
+            "GET_STORAGE_SMB_SERVER",
+            "http://linksys.com/jnap/nodes/storage/GetSMBServerSettings",
+        ),
+        ActionDefinition(
+            "GET_TOPOLOGY_OPTIMISATION_SETTINGS",
+            "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings2",
+        ),
+        ActionDefinition(
+            "GET_UPDATE_FIRMWARE_STATE",
+            "http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus",
+        ),
+        ActionDefinition(
+            "GET_UPDATE_SETTINGS",
+            "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings",
+        ),
+        ActionDefinition(
+            "GET_UPNP_SETTINGS",
+            "http://linksys.com/jnap/routerupnp/GetUPnPSettings",
+        ),
+        ActionDefinition(
+            "GET_WAN_INFO",
+            "http://linksys.com/jnap/router/GetWANStatus3",
+            redactions={
+                "linkLocalIPv6Address",
+                "macAddress",
+                "wanConnection.dnsServer1",
+                "wanConnection.dnsServer2",
+                "wanConnection.dnsServer3",
+                "wanConnection.gateway",
+                "wanConnection.ipAddress",
+            },
+        ),
+        ActionDefinition(
+            "GET_WPS_SERVER_SETTINGS",
+            "http://linksys.com/jnap/wirelessap/GetWPSServerSettings",
+        ),
+        ActionDefinition(
+            "REBOOT",
+            "http://linksys.com/jnap/core/Reboot",
+        ),
+        ActionDefinition(
+            "SET_DEVICE_PROPERTY",
+            "http://linksys.com/jnap/devicelist/SetDeviceProperties",
+        ),
+        ActionDefinition(
+            "SET_GUEST_NETWORK",
+            "http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2",
+        ),
+        ActionDefinition(
+            "SET_HOMEKIT_SETTINGS",
+            "http://linksys.com/jnap/homekit/SetHomeKitSettings",
+        ),
+        ActionDefinition(
+            "SET_LED_NIGHT_MODE",
+            "http://linksys.com/jnap/routerleds/SetLedNightModeSetting2",
+        ),
+        ActionDefinition(
+            "SET_PARENTAL_CONTROL_INFO",
+            "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings",
+        ),
+        ActionDefinition(
+            "SET_SCHEDULED_REBOOT_SETTINGS",
+            "http://linksys.com/jnap/diagnostics/SetScheduledRebootSettings",
+        ),
+        ActionDefinition(
+            "SET_UPNP_SETTINGS",
+            "http://linksys.com/jnap/routerupnp/SetUPnPSettings",
+        ),
+        ActionDefinition(
+            "SET_WPS_SERVER_SETTINGS",
+            "http://linksys.com/jnap/wirelessap/SetWPSServerSettings",
+        ),
+        ActionDefinition(
+            "START_CHANNEL_SCAN",
+            "http://linksys.com/jnap/nodes/setup/StartAutoChannelSelection",
+        ),
+        ActionDefinition(
+            "START_SPEEDTEST",
+            "http://linksys.com/jnap/healthcheck/RunHealthCheck",
+        ),
+        ActionDefinition(
+            "TRANSACTION",
+            "http://linksys.com/jnap/core/Transaction",
+        ),
+        ActionDefinition(
+            "UPDATE_FIRMWARE",
+            "http://linksys.com/jnap/nodes/firmwareupdate/UpdateFirmwareNow",
+        ),
+    )
+)

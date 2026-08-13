@@ -16,7 +16,7 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
-from .action_registry import ActionScope
+from .action_registry import ActionKey, ActionScope
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -1030,7 +1030,7 @@ async def node_execute(
                     click.echo("Node not found")
                 else:
                     try:
-                        resp: Response = await found_node.async_execute_action(action)
+                        resp: Response = await found_node.async_execute_action(cast(ActionKey, action))
                         _output(None, json.dumps(resp.data))
                     except Exception as exc:
                         _write_error(exc)
