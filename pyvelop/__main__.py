@@ -35,7 +35,14 @@ from .mesh import (
     SpeedtestResult,
 )
 from .mesh_attribute import MeshAttribute
-from .mesh_entity import DeviceEntity, NodeEntity, ParentalControl, Weekdays
+from .mesh_entity import (
+    BackhaulInfo,
+    DeviceEntity,
+    NodeEntity,
+    NodeType,
+    ParentalControl,
+    Weekdays,
+)
 
 # endregion
 
@@ -960,6 +967,31 @@ async def node_group() -> None:
     """Work with nodes on the Mesh."""
 
 
+@node_group.command(cls=StandardCommand, name="attribute")
+@click.argument("node_name")
+@click.argument("attribute", type=click.Choice(tuple(get_properties(NodeEntity)), case_sensitive=False))
+@click.pass_context
+async def node_attr(
+    ctx: click.Context,
+    /,
+    node_name: str,
+    attribute: str,
+    **_: Any,
+) -> None:
+    """Retrieve details about a specific mesh attribute."""
+
+    if mesh_obj := await _async_mesh_connect(ctx):
+        async with mesh_obj:
+            await mesh_obj.async_initialise()
+            nodes: tuple[NodeEntity, ...] = mesh_obj.nodes
+            if not nodes:
+                click.echo("No nodes found")
+            else:
+                found_node = next((node for node in nodes if node.name.value == node_name), None)
+                attr: Any = getattr(found_node, attribute, None)
+                _display_attribute(attribute, attr)
+
+
 @node_group.command(cls=StandardCommand, name="details")
 @click.argument("node_name")
 @click.option("--outfile", default=None, required=False)
@@ -975,11 +1007,11 @@ async def node_details(
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
             await mesh_obj.async_initialise()
-            nodes = mesh_obj.nodes
+            nodes: tuple[NodeEntity, ...] = mesh_obj.nodes
             if not nodes:
                 click.echo("No nodes found")
             else:
-                found_node = next((node for node in nodes if node.name == node_name), None)
+                found_node = next((node for node in nodes if node.name.value == node_name), None)
                 if found_node is None:
                     click.echo("Node not found")
                 else:
@@ -987,14 +1019,14 @@ async def node_details(
                         _output(outfile, f"# Node: {node_name}\n")
                         data: dict[str, Any] = {
                             "Queried at": found_node.results_time,
-                            "Device ID": found_node.unique_id,
-                            "Online": found_node.status,
-                            "Node type": found_node.type.title(),
-                            "Manufacturer": found_node.manufacturer,
-                            "Model": found_node.model,
-                            "Hardware version": found_node.hardware_version,
-                            "Serial #": found_node.serial,
-                            "Icon type": found_node.ui_type,
+                            "Device ID": found_node.unique_id.value,
+                            "Online": found_node.status.value,
+                            "Node type": found_node.type.value.title(),
+                            "Manufacturer": found_node.manufacturer.value,
+                            "Model": found_node.model.value,
+                            "Hardware version": found_node.hardware_version.value,
+                            "Serial #": found_node.serial.value,
+                            "Icon type": found_node.ui_type.value,
                         }
                         _display(
                             outfile,
@@ -1002,7 +1034,7 @@ async def node_details(
                             index=True,
                         )
                         data: dict[str, Any] = {
-                            "Last Checked": found_node.last_update_check,
+                            "Last Checked": found_node.last_update_check.value,
                         }
                         _display(
                             outfile,
@@ -1012,20 +1044,22 @@ async def node_details(
                         )
                         _display(
                             outfile,
-                            pd.DataFrame([found_node.firmware]),
+                            pd.DataFrame([found_node.firmware.value]),
                         )
+
+                        # click.echo(json.dumps([adi.as_dict() for adi in found_node.adapter_info.value]))
                         _display(
                             outfile,
                             pd.DataFrame(
-                                found_node.adapter_info,
-                                index=list(range(len(found_node.adapter_info))),
+                                found_node.adapter_info.value,
+                                index=list(range(len(found_node.adapter_info.value))),
                             ),
                             title="Connections",
                         )
-                        if found_node.type == "secondary":
+                        if found_node.type.value == NodeType.SECONDARY:
                             data: dict[str, Any] = {
                                 "parent": f"{found_node.parent_name} ({found_node.parent_ip})",
-                                **found_node.backhaul.as_dict(),
+                                **cast(BackhaulInfo, found_node.backhaul.value).as_dict(),
                             }
                             _display(
                                 outfile,
@@ -1036,7 +1070,7 @@ async def node_details(
                         _display(
                             outfile,
                             pd.DataFrame(
-                                [d.name for d in found_node.connected_devices],
+                                [d.name.value for d in found_node.connected_devices],
                                 columns=["device"],
                                 index=pd.RangeIndex(
                                     start=1,

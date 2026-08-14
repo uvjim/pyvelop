@@ -568,8 +568,8 @@ class MeshEntity:
     def _update_connected_devices(self, new_device: MeshEntity) -> None:
         """Update the connected devices."""
 
-        cur_devices: set[Any] = self._data.get(EntityDataProperties.CONNECTED_ENTITIES, set())
-        cur_devices.add(new_device)
+        cur_devices: list[MeshEntity] = self._data.get(EntityDataProperties.CONNECTED_ENTITIES, [])
+        cur_devices.append(new_device)
         self._data.update({EntityDataProperties.CONNECTED_ENTITIES: cur_devices})
 
     def _update_parent(self, new_parent: MeshAttribute[NodeEntity | None]) -> None:
@@ -619,31 +619,41 @@ class MeshEntity:
             "knownInterfaces", []
         )
         for adapter in my_adapters:
+            props: dict[str, Any] = {}
+            props_adapter: dict[str, Any] = {
+                "band": adapter.get("band"),
+                "mac": adapter.get("macAddress"),
+            }
+            audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_adapter))
+            props.update(props_adapter)
+
             # region #-- derive details from the device details --#
+            props_ci: dict[str, Any] = {}
             connection_info: dict[str, Any] | None = next(
                 (
-                    c
-                    for c in self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("connections", [])
-                    if c.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
+                    conn
+                    for conn in self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("connections", [])
+                    if conn.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
                 ),
                 None,
             )
             if connection_info is not None:
-                props_ci: dict[str, Any] = {
-                    "band": adapter.get("band"),
+                props_ci = {
                     "guest_network": connection_info.get("isGuest", False),
                     "ip": connection_info.get("ipAddress"),
                     "ipv6": connection_info.get("ipv6Address"),
-                    "mac": adapter.get("macAddress"),
                 }
-                audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_ci))
+                audit_history.append(
+                    AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_ci, type=AttributeAction.MERGE)
+                )
                 props.update(props_ci)
             # endregion
 
             # region #-- derive reservation information --#
+            props_reservation: dict[str, Any] = {}
             reservation_info: dict[str, Any] | None = self._data.get(EntityDataProperties.RESERVATION_DETAILS)
             if reservation_info is not None:
-                props_reservation: dict[str, Any] = {
+                props_reservation = {
                     "reservation": bool(reservation_info),
                     "reservation_description": reservation_info.get("description"),
                 }
@@ -656,12 +666,16 @@ class MeshEntity:
             # endregion
 
             # region #-- derive wireless information --#
+            props_wifi: dict[str, Any] = {}
             wifi_info: dict[str, Any] | None = self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS)
-            if wifi_info is not None:
+            if (
+                wifi_info is not None
+                and wifi_info.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
+            ):
                 signal_strength: SignalStrength | None = self._signal_strength_to_text(
                     wifi_info.get("wireless", {}).get("signalDecibels")
                 )
-                props_wifi: dict[str, Any] = {
+                props_wifi = {
                     "negotiated_mbps": wifi_info.get("negotiatedMbps"),
                     "rssi_dbm": wifi_info.get("wireless", {}).get("signalDecibels"),
                     "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
@@ -676,20 +690,25 @@ class MeshEntity:
 
             # region #-- derive the adapter connection type --#
             adapter_conn_type: ConnectionType = ConnectionType(adapter.get("interfaceType", "Unknown"))
+            props_type: dict[str, Any] = {
+                "type": adapter_conn_type,
+            }
             audit_history.append(
                 AttributeAuditEntry(
                     EntityDataProperties.DEVICE_DETAILS.value,
-                    adapter_conn_type,
+                    props_type,
                     type=AttributeAction.MERGE,
                 )
             )
 
-            if adapter_conn_type == ConnectionType.UNKNOWN and wifi_info:
-                adapter_conn_type = ConnectionType.WIRELESS
+            if adapter_conn_type == ConnectionType.UNKNOWN and props_wifi:
+                props_type = {
+                    "type": ConnectionType.WIRELESS,
+                }
                 audit_history.append(
                     AttributeAuditEntry(
                         EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                        adapter_conn_type,
+                        props_type,
                         type=AttributeAction.MERGE,
                     )
                 )
@@ -699,20 +718,16 @@ class MeshEntity:
                     EntityDataProperties.NODE_NETWORK_CONNECTIONS
                 )
                 if node_network_conns is not None:
-                    adapter_conn_type = (
-                        ConnectionType.WIRELESS if node_network_conns.get("wireless") else ConnectionType.WIRED
-                    )
+                    props_type = {
+                        "type": ConnectionType.WIRELESS if node_network_conns.get("wireless") else ConnectionType.WIRED
+                    }
                     audit_history.append(
                         AttributeAuditEntry(
                             EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                            adapter_conn_type,
+                            props_type,
                             type=AttributeAction.MERGE,
                         )
                     )
-
-            props_type: dict[str, Any] = {
-                "type": adapter_conn_type,
-            }
             props.update(props_type)
             # endregion
 
@@ -735,16 +750,19 @@ class MeshEntity:
             # endregion
 
             # region #-- parent details --#
-            parent: MeshAttribute[NodeEntity | None] | None = cast(
-                MeshAttribute[NodeEntity | None] | None, self._data.get(EntityDataProperties.PARENT_ENTITY)
-            )
-            props_parent: dict[str, Any] = {}
-            if parent is not None and parent.value is not None:
-                props_parent = {"parent_id": parent.value.unique_id.value}
-            audit_history.append(
-                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_parent, type=AttributeAction.MERGE)
-            )
-            props.update(props_parent)
+            if props.get("connected"):
+                parent: MeshAttribute[NodeEntity | None] | None = cast(
+                    MeshAttribute[NodeEntity | None] | None, self._data.get(EntityDataProperties.PARENT_ENTITY)
+                )
+                props_parent: dict[str, Any] = {}
+                if parent is not None and parent.value is not None:
+                    props_parent = {"parent_id": parent.value.unique_id.value}
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.DEVICE_DETAILS.value, props_parent, type=AttributeAction.MERGE
+                    )
+                )
+                props.update(props_parent)
             # endregion
 
             ret.append(AdapterInfo(**props))
@@ -1447,16 +1465,17 @@ class NodeEntity(MeshEntity):
         return MeshAttribute[BackhaulInfo | None](ret, (AttributeAuditEntry(EntityDataProperties.BACKHAUL.value, ret),))
 
     @property
-    def connected_devices(self) -> set[DeviceEntity]:
+    def connected_devices(self) -> tuple[DeviceEntity, ...]:
         """List of the devices that are connected to the node.
 
         :return: List of connected devices in alphabetical order sorted by device name
         """
 
-        ret: list[DeviceEntity] = []
-        ret = sorted(self._data.get(EntityDataProperties.CONNECTED_ENTITIES, []), key=lambda device: device.name.value)
+        ret: list[DeviceEntity] = sorted(
+            self._data.get(EntityDataProperties.CONNECTED_ENTITIES, []), key=lambda dev: dev.name.value
+        )
 
-        return set(ret)
+        return tuple(ret)
 
     @property
     def firmware(self) -> MeshAttribute[dict[str, Any]]:
