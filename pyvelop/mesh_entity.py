@@ -1454,7 +1454,7 @@ class NodeEntity(MeshEntity):
         """
 
         ret: list[DeviceEntity] = []
-        ret = sorted(self._data.get(EntityDataProperties.CONNECTED_ENTITIES, []), key=lambda device: device.name)
+        ret = sorted(self._data.get(EntityDataProperties.CONNECTED_ENTITIES, []), key=lambda device: device.name.value)
 
         return set(ret)
 
