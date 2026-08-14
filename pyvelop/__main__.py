@@ -674,28 +674,17 @@ async def mesh_details(
             try:
                 data: dict[str, Any] = {}
                 _output(outfile, "# Mesh Details\n")
-                data = {
-                    "Gather started": (
-                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
-                        if (val := mesh_obj.last_gather_details.get("gather_start", 0)) != 0
-                        else "unknown"
-                    ),
-                    "Gather finished": (
-                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
-                        if (val := mesh_obj.last_gather_details.get("gather_end", 0)) != 0
-                        else "unknown"
-                    ),
-                    "Processing started": (
-                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
-                        if (val := mesh_obj.last_gather_details.get("process_start", 0)) != 0
-                        else "unknown"
-                    ),
-                    "Processing finished": (
-                        dt.datetime.fromtimestamp(float(val if val is not None else 0))
-                        if (val := mesh_obj.last_gather_details.get("process_end", 0)) != 0
-                        else "unknown"
-                    ),
-                }
+                data = {k: dt.datetime.fromtimestamp(v).replace(tzinfo=dt.UTC) for k, v in mesh_obj.last_gather_details}
+                data.update(
+                    {
+                        "duration": dt.timedelta(
+                            seconds=(
+                                mesh_obj.last_gather_details[len(mesh_obj.last_gather_details) - 1][1]
+                                - mesh_obj.last_gather_details[0][1]
+                            )
+                        ).total_seconds()
+                    }
+                )
                 _display(
                     outfile,
                     pd.DataFrame.from_dict(
