@@ -115,7 +115,7 @@ class Request:
                 url=self._jnap_url,
                 headers=headers,
                 json=self._payload or {},
-                timeout=timeout,
+                timeout=timeout,  # pyright:ignore[reportArgumentType] if float is passed it's classed as total
             )
             resp_json: JnapResponse = await resp.json()
         except TimeoutError as err:
@@ -251,7 +251,8 @@ class Response:
                 elif resp.get(self.RESULT_KEY, "").startswith("_"):
                     err = MeshInvalidInput(f"{resp.get(self.RESULT_KEY)}: '{self.action}'")
                 else:
-                    err = MeshException(f"{resp}: '{self.action}'")
+                    # _LOGGER.debug(resp.get(self.RESULT_KEY))
+                    err = MeshException(f"{self.action}: {resp}")
 
                 if err:
                     break
