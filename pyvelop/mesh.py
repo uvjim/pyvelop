@@ -446,7 +446,7 @@ class Mesh:
             # entity_data will be used to store all the information needed to build the appropriate MeshEntity object.
             entity_data: dict[str, Any] = {}
             # stamp the gather time into each entity
-            entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get("gather_end")
+            entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get("capability_gather_end")
             # all details as per the API response get added
             entity_data[EntityDataProperties.DEVICE_DETAILS] = entity
             # region #-- process additional information --#
@@ -460,6 +460,7 @@ class Mesh:
                 dev_pc_schedule: list[dict[str, Any]] = []
                 for dev_mac in dev_adapter_macs:
                     # region #-- get parental control details --#
+                    dev_pc_schedule: list[dict[str, Any]] = []
                     for rule in ret.get(api.Actions.GET_PARENTAL_CONTROL_INFO.key, {}).get("rules", []):
                         if dev_mac in rule.get("macAddresses", []):
                             dev_pc_schedule.append(rule)
@@ -559,26 +560,23 @@ class Mesh:
             )
             audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, parent_node))
             if isinstance(node_or_device, NodeEntity):
-                if not parent_node:
-                    # region #-- use backhaul information to set parent for a node --#
-                    parent_ip: str | None = node_or_device.raw_details.get(EntityDataProperties.BACKHAUL, {}).get(
-                        "parentIPAddress"
-                    )
-                    if parent_ip is not None:
-                        for n in mesh_entities:
-                            if isinstance(n, NodeEntity):
-                                nadi: AdapterInfo | None = next(
-                                    (adi for adi in n.adapter_info.value if adi.primary), None
-                                )
-                                if nadi is not None and parent_ip == nadi.ip:
-                                    parent_node = n
-                                    break
+                # region #-- use backhaul information to set parent for a node --#
+                parent_ip: str | None = node_or_device.raw_details.get(EntityDataProperties.BACKHAUL, {}).get(
+                    "parentIPAddress"
+                )
+                if parent_ip is not None:
+                    for n in mesh_entities:
+                        if isinstance(n, NodeEntity):
+                            nadi: AdapterInfo | None = next((adi for adi in n.adapter_info.value if adi.primary), None)
+                            if nadi is not None and parent_ip == nadi.ip:
+                                parent_node = n
+                                break
                     audit_history.append(
                         AttributeAuditEntry(
                             EntityDataProperties.BACKHAUL.value, parent_ip, type=AttributeAction.REPLACE
                         )
                     )
-                    # endregion
+                # endregion
             elif isinstance(node_or_device, DeviceEntity) and node_or_device.status:
                 if not parent_node:
                     # region #-- let's look in the wireless node connections for a parent --#
