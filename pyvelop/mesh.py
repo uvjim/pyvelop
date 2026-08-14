@@ -31,6 +31,7 @@ from .exceptions import (
     MeshInvalidInput,
     MeshNeedsInitialise,
 )
+from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 from .mesh_entity import (
     AdapterInfo,
     DeviceEntity,
@@ -203,7 +204,7 @@ class Mesh:
             "process_end": None,
             "process_start": None,
         }
-        self._mesh_attributes: dict[str, list[DeviceEntity] | list[NodeEntity] | api.JnapResponse] = {}
+        self._mesh_attributes: dict[str, Any] = {}
         _session: ClientSession = session if session is not None else self.__create_session()
         self._mesh_details: MeshDetails = MeshDetails(
             host=node,
@@ -400,15 +401,14 @@ class Mesh:
             # stamp the gather time into each entity
             entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get("gather_end")
             # all details as per the API response get added
-            entity_data.update(entity)
+            entity_data[EntityDataProperties.DEVICE_DETAILS] = entity
             # region #-- process additional information --#
             # this is gathered, infered and linked from other API calls
             if "nodeType" not in entity:
                 # region #-- process end devices connected to the mesh --#
                 # region #-- link up MAC based information --#
                 dev_adapter_macs: list[str] = [
-                    dev_adapter.get("macAddress")
-                    for dev_adapter in entity.get(EntityDataProperties.KNOWN_INTERFACES, [])
+                    dev_adapter.get("macAddress") for dev_adapter in entity.get("knownInterfaces", [])
                 ]
                 dev_pc_schedule: list[dict[str, Any]] = []
                 for dev_mac in dev_adapter_macs:
@@ -457,15 +457,16 @@ class Mesh:
                 # endregion
 
                 # region #-- calculate if there is a firmware update available --#
-                if api.Actions.GET_UPDATE_FIRMWARE_STATE.key in ret:
-                    entity_data[EntityDataProperties.FIRMWARE_DETAILS] = next(
-                        (
-                            fds
-                            for fds in ret[api.Actions.GET_UPDATE_FIRMWARE_STATE.key].get("firmwareUpdateStatus", [])
-                            if fds.get("deviceUUID") == entity.get("deviceID")
-                        ),
-                        {},
-                    )
+                entity_data[EntityDataProperties.FIRMWARE_DETAILS] = next(
+                    (
+                        fds
+                        for fds in ret.get(api.Actions.GET_UPDATE_FIRMWARE_STATE.key, {}).get(
+                            "firmwareUpdateStatus", []
+                        )
+                        if fds.get("deviceUUID") == entity.get("deviceID")
+                    ),
+                    {},
+                )
                 # endregion
                 # endregion
 
@@ -480,30 +481,45 @@ class Mesh:
         # region #-- remedial work for the entities --#
         # handle information here that needs a reference to the DeviceEntity or NodeEntity.
         for node_or_device in mesh_entities:
+            audit_history: list[AttributeAuditEntry] = []
             # region #-- establish the parent/child relationship for entities
-            parent_node: str | NodeEntity | None = None
+            parent_node: str | NodeEntity | None = next(
+                (
+                    conn.get("parentDeviceID")
+                    for conn in node_or_device.raw_details.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
+                        "connections", []
+                    )
+                ),
+                None,
+            )
+            audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, parent_node))
             if isinstance(node_or_device, NodeEntity):
-                # region #-- use backhaul information to set parent for a node --#
-                parent_ip: str | None = node_or_device.raw_details.get(EntityDataProperties.BACKHAUL, {}).get(
-                    "parentIPAddress"
-                )
-                if parent_ip is not None:
-                    for n in mesh_entities:
-                        if isinstance(n, NodeEntity):
-                            nadi: AdapterInfo | None = next((adi for adi in n.adapter_info if adi.primary), None)
-                            if nadi is not None and parent_ip == nadi.ip:
-                                parent_node = n
-                                break
-                # endregion
+                if not parent_node:
+                    # region #-- use backhaul information to set parent for a node --#
+                    parent_ip: str | None = node_or_device.raw_details.get(EntityDataProperties.BACKHAUL, {}).get(
+                        "parentIPAddress"
+                    )
+                    if parent_ip is not None:
+                        for n in mesh_entities:
+                            if isinstance(n, NodeEntity):
+                                nadi: AdapterInfo | None = next(
+                                    (adi for adi in n.adapter_info.value if adi.primary), None
+                                )
+                                if nadi is not None and parent_ip == nadi.ip:
+                                    parent_node = n
+                                    break
+                    audit_history.append(
+                        AttributeAuditEntry(
+                            EntityDataProperties.BACKHAUL.value, parent_ip, type=AttributeAction.REPLACE
+                        )
+                    )
+                    # endregion
             elif isinstance(node_or_device, DeviceEntity) and node_or_device.status:
-                # region #-- check in the connections list for a parent ID --#
-                parent_node = next(
-                    (conn.get("parentDeviceID") for conn in node_or_device.raw_details.get("connections", [])), None
-                )
-                # endregion
                 if not parent_node:
                     # region #-- let's look in the wireless node connections for a parent --#
-                    adapter_macs: set[str] = {adi.mac for adi in node_or_device.adapter_info if adi.mac is not None}
+                    adapter_macs: set[str] = {
+                        adi.mac for adi in node_or_device.adapter_info.value if adi.mac is not None
+                    }
                     if adapter_macs:
                         for nwc in ret.get(api.Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get(
                             "nodeWirelessConnections", []
@@ -511,6 +527,13 @@ class Mesh:
                             if any(pd.get("macAddress") in adapter_macs for pd in nwc.get("connections", [])):
                                 parent_node = nwc.get("deviceID")
                                 break
+                    audit_history.append(
+                        AttributeAuditEntry(
+                            EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
+                            parent_node,
+                            type=AttributeAction.REPLACE,
+                        )
+                    )
                     # endregion
 
             if parent_node and not isinstance(parent_node, NodeEntity):  # we have the ID so let's get the NodeEntity
@@ -518,7 +541,7 @@ class Mesh:
                     NodeEntity | None, next((n for n in mesh_entities if n.unique_id == parent_node), None)
                 )
             if isinstance(parent_node, NodeEntity):
-                node_or_device._update_parent(parent_node)
+                node_or_device._update_parent(MeshAttribute(parent_node, tuple(audit_history)))
                 if isinstance(node_or_device, DeviceEntity):
                     parent_node._update_connected_devices(node_or_device)
 
@@ -688,8 +711,8 @@ class Mesh:
                             dev
                             for dev in all_devices
                             if type(dev) is DeviceEntity
-                            and dev.unique_id is not None
-                            and dev.unique_id.lower() == ident
+                            and dev.unique_id.value is not None
+                            and str(dev.unique_id).lower() == ident
                         ),
                         None,
                     )
@@ -708,7 +731,11 @@ class Mesh:
                             for dev in all_devices
                             if type(dev) is DeviceEntity
                             and next(
-                                (adapter for adapter in dev.adapter_info if str(adapter.mac).strip().lower() == ident),
+                                (
+                                    adapter
+                                    for adapter in dev.adapter_info.value
+                                    if str(adapter.mac).strip().lower() == ident
+                                ),
                                 None,
                             )
                         )
@@ -717,7 +744,7 @@ class Mesh:
                             (
                                 dev
                                 for dev in all_devices
-                                if type(dev) is DeviceEntity and dev.name.strip().lower() == ident
+                                if type(dev) is DeviceEntity and str(dev.name).strip().lower() == ident
                             ),
                             None,
                         )
@@ -729,7 +756,7 @@ class Mesh:
             if len(ret) != len(identity) and raise_for_missing:
                 raise MeshDeviceNotFoundResponse(devices=list(set(identity_formatted).difference(identity_found)))
 
-        ret = sorted(ret, key=lambda device: device.name)
+        ret = sorted(ret, key=lambda device: str(device.name))
 
         return ret
 
@@ -747,10 +774,7 @@ class Mesh:
         """
 
         healthcheck_modules: set[str] | None = set(
-            cast(
-                api.JnapResponse,
-                self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_TYPES.key, {}),
-            ).get("supportedHealthCheckModules", [])
+            self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_TYPES.key, {}).get("supportedHealthCheckModules", [])
         )
 
         if "SpeedTest" not in healthcheck_modules:
@@ -1015,10 +1039,7 @@ class Mesh:
         """
 
         healthcheck_modules: set[str] | None = set(
-            cast(
-                api.JnapResponse,
-                self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_TYPES.key, {}),
-            ).get("supportedHealthCheckModules", [])
+            self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_TYPES.key, {}).get("supportedHealthCheckModules", [])
         )
 
         if "SpeedTest" not in healthcheck_modules:
@@ -1060,7 +1081,7 @@ class Mesh:
 
     @property
     @needs_initialise
-    def check_for_update_status(self) -> bool:
+    def check_for_update_status(self) -> MeshAttribute[bool | None]:
         """Get the state of checking for an update as at the last time details were gathered.
 
         If you need the live state then use the async_get_update_state to re-query the API.
@@ -1068,28 +1089,30 @@ class Mesh:
         :return: True if checking
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPDATE_FIRMWARE_STATE.key, {})
+        node_results: list[dict[str, Any]] = self._mesh_attributes.get(
+            api.Actions.GET_UPDATE_FIRMWARE_STATE.key, {}
+        ).get("firmwareUpdateStatus", [])
 
-        node_results = attr.get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
-        ret = any(all_states)
+        ret: bool = any(all_states)
 
-        return ret
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(api.Actions.GET_UPDATE_FIRMWARE_STATE.key, ret),))
 
     @property
     @needs_initialise
-    def client_steering_enabled(self) -> bool | None:
+    def client_steering_enabled(self) -> MeshAttribute[bool | None]:
         """Return if client steering is enabled.
 
         :return: True if enabled, False otherwise.
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {}),
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {}).get(
+            "isClientSteeringEnabled"
         )
 
-        return cast(bool | None, attr.get("isClientSteeringEnabled"))
+        return MeshAttribute[bool | None](
+            attr, (AttributeAuditEntry(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, attr),)
+        )
 
     @property
     def connected_node(self) -> str:
@@ -1101,7 +1124,7 @@ class Mesh:
 
     @property
     @needs_initialise
-    def devices(self) -> list[DeviceEntity]:
+    def devices(self) -> tuple[DeviceEntity, ...]:
         """Get the devices in the mesh.
 
         The list will be returned in alphabetical order based on the device name.
@@ -1114,27 +1137,24 @@ class Mesh:
             for device in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, [])
             if isinstance(device, DeviceEntity)
         ]
-        ret = sorted(ret, key=lambda device: device.name)
-        return ret
+        ret = sorted(ret, key=lambda device: str(device.name))
+        return tuple(ret)
 
     @property
     @needs_initialise
-    def dhcp_enabled(self) -> bool | None:
+    def dhcp_enabled(self) -> MeshAttribute[bool | None]:
         """Return if DHCP is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_LAN_SETTINGS.key, {}),
-        )
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_LAN_SETTINGS.key, {}).get("isDHCPEnabled")
 
-        return cast(bool | None, attr.get("isDHCPEnabled"))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_LAN_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def dhcp_reservations(self) -> list[dict[str, str]]:
+    def dhcp_reservations(self) -> MeshAttribute[list[dict[str, str]]]:
         """Return the DHCP reservations.
 
         :return: list of DHCP reservation details
@@ -1142,92 +1162,99 @@ class Mesh:
         ret: list[dict[str, str]] = []
         temp_dict: dict[str, str] = {}
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_LAN_SETTINGS.key, {}),
+        all_reservations: list[dict[str, Any]] = (
+            self._mesh_attributes.get(api.Actions.GET_LAN_SETTINGS.key, {})
+            .get("dhcpSettings", {})
+            .get("reservations", [])
         )
 
-        for reservation in attr.get("dhcpSettings", {}).get("reservations", []):
+        for reservation in all_reservations:
             temp_dict = {}
             for key, details in reservation.items():
                 temp_dict[camel_to_snake(key)] = details
             ret.append(temp_dict)
 
-        return ret
+        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(api.Actions.GET_LAN_SETTINGS.key, ret),))
 
     @property
     @needs_initialise
-    def express_forwarding_enabled(self) -> bool | None:
+    def express_forwarding_enabled(self) -> MeshAttribute[bool | None]:
         """Return whether Express Forwarding is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_EXPRESS_FORWARDING.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_EXPRESS_FORWARDING.key, {}).get(
+            "isExpressForwardingEnabled"
+        )
 
-        return attr.get("isExpressForwardingEnabled")
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_EXPRESS_FORWARDING.key, attr),))
 
     @property
     @needs_initialise
-    def express_forwarding_supported(self) -> bool | None:
+    def express_forwarding_supported(self) -> MeshAttribute[bool | None]:
         """Return whether Express Forwarding is supported.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_EXPRESS_FORWARDING.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_EXPRESS_FORWARDING.key, {}).get(
+            "isExpressForwardingSupported"
+        )
 
-        return attr.get("isExpressForwardingSupported")
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_EXPRESS_FORWARDING.key, attr),))
 
     @property
     @needs_initialise
-    def firmware_update_setting(self) -> str | None:
+    def firmware_update_setting(self) -> MeshAttribute[str | None]:
         """Get the current setting for firmware updates.
 
         :return: a lowercase string representing the update method
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPDATE_SETTINGS.key, {})
+        ret: str | None = None
+        attr: dict[str, Any] | None = self._mesh_attributes.get(api.Actions.GET_UPDATE_SETTINGS.key)
+        if attr is not None:
+            ret = attr.get("updatePolicy", "").lower()
 
-        return attr.get("updatePolicy", "").lower() or None
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(api.Actions.GET_UPDATE_SETTINGS.key, ret),))
 
     @property
     @needs_initialise
-    def guest_wifi_enabled(self) -> bool | None:
+    def guest_wifi_enabled(self) -> MeshAttribute[bool | None]:
         """Get the state of the guest Wi-Fi.
 
         :return: True if enabled
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_GUEST_NETWORK_INFO.key, {}),
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_GUEST_NETWORK_INFO.key, {}).get(
+            "isGuestNetworkEnabled"
         )
 
-        return cast(bool | None, attr.get("isGuestNetworkEnabled"))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_GUEST_NETWORK_INFO.key, attr),))
 
     @property
     @needs_initialise
-    def guest_wifi_details(self) -> list[dict[str, str]]:
+    def guest_wifi_details(self) -> MeshAttribute[list[dict[str, str]]]:
         """Get the guest network Wi-Fi details.
 
         :return: A list of dictionaries containing the SSID and band for the networks
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_GUEST_NETWORK_INFO.key, {}),
+        radios: list[dict[str, str | bool]] = self._mesh_attributes.get(api.Actions.GET_GUEST_NETWORK_INFO.key, {}).get(
+            "radios", []
         )
-        radios = cast(list[dict[str, Any]], attr.get("radios", []))
 
-        ret = [
+        ret: list[dict[str, str]] = [
             {
                 "ssid": cast(str, radio.get("guestSSID")),
                 "band": cast(str, radio.get("radioID", "")).split("_")[-1],
             }
             for radio in radios
         ]
-        return ret
+        return MeshAttribute[list[dict[str, str]]](
+            ret, (AttributeAuditEntry(api.Actions.GET_GUEST_NETWORK_INFO.key, ret),)
+        )
 
     @property
     def has_initialised(self) -> bool:
@@ -1243,63 +1270,50 @@ class Mesh:
 
     @property
     @needs_initialise
-    def homekit_enabled(self) -> bool | None:
+    def homekit_enabled(self) -> MeshAttribute[bool | None]:
         """Return if the HomeKit integration is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_HOMEKIT_SETTINGS.key, {}),
-        )
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_HOMEKIT_SETTINGS.key, {}).get("isEnabled")
 
-        return cast(bool | None, attr.get("isEnabled"))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_HOMEKIT_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def homekit_paired(self) -> bool | None:
+    def homekit_paired(self) -> MeshAttribute[bool | None]:
         """Return if the HomeKit integration is paired.
 
         :return: True if enabled, False otherwise
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_HOMEKIT_SETTINGS.key, {}),
-        )
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_HOMEKIT_SETTINGS.key, {}).get("isPaired")
 
-        return cast(bool | None, attr.get("isPaired"))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_HOMEKIT_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def is_channel_scan_running(self) -> bool | None:
+    def is_channel_scan_running(self) -> MeshAttribute[bool | None]:
         """Get the current state of channel scanning.
 
         :return: True if enabled, False otherwise
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_CHANNEL_SCAN_STATUS.key, {}),
-        )
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_CHANNEL_SCAN_STATUS.key, {}).get("isRunning")
 
-        return cast(bool | None, attr.get("isRunning"))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_CHANNEL_SCAN_STATUS.key, attr),))
 
     @property
     @needs_initialise
-    def is_in_bridge_mode(self) -> bool:
+    def is_in_bridge_mode(self) -> MeshAttribute[bool | None]:
         """Return whether the mesh is in bridge mode or not."""
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(
-                api.Actions.GET_WAN_INFO.key,
-                {},
-            ),
+        attr: bool = (
+            self._mesh_attributes.get(api.Actions.GET_WAN_INFO.key, {}).get("detectedWANType", "").lower() == "bridge"
         )
 
-        return cast(str, attr.get("detectedWANType", "")).lower() == "bridge"
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_WAN_INFO.key, attr),))
 
     @property
     def last_gather_details(self) -> dict[str, float | None]:
@@ -1318,81 +1332,79 @@ class Mesh:
 
     @property
     @needs_initialise
-    def mac_filtering_addresses(self) -> list[str]:
+    def mac_filtering_addresses(self) -> MeshAttribute[list[str]]:
         """Get addresses that are configured for MAC filtering.
 
         :return: list of MAC addresses
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}),
+        attr: list[str] = self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}).get(
+            "macAddresses", []
         )
 
-        return cast(list[str], attr.get("macAddresses", []))
+        return MeshAttribute[list[str]](attr, (AttributeAuditEntry(api.Actions.GET_MAC_FILTERING_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def mac_filtering_enabled(self) -> bool:
+    def mac_filtering_enabled(self) -> MeshAttribute[bool | None]:
         """Return if MAC filtering is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}),
+        attr: bool = (
+            self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}).get("macFilterMode", "").lower()
+            != "disabled"
         )
 
-        return cast(str, attr.get("macFilterMode", "")).lower() != "disabled"
+        return MeshAttribute[bool | None](
+            attr, (AttributeAuditEntry(api.Actions.GET_MAC_FILTERING_SETTINGS.key, attr),)
+        )
 
     @property
     @needs_initialise
-    def mac_filtering_mode(self) -> str | None:
+    def mac_filtering_mode(self) -> MeshAttribute[str | None]:
         """Return the MAC filtering mode.
 
         :return: string containing the filtering mode
         """
+
+        ret: str | None = None
         if self.mac_filtering_enabled:
-            attr = cast(
-                dict[str, Any],
-                self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}),
+            ret = (
+                self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {})
+                .get("macFilterMode", "")
+                .lower()
             )
 
-            return cast(str, attr.get("macFilterMode", "")).lower()
-
-        return None
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(api.Actions.GET_MAC_FILTERING_SETTINGS.key, ret),))
 
     @property
     @needs_initialise
-    def mlo_state(self) -> bool | None:
+    def mlo_state(self) -> MeshAttribute[bool | None]:
         """Retrieve the state of MLO.
 
         :return: True if enabled, False if disabled and None if not supported.
         """
 
-        # {"isMLOSupported": true,"isMLOEnabled": false}
-
-        ret: bool | None = None
-        mlo_state: dict[str, bool] | None = cast(
-            dict[str, bool] | None,
-            self._mesh_attributes.get(api.Actions.GET_MLO_SETTINGS.key),
+        attr: bool | None = (
+            self._mesh_attributes.get(api.Actions.GET_MLO_SETTINGS.key, {})
+            .get("isMLOSupported", {})
+            .get("isMLOEnabled")
         )
-        if mlo_state is not None:
-            ret = None if not mlo_state.get("isMLOSupported") else mlo_state.get("isMLOEnabled")
 
-        return ret
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_MLO_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def night_mode(self) -> NightModeState | None:
+    def night_mode(self) -> MeshAttribute[NightModeState | None]:
         """Return whether night mode is enabled.
 
         :return: True if enabled, False otherwise
         """
 
         ret: NightModeState | None = None
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_LED_NIGHT_MODE.key)
+        attr: dict[str, bool | int] | None = self._mesh_attributes.get(api.Actions.GET_LED_NIGHT_MODE.key)
 
         if attr is not None:
             if not attr.get("Enable", False):
@@ -1403,91 +1415,106 @@ class Mesh:
                 elif attr.get("StartingTime") == 20 and attr.get("EndingTime") == 8:
                     ret = NightModeState.NIGHT_MODE
 
-        return ret
+        return MeshAttribute[NightModeState | None](
+            ret, (AttributeAuditEntry(api.Actions.GET_LED_NIGHT_MODE.key, ret),)
+        )
 
     @property
     @needs_initialise
-    def node_steering_enabled(self) -> bool | None:
+    def node_steering_enabled(self) -> MeshAttribute[bool | None]:
         """Return if node steering is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {}).get(
+            "isNodeSteeringEnabled"
+        )
 
-        return attr.get("isNodeSteeringEnabled")
+        return MeshAttribute[bool | None](
+            attr, (AttributeAuditEntry(api.Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, attr),)
+        )
 
     @property
     @needs_initialise
-    def nodes(self) -> list[NodeEntity]:
+    def nodes(self) -> tuple[NodeEntity, ...]:
         """Get the nodes in the mesh.
 
         The return is sorted in alphabetical order based on node name.
 
-        :return: A list of NodeEntity objects
+        :return: A tuple of NodeEntity objects
         """
         ret: list[NodeEntity] = [
             node for node in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, []) if isinstance(node, NodeEntity)
         ]
 
-        ret = sorted(ret, key=lambda node: node.name)
-        return ret
+        ret = sorted(ret, key=lambda node: str(node.name))
+        return tuple(ret)
 
     @property
     @needs_initialise
-    def parental_control_enabled(self) -> bool | None:
+    def parental_control_enabled(self) -> MeshAttribute[bool | None]:
         """Get the state of the Parental Control feature.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_PARENTAL_CONTROL_INFO.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_PARENTAL_CONTROL_INFO.key, {}).get(
+            "isParentalControlEnabled"
+        )
 
-        return attr.get("isParentalControlEnabled")
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_PARENTAL_CONTROL_INFO.key, attr),))
 
     @property
     @needs_initialise
-    def scheduled_reboot_enabled(self) -> bool | None:
+    def scheduled_reboot_enabled(self) -> MeshAttribute[bool | None]:
         """Get the state of the Scheduled Reboot feature.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {}).get(
+            "isScheduledRebootEnabled"
+        )
 
-        return attr.get("isScheduledRebootEnabled")
+        return MeshAttribute[bool | None](
+            attr, (AttributeAuditEntry(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, attr),)
+        )
 
     @property
     @needs_initialise
-    def scheduled_reboot_interval(self) -> ScheduledRebootInterval | None:
+    def scheduled_reboot_interval(self) -> MeshAttribute[ScheduledRebootInterval | None]:
         """Get the interval for the Scheduled Reboot feature.
 
         :return: value representing the interval
         """
 
         ret: ScheduledRebootInterval | None = None
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {})
-        val: str | None = attr.get("rebootInterval")
-        if val is not None:
-            ret = ScheduledRebootInterval(val)
+        attr: dict[str, Any] = self._mesh_attributes.get(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {}).get(
+            "rebootInterval"
+        )
+        if attr is not None:
+            ret = ScheduledRebootInterval(attr)
 
-        return ret
+        return MeshAttribute[ScheduledRebootInterval | None](
+            ret, (AttributeAuditEntry(api.Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, attr),)
+        )
 
     @property
     @needs_initialise
-    def sip_enabled(self) -> bool | None:
+    def sip_enabled(self) -> MeshAttribute[bool | None]:
         """Return whether SIP is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_ALG_SETTINGS.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_ALG_SETTINGS.key, {}).get("isSIPEnabled")
 
-        return attr.get("isSIPEnabled")
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_ALG_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def speedtest_results(self) -> list[SpeedtestResult]:
+    def speedtest_results(self) -> MeshAttribute[list[SpeedtestResult]]:
         """Return the available speedtest results."""
 
         ret: list[SpeedtestResult] = []
@@ -1500,11 +1527,13 @@ class Mesh:
             if sres is not None:
                 ret.append(sres)
 
-        return ret
+        return MeshAttribute[list[SpeedtestResult]](
+            ret, (AttributeAuditEntry(api.Actions.GET_SPEEDTEST_RESULTS.key, ret),)
+        )
 
     @property
     @needs_initialise
-    def storage_available(self) -> list[dict[str, Any]]:
+    def storage_available(self) -> MeshAttribute[list[dict[str, Any]]]:
         """Get available shared partitions.
 
         :return: List of the available storage devices and their properties
@@ -1512,10 +1541,7 @@ class Mesh:
         ret: list[dict[str, Any]] = []
         node: NodeEntity | None
         device: dict[str, Any]
-        storage_available = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(api.Actions.GET_STORAGE_PARTITIONS.key, {}),
-        )
+        storage_available = self._mesh_attributes.get(api.Actions.GET_STORAGE_PARTITIONS.key, {})
 
         for storage_node in storage_available.get("storageNodes", []):
             for device in storage_node.get("storageDevices", []):
@@ -1536,7 +1562,7 @@ class Mesh:
                             {
                                 "available_kb": partition.get("availableKB"),
                                 "ip": next(
-                                    (adapter.ip for adapter in node.adapter_info if adapter.ip),
+                                    (adapter.ip for adapter in node.adapter_info.value if adapter.ip),
                                     None,
                                 ),
                                 "label": partition.get("label"),
@@ -1546,25 +1572,27 @@ class Mesh:
                             }
                         )
 
-        return ret
+        return MeshAttribute[list[dict[str, Any]]](
+            ret, (AttributeAuditEntry(api.Actions.GET_STORAGE_PARTITIONS.key, ret),)
+        )
 
     @property
     @needs_initialise
-    def storage_settings(self) -> dict[str, bool | None]:
+    def storage_settings(self) -> MeshAttribute[dict[str, Any]]:
         """Get the settings for shared partitions.
 
         :return: dictionary of the storage settings
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(
-                api.Actions.GET_STORAGE_SMB_SERVER.key,
-                {},
-            ),
+        attr: dict[str, Any] = self._mesh_attributes.get(
+            api.Actions.GET_STORAGE_SMB_SERVER.key,
+            {},
         )
 
-        return {"anonymous_access": cast(bool | None, attr.get("isAnonymousAccessEnabled"))}
+        return MeshAttribute[dict[str, Any]](
+            {"anonymous_access": attr.get("isAnonymousAccessEnabled")},
+            (AttributeAuditEntry(api.Actions.GET_STORAGE_SMB_SERVER.key, attr),),
+        )
 
     @property
     def timeout(self) -> float:
@@ -1588,128 +1616,102 @@ class Mesh:
 
     @property
     @needs_initialise
-    def upnp_enabled(self) -> bool | None:
+    def upnp_enabled(self) -> MeshAttribute[bool | None]:
         """Return whether UPnP is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {}).get("isUPnPEnabled")
 
-        return attr.get("isUPnPEnabled")
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_UPNP_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def upnp_allow_change_settings(self) -> bool | None:
+    def upnp_allow_change_settings(self) -> MeshAttribute[bool | None]:
         """Return whether users can change settings when UPnP is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {}).get("canUsersConfigure")
 
-        return attr.get("canUsersConfigure")
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_UPNP_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def upnp_allow_disable_internet(self) -> bool | None:
+    def upnp_allow_disable_internet(self) -> MeshAttribute[bool | None]:
         """Return whether users can change disable the Internet when UPnP is enabled.
 
         :return: True if enabled, False otherwise
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {})
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_UPNP_SETTINGS.key, {}).get(
+            "canUsersDisableWANAccess"
+        )
 
-        return attr.get("canUsersDisableWANAccess")
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_UPNP_SETTINGS.key, attr),))
 
     @property
     @needs_initialise
-    def wan_dns(self) -> list[str]:
+    def wan_dns(self) -> MeshAttribute[list[str]]:
         """Get the WAN DNS servers.
 
         :return: A list containing the IP addresses of the WAN DNS servers
         """
 
-        attr: api.JnapResponse | Any = self._mesh_attributes.get(api.Actions.GET_WAN_INFO.key, {})
+        attr: dict[str, Any] = self._mesh_attributes.get(api.Actions.GET_WAN_INFO.key, {})
+        ret = [val for key, val in attr.get("wanConnection", {}).items() if key.startswith("dnsServer")]
 
-        ret = [
-            cast(str, val)
-            for key, val in cast(dict[str, Any], attr.get("wanConnection", {})).items()
-            if key.startswith("dnsServer")
-        ]
-
-        return ret
+        return MeshAttribute[list[str]](ret, (AttributeAuditEntry(api.Actions.GET_WAN_INFO.key, ret),))
 
     @property
     @needs_initialise
-    def wan_ip(self) -> str | None:
+    def wan_ip(self) -> MeshAttribute[str | None]:
         """Get the WAN IP address.
 
         :return: A string containing the IP address for the WAN
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(
-                api.Actions.GET_WAN_INFO.key,
-                {},
-            ),
-        )
-        return cast(
-            str | None,
-            cast(dict[str, Any], attr.get("wanConnection", {})).get("ipAddress"),
-        )
+        attr = self._mesh_attributes.get(api.Actions.GET_WAN_INFO.key, {}).get("wanConnection", {}).get("ipAddress")
+
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry(api.Actions.GET_WAN_INFO.key, attr),))
 
     @property
     @needs_initialise
-    def wan_mac(self) -> str | None:
+    def wan_mac(self) -> MeshAttribute[str | None]:
         """Get the WAN MAC.
 
         :return: A string containing the MAC address for the WAN adapter
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(
-                api.Actions.GET_WAN_INFO.key,
-                {},
-            ),
-        )
+        attr = self._mesh_attributes.get(api.Actions.GET_WAN_INFO.key, {}).get("macAddress")
 
-        return cast(str, attr.get("macAddress", ""))
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry(api.Actions.GET_WAN_INFO.key, attr),))
 
     @property
     @needs_initialise
-    def wan_status(self) -> bool:
+    def wan_status(self) -> MeshAttribute[bool | None]:
         """Get the status of the WAN.
 
         :return: True if connected, False if not
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(
-                api.Actions.GET_WAN_INFO.key,
-                {},
-            ),
-        )
+        attr = self._mesh_attributes.get(api.Actions.GET_WAN_INFO.key, {}).get("wanStatus", "").lower() == "connected"
 
-        return cast(str, attr.get("wanStatus", "")).lower() == "connected"
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_WAN_INFO.key, attr),))
 
     @property
     @needs_initialise
-    def wps_state(self) -> bool:
+    def wps_state(self) -> MeshAttribute[bool | None]:
         """Return if WPS is enabled or not.
 
         :return: True if enabled, False otherwise
         """
 
-        attr = cast(
-            dict[str, Any],
-            self._mesh_attributes.get(
-                api.Actions.GET_WPS_SERVER_SETTINGS.key,
-                {},
-            ),
+        attr: bool | None = self._mesh_attributes.get(api.Actions.GET_WPS_SERVER_SETTINGS.key, {}).get("enabled")
+        ret: MeshAttribute[bool | None] = MeshAttribute[bool | None](
+            attr, (AttributeAuditEntry(api.Actions.GET_WPS_SERVER_SETTINGS.key, attr),)
         )
 
-        return cast(bool, attr.get("enabled", False))
+        return ret

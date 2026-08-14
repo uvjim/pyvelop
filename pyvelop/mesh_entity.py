@@ -18,6 +18,7 @@ from . import jnap as api
 from .action_registry import ActionKey, Actions, ActionScope
 from .exceptions import MeshException, MeshInvalidInput
 from .logger import Logger
+from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 
 if TYPE_CHECKING:
     from .mesh import MeshDetails
@@ -53,15 +54,15 @@ class DeviceProperty(StrEnum):
 class EntityDataProperties(StrEnum):
     """Property names to retrieve from raw data."""
 
-    BACKHAUL = "backhaul"
+    BACKHAUL = Actions.GET_BACKHAUL.key
     CONNECTED_ENTITIES = "connected_entities"
-    FIRMWARE_DETAILS = "firmware_details"
-    KNOWN_INTERFACES = "knownInterfaces"
+    DEVICE_DETAILS = Actions.GET_DEVICES.key
+    FIRMWARE_DETAILS = Actions.GET_UPDATE_FIRMWARE_STATE.key
     PARENT_ENTITY = "parent_entity"
-    PARENTAL_CONTROLS = "parental_controls"
-    RESERVATION_DETAILS = "reservation_details"
+    PARENTAL_CONTROLS = Actions.GET_PARENTAL_CONTROL_INFO.key
+    RESERVATION_DETAILS = Actions.GET_LAN_SETTINGS.key
     RESULTS_TIME = "results_time"
-    WIRELESS_CONNECTION_DETAILS = "wireless_connection_details"
+    WIRELESS_CONNECTION_DETAILS = Actions.GET_NODE_WIRELESS_CONNECTIONS.key
 
 
 class NodeType(StrEnum):
@@ -531,14 +532,16 @@ class MeshEntity:
         """
         ret = f"{self.__class__.__name__}: "
         if self.name:
-            ret += self.name
+            ret += str(self.name)
         return ret
 
     def _get_user_property(self, property_name: DeviceProperty) -> str | None:
         """Get the given property from the user properties."""
         ret: str | None = None
 
-        user_properties: list[dict[str, Any]] = self._data.get("properties", [])
+        user_properties: list[dict[str, Any]] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
+            "properties", []
+        )
         user_prop: list[dict[str, Any]] = [prop for prop in user_properties if prop.get("name") == property_name.value]
         if user_prop:
             ret = user_prop[0].get("value")
@@ -568,7 +571,7 @@ class MeshEntity:
         cur_devices.add(new_device)
         self._data.update({EntityDataProperties.CONNECTED_ENTITIES: cur_devices})
 
-    def _update_parent(self, new_parent: NodeEntity | None) -> None:
+    def _update_parent(self, new_parent: MeshAttribute[NodeEntity | None]) -> None:
         """Set the parent entity for this entity."""
 
         self._data.update({EntityDataProperties.PARENT_ENTITY: new_parent})
@@ -600,94 +603,248 @@ class MeshEntity:
         return resp
 
     @property
-    def adapter_info(self) -> list[AdapterInfo]:
+    def adapter_info(self) -> MeshAttribute[list[AdapterInfo]]:
         """Retrieve details about the entity's adapters.
 
         :return: Adapter details
         """
 
-        ret = []
+        audit_history: list[AttributeAuditEntry] = []
+        ret: list[AdapterInfo] = []
+        props: dict[str, Any] = {}
 
-        # -- get the adapters --#
-        my_adapters: list[dict[str, Any]] = self._data.get(EntityDataProperties.KNOWN_INTERFACES, [])
+        # -- get the adapters based on known interfaces --#
+        my_adapters: list[dict[str, Any]] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
+            "knownInterfaces", []
+        )
         for adapter in my_adapters:
-            connection_info: list[dict[str, Any]] = [
-                c
-                for c in self._data.get("connections", [])
-                if c.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
-            ]
-            reservation_info: dict[str, Any] = (
-                self._data.get(EntityDataProperties.RESERVATION_DETAILS, {})
-                if self._data.get(EntityDataProperties.RESERVATION_DETAILS, {}).get("macAddress", "").lower()
-                == adapter.get("macAddress", "").lower()
-                else {}
+            # region #-- derive details from the device details --#
+            connection_info: dict[str, Any] | None = next(
+                (
+                    c
+                    for c in self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("connections", [])
+                    if c.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
+                ),
+                None,
             )
-            wifi_info: dict[str, Any] = (
-                self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {})
-                if self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {}).get("macAddress", "").lower()
-                == adapter.get("macAddress", "").lower()
-                else {}
-            )
-            signal_strength: SignalStrength | None = self._signal_strength_to_text(
-                wifi_info.get("wireless", {}).get("signalDecibels")
-            )
+            if connection_info is not None:
+                props_ci: dict[str, Any] = {
+                    "band": adapter.get("band"),
+                    "guest_network": connection_info.get("isGuest", False),
+                    "ip": connection_info.get("ipAddress"),
+                    "ipv6": connection_info.get("ipv6Address"),
+                    "mac": adapter.get("macAddress"),
+                }
+                audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_ci))
+                props.update(props_ci)
+            # endregion
 
-            # region #-- infer the adapter connection type if we can --#
+            # region #-- derive reservation information --#
+            reservation_info: dict[str, Any] | None = self._data.get(EntityDataProperties.RESERVATION_DETAILS)
+            if reservation_info is not None:
+                props_reservation: dict[str, Any] = {
+                    "reservation": bool(reservation_info),
+                    "reservation_description": reservation_info.get("description"),
+                }
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.RESERVATION_DETAILS.value, props_reservation, type=AttributeAction.MERGE
+                    )
+                )
+                props.update(props_reservation)
+            # endregion
+
+            # region #-- derive wireless information --#
+            wifi_info: dict[str, Any] | None = self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS)
+            if wifi_info is not None:
+                signal_strength: SignalStrength | None = self._signal_strength_to_text(
+                    wifi_info.get("wireless", {}).get("signalDecibels")
+                )
+                props_wifi: dict[str, Any] = {
+                    "negotiated_mbps": wifi_info.get("negotiatedMbps"),
+                    "rssi_dbm": wifi_info.get("wireless", {}).get("signalDecibels"),
+                    "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
+                }
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, props_wifi, type=AttributeAction.MERGE
+                    )
+                )
+                props.update(props_wifi)
+            # endregion
+
+            # region #-- derive the adapter connection type --#
             adapter_conn_type: ConnectionType = ConnectionType(adapter.get("interfaceType", "Unknown"))
             if adapter_conn_type == ConnectionType.UNKNOWN and wifi_info:
                 adapter_conn_type = ConnectionType.WIRELESS
+            props_type: dict[str, Any] = {
+                "type": adapter_conn_type,
+            }
+            audit_history.append(
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_type, type=AttributeAction.MERGE)
+            )
+            props.update(props_type)
             # endregion
 
             # region #-- infer the adapter connected state if we can --#
-            adapter_conn_state: bool = bool(connection_info) or bool(wifi_info)
+            adapter_conn_state: bool = bool(connection_info)
+            props_state: dict[str, bool] = {
+                "connected": adapter_conn_state,
+            }
+            audit_history.append(
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE)
+            )
+            if not adapter_conn_state and wifi_info:
+                props["connected"] = True
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE
+                    )
+                )
+            props.update(props_state)
             # endregion
 
-            props = {
-                "band": adapter.get("band"),
-                "connected": adapter_conn_state,
-                "guest_network": (None if not connection_info else connection_info[0].get("isGuest", False)),
-                "ip": (None if not connection_info else connection_info[0].get("ipAddress")),
-                "ipv6": (None if not connection_info else connection_info[0].get("ipv6Address")),
-                "mac": adapter.get("macAddress"),
-                "negotiated_mbps": wifi_info.get("negotiatedMbps"),
-                "parent_id": (
-                    cast(NodeEntity, self._data.get(EntityDataProperties.PARENT_ENTITY)).unique_id
-                    if self._data.get(EntityDataProperties.PARENT_ENTITY) is not None
-                    else None
-                ),
-                "reservation": bool(reservation_info),
-                "reservation_description": reservation_info.get("description"),
-                "rssi_dbm": wifi_info.get("wireless", {}).get("signalDecibels"),
-                "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
-                "type": adapter_conn_type,
-            }
+            # region #-- parent details --#
+            parent: MeshAttribute[NodeEntity | None] | None = cast(
+                MeshAttribute[NodeEntity | None] | None, self._data.get(EntityDataProperties.PARENT_ENTITY)
+            )
+            props_parent: dict[str, Any] = {}
+            if parent is not None and parent.value is not None:
+                props_parent = {"parent_id": parent.value.unique_id.value}
+            audit_history.append(
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_parent, type=AttributeAction.MERGE)
+            )
+            props.update(props_parent)
+            # endregion
 
             ret.append(AdapterInfo(**props))
 
-        return ret
+        return MeshAttribute[list[AdapterInfo]](ret, tuple(audit_history))
 
     @property
-    def name(self) -> str:
+    def description(self) -> MeshAttribute[str | None]:
+        """Get the description.
+
+        :return: Device description as per the mesh
+        """
+
+        attr: str | None = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("model", {}).get("description")
+
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, attr),))
+
+    @property
+    def manufacturer(self) -> MeshAttribute[str | None]:
+        """Get the node manufacturer.
+
+        :return: String containing the name of the manufacturer
+        """
+
+        ret: str | None = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("model", {}).get("manufacturer")
+
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
+
+    @property
+    def model(self) -> MeshAttribute[str | None]:
+        """Get the model.
+
+        :return: Model as found by the mesh
+        """
+
+        ret: str | None = self._get_user_property(DeviceProperty.MODEL) or self._data.get(
+            EntityDataProperties.DEVICE_DETAILS, {}
+        ).get("model", {}).get("modelNumber")
+
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
+
+    @property
+    def name(self) -> MeshAttribute[str]:
         """Retrieve the name of the entity.
 
         :return: The name of the entity
         """
-        ret = self._get_user_property(DeviceProperty.DEVICE_NAME) or self._data.get("friendlyName") or EMPTY_NAME
 
-        return ret
+        audit: list[AttributeAuditEntry] = []
+        name_discovered: str | None = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("friendlyName")
+        audit.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, name_discovered))
+        name_user: str | None = self._get_user_property(DeviceProperty.DEVICE_NAME)
+        if name_user:
+            audit.append(
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, name_user, type=AttributeAction.REPLACE)
+            )
+
+        ret = name_user or name_discovered or EMPTY_NAME
+
+        return MeshAttribute[str](ret, tuple(audit))
 
     @property
-    def parent_name(self) -> str | None:
+    def parent(self) -> MeshAttribute[NodeEntity | None]:
+        """Return the parent entity."""
+
+        ret: NodeEntity | None = None
+        audit_history: tuple[AttributeAuditEntry, ...] = ()
+        parent: MeshAttribute[NodeEntity | None] | None = self._data.get(EntityDataProperties.PARENT_ENTITY)
+        if parent is not None:
+            ret = parent.value
+            audit_history = parent.audit
+
+        return MeshAttribute[NodeEntity | None](ret, audit_history)
+
+    @property
+    def parent_ip(self) -> MeshAttribute[str | None]:
+        """IP of the parent node.
+
+        :return: The IP of the parent node or None if no node has been identified.
+        """
+
+        audit_history: tuple[AttributeAuditEntry, ...] = ()
+        ret: str | None = None
+        parent: MeshAttribute[NodeEntity | None] | None = self._data.get(EntityDataProperties.PARENT_ENTITY)
+        if parent is not None and parent.value is not None:
+            parent_adi: NodeAdapterInfo | None = next(
+                (adi for adi in parent.value.adapter_info.value if adi.primary), None
+            )
+            if parent_adi is not None:
+                audit_history = parent.value.adapter_info.audit
+                ret = parent_adi.ip
+
+        return MeshAttribute[str | None](ret, tuple(audit_history))
+
+    @property
+    def parent_ipv6(self) -> MeshAttribute[str | None]:
+        """IPv6 of the parent node.
+
+        :return: The IPv6 of the parent node or None if no node has been identified.
+        """
+
+        audit_history: tuple[AttributeAuditEntry, ...] = ()
+        ret: str | None = None
+        parent: MeshAttribute[NodeEntity | None] | None = self._data.get(EntityDataProperties.PARENT_ENTITY)
+        if parent is not None and parent.value is not None:
+            parent_adi: NodeAdapterInfo | None = next(
+                (adi for adi in parent.value.adapter_info.value if adi.primary), None
+            )
+            if parent_adi is not None:
+                audit_history = parent.value.adapter_info.audit
+                ret = parent_adi.ipv6
+
+        return MeshAttribute[str | None](ret, tuple(audit_history))
+
+    @property
+    def parent_name(self) -> MeshAttribute[str | None]:
         """Name of the node the device is connected to.
 
         :return: The parent node name or None if no node has been identified.
         """
 
+        audit_history: tuple[AttributeAuditEntry, ...] = ()
         ret: str | None = None
-        if (parent := self._data.get(EntityDataProperties.PARENT_ENTITY)) is not None:
-            ret = cast(NodeEntity, parent).name
+        parent: MeshAttribute[NodeEntity | None] | None = self._data.get(EntityDataProperties.PARENT_ENTITY)
+        if parent is not None and parent.value is not None:
+            parent_name: MeshAttribute[str] = parent.value.name
+            audit_history = parent_name.audit
+            ret = parent_name.value
 
-        return ret
+        return MeshAttribute[str | None](ret, audit_history)
 
     @property
     def raw_details(self) -> dict[str, Any]:
@@ -704,7 +861,18 @@ class MeshEntity:
         return cast(int | None, self._data.get(EntityDataProperties.RESULTS_TIME))
 
     @property
-    def status(self) -> bool:
+    def serial(self) -> MeshAttribute[str | None]:
+        """Get the serial number of the node.
+
+        :return: A string containing the serial number
+        """
+
+        ret: str | None = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("unit", {}).get("serialNumber")
+
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
+
+    @property
+    def status(self) -> MeshAttribute[bool | None]:
         """Get whether the device is currently connected to the mesh or not.
 
         Assumes that if there are no connections specified for the device then it is offline.
@@ -712,15 +880,22 @@ class MeshEntity:
 
         :return: True if connected. False if not.
         """
-        conns: dict[str, Any] = self._data.get("connections", [])
-        if not conns:  # check if there are wireless connection details
-            conns = self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {})
 
-        ret = True if conns else False
-        return ret
+        audit: list[AttributeAuditEntry] = []
+        conns: bool = bool(self._data.get(EntityDataProperties.DEVICE_DETAILS.value, {}).get("connections", []))
+        audit.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, conns))
+        if not conns:  # check if there are wireless connection details
+            conns = bool(self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {}))
+            audit.append(
+                AttributeAuditEntry(
+                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, conns, type=AttributeAction.REPLACE
+                )
+            )
+
+        return MeshAttribute[bool | None](conns, tuple(audit))
 
     @property
-    def ui_type(self) -> UiType | str | None:
+    def ui_type(self) -> MeshAttribute[UiType | str | None]:
         """Get the type assigned to the device as per the web UI.
 
         :return: The icon slug if available.  None otherwise.
@@ -734,12 +909,17 @@ class MeshEntity:
             except ValueError:
                 ret = ui_type
 
-        return ret
+        return MeshAttribute[UiType | str | None](
+            ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),)
+        )
 
     @property
-    def unique_id(self) -> str | None:
+    def unique_id(self) -> MeshAttribute[str | None]:
         """Return the unique id of the entity."""
-        return cast(str | None, self._data.get("deviceID"))
+
+        ret: str | None = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("deviceID")
+
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
 
 
 class DeviceEntity(MeshEntity):
@@ -785,7 +965,7 @@ class DeviceEntity(MeshEntity):
         :return: None
         """
 
-        await self._async_api_request(api.Actions.DELETE_DEVICE.action, {"deviceID": self.unique_id})
+        await self._async_api_request(api.Actions.DELETE_DEVICE.action, {"deviceID": self.unique_id.value})
 
     async def async_rename(self, name: str) -> None:
         """Set the name of the device.
@@ -796,7 +976,7 @@ class DeviceEntity(MeshEntity):
         """
 
         payload: dict[str, Any] = {
-            "deviceID": self.unique_id,
+            "deviceID": self.unique_id.value,
             "propertiesToModify": [
                 {
                     "name": DeviceProperty.DEVICE_NAME.value,
@@ -825,7 +1005,7 @@ class DeviceEntity(MeshEntity):
             _icon = icon
 
         payload: dict[str, Any] = {
-            "deviceID": self.unique_id,
+            "deviceID": self.unique_id.value,
             "propertiesToModify": [
                 {
                     "name": DeviceProperty.UI_TYPE.value,
@@ -854,7 +1034,7 @@ class DeviceEntity(MeshEntity):
         this_device_rules: list[dict[str, Any]] = []
 
         # region #-- get the device MAC --#
-        device_mac: str | None = self.adapter_info[0].mac
+        device_mac: str | None = self.adapter_info.value[0].mac
         if device_mac is None:
             raise MeshException("No MAC available")
         # endregion
@@ -948,7 +1128,7 @@ class DeviceEntity(MeshEntity):
                 self._async_api_request(
                     api.Actions.SET_DEVICE_PROPERTY.action,
                     {
-                        "deviceID": self.unique_id,
+                        "deviceID": self.unique_id.value,
                         "propertiesToModify": device_properties["modify"],
                     },
                 )
@@ -959,7 +1139,7 @@ class DeviceEntity(MeshEntity):
                 self._async_api_request(
                     api.Actions.SET_DEVICE_PROPERTY.action,
                     {
-                        "deviceID": self.unique_id,
+                        "deviceID": self.unique_id.value,
                         "propertiesToRemove": device_properties["remove"],
                     },
                 )
@@ -993,7 +1173,7 @@ class DeviceEntity(MeshEntity):
         this_device_rules: list[dict[str, Any]] = []
 
         # region #-- get the MAC address details --#
-        device_mac: str | None = self.adapter_info[0].mac
+        device_mac: str | None = self.adapter_info.value[0].mac
         if device_mac is None:
             raise MeshException("No MAC available")
         # endregion
@@ -1066,7 +1246,7 @@ class DeviceEntity(MeshEntity):
                 self._async_api_request(
                     api.Actions.SET_DEVICE_PROPERTY.action,
                     {
-                        "deviceID": self.unique_id,
+                        "deviceID": self.unique_id.value,
                         "propertiesToModify": device_properties["modify"],
                     },
                 )
@@ -1076,7 +1256,7 @@ class DeviceEntity(MeshEntity):
                 self._async_api_request(
                     api.Actions.SET_DEVICE_PROPERTY.action,
                     {
-                        "deviceID": self.unique_id,
+                        "deviceID": self.unique_id.value,
                         "propertiesToRemove": device_properties["remove"],
                     },
                 )
@@ -1086,53 +1266,19 @@ class DeviceEntity(MeshEntity):
         await asyncio.gather(*requests)
 
     @property
-    def description(self) -> str | None:
-        """Get the description.
-
-        :return: Device description as per the mesh
-        """
-        return cast(str | None, self._data.get("model", {}).get("description", None))
-
-    @property
-    def manufacturer(self) -> str | None:
-        """Get the manufacturer.
-
-        :return: Manufacturer as found by the mesh
-        """
-
-        ret: str | None = self._get_user_property(DeviceProperty.MANUFACTURER) or self._data.get("model", {}).get(
-            "manufacturer", None
-        )
-
-        return ret
-
-    @property
-    def model(self) -> str | None:
-        """Get the model.
-
-        :return: Model as found by the mesh
-        """
-
-        ret: str | None = self._get_user_property(DeviceProperty.MODEL) or self._data.get("model", {}).get(
-            "modelNumber", None
-        )
-
-        return ret
-
-    @property
-    def operating_system(self) -> str | None:
+    def operating_system(self) -> MeshAttribute[str | None]:
         """Get the OS.
 
         :return: The OS as identified by the mesh
         """
-        ret: str | None = self._get_user_property(DeviceProperty.OPERATING_SYSTEM) or self._data.get("unit", {}).get(
-            "operatingSystem", None
-        )
+        ret: str | None = self._get_user_property(DeviceProperty.OPERATING_SYSTEM) or self._data.get(
+            EntityDataProperties.DEVICE_DETAILS, {}
+        ).get("unit", {}).get("operatingSystem")
 
-        return ret
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
 
     @property
-    def parental_control_schedule(self) -> dict[str, Any]:
+    def parental_control_schedule(self) -> MeshAttribute[dict[str, Any]]:
         """Return the schedule of the parental controls for the device.
 
         An empty dictionary means that there are no parental controls in place
@@ -1147,12 +1293,9 @@ class DeviceEntity(MeshEntity):
                 "blocked_sites": pc_details.blocked_urls,
             }
 
-        return ret
-
-    @property
-    def serial(self) -> str | None:
-        """Get the serial number."""
-        return cast(str | None, self._data.get("unit", {}).get("serialNumber", None))
+        return MeshAttribute[dict[str, Any]](
+            ret, (AttributeAuditEntry(EntityDataProperties.PARENTAL_CONTROLS.value, ret),)
+        )
 
 
 class NodeEntity(MeshEntity):
@@ -1168,7 +1311,7 @@ class NodeEntity(MeshEntity):
 
         # region #-- establish the correct IP to use --#
         target_ip: str | None = next(
-            (adapter.ip for adapter in self.adapter_info if adapter.ip and adapter.primary),
+            (adapter.ip for adapter in self.adapter_info.value if adapter.ip and adapter.primary),
             None,
         )
         if not target_ip:
@@ -1199,7 +1342,7 @@ class NodeEntity(MeshEntity):
 
         # region #-- establish the correct IP to use --#
         target_ip: str | None = next(
-            (adapter.ip for adapter in self.adapter_info if adapter.ip and adapter.primary),
+            (adapter.ip for adapter in self.adapter_info.value if adapter.ip and adapter.primary),
             None,
         )
         if not target_ip:
@@ -1213,27 +1356,41 @@ class NodeEntity(MeshEntity):
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     @property
-    def adapter_info(self) -> list[NodeAdapterInfo]:
+    def adapter_info(self) -> MeshAttribute[list[NodeAdapterInfo]]:
         """Retrieve details about the entity's adapters.
 
         :return: Adapter details including reservation, Wi-Fi, IP and Guest details.
             Additionally includes whether it is the primary adapter or not.
         """
 
+        super_adapters: MeshAttribute[list[AdapterInfo]] = super().adapter_info
+
+        audit_history: list[AttributeAuditEntry] = list(super_adapters.audit)
         ret: list[NodeAdapterInfo] = []
-        super_adapters: list[AdapterInfo] = super().adapter_info
         backhaul: dict[str, Any] = self._data.get(EntityDataProperties.BACKHAUL, {})
-        for adapter in super_adapters:
+        for adapter in super_adapters.value:
             props: dict[str, Any] = asdict(adapter)
-            props.update(
-                {"primary": True if adapter.ip == backhaul.get("ipAddress") or self.type == NodeType.PRIMARY else False}
-            )
+            props_primary: dict[str, bool] = {"primary": False}
+            if adapter.ip == backhaul.get("ipAddress"):
+                props_primary["primary"] = True
+                audit_history.append(
+                    AttributeAuditEntry(EntityDataProperties.BACKHAUL.value, props_primary, type=AttributeAction.MERGE)
+                )
+            elif self.type == NodeType.PRIMARY:
+                props_primary["primary"] = True
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.DEVICE_DETAILS.value, props_primary, type=AttributeAction.MERGE
+                    )
+                )
+            props.update(props_primary)
+
             ret.append(NodeAdapterInfo(**props))
 
-        return ret
+        return MeshAttribute[list[NodeAdapterInfo]](ret, tuple(audit_history))
 
     @property
-    def backhaul(self) -> BackhaulInfo | None:
+    def backhaul(self) -> MeshAttribute[BackhaulInfo | None]:
         """Get details about the backhaul."""
         ret: BackhaulInfo | None = None
         backhaul = self._data.get(EntityDataProperties.BACKHAUL, {})
@@ -1257,10 +1414,10 @@ class NodeEntity(MeshEntity):
                 }
             )
 
-        return ret
+        return MeshAttribute[BackhaulInfo | None](ret, (AttributeAuditEntry(EntityDataProperties.BACKHAUL.value, ret),))
 
     @property
-    def connected_devices(self) -> list[DeviceEntity]:
+    def connected_devices(self) -> set[DeviceEntity]:
         """List of the devices that are connected to the node.
 
         :return: List of connected devices in alphabetical order sorted by device name
@@ -1269,10 +1426,10 @@ class NodeEntity(MeshEntity):
         ret: list[DeviceEntity] = []
         ret = sorted(self._data.get(EntityDataProperties.CONNECTED_ENTITIES, []), key=lambda device: device.name)
 
-        return ret
+        return set(ret)
 
     @property
-    def firmware(self) -> dict[str, Any]:
+    def firmware(self) -> MeshAttribute[dict[str, Any]]:
         """Get the firmware details for the node.
 
         N.B. The date doesn't seem to correlate to anything that I can see (I would have thought it was a build
@@ -1280,78 +1437,61 @@ class NodeEntity(MeshEntity):
 
         :return: A dictionary containing the firmware version and date
         """
-        ret = {}
-        if (unit_details := self._data.get("unit")) is not None:
-            ret["version"] = unit_details.get("firmwareVersion")
-            ret["date"] = unit_details.get("firmwareDate")
-        available_updates = self._data.get("firmware_updates", {}).get("availableUpdate", {})
-        if available_updates:
-            ret["latest_version"] = available_updates["firmwareVersion"]
-            ret["latest_date"] = available_updates["firmwareDate"]
-        else:
-            ret["latest_version"] = ret.get("version", None)
-            ret["latest_date"] = ret.get("date", None)
-        return ret
+
+        audit_history: list[AttributeAuditEntry] = []
+        ret: dict[str, Any] = {}
+        if (unit_details := self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("unit")) is not None:
+            props_device: dict[str, Any] = {
+                "version": unit_details.get("firmwareVersion"),
+                "date": unit_details.get("firmwareDate"),
+            }
+            audit_history.append(
+                AttributeAuditEntry(
+                    EntityDataProperties.DEVICE_DETAILS.value,
+                    props_device,
+                )
+            )
+            ret.update(props_device)
+        available_updates = self._data.get(EntityDataProperties.FIRMWARE_DETAILS, {}).get("availableUpdate")
+        if available_updates is not None:
+            props_available: dict[str, Any] = {
+                "latest_version": available_updates.get("firmwareVersion"),
+                "latest_date": available_updates.get("firmwareDate"),
+            }
+            audit_history.append(
+                AttributeAuditEntry(
+                    EntityDataProperties.DEVICE_DETAILS.value, props_available, type=AttributeAction.MERGE
+                )
+            )
+            ret.update(props_available)
+        return MeshAttribute[dict[str, Any]](ret, tuple(audit_history))
 
     @property
-    def hardware_version(self) -> str | None:
+    def hardware_version(self) -> MeshAttribute[str | None]:
         """Get the hardware version of the node.
 
         :return: A string containing the hardware version
         """
-        return cast(str | None, self._data.get("model", {}).get("hardwareVersion"))
+
+        ret: str | None = (
+            self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("model", {}).get("hardwareVersion")
+        )
+
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
 
     @property
-    def last_update_check(self) -> str | None:
+    def last_update_check(self) -> MeshAttribute[str | None]:
         """Get the last time an update was checked for.
 
         :return: String containing the last update time as per the API
         """
-        ret = cast(
-            str | None,
-            self._data.get("firmware_updates", {}).get("lastSuccessfulCheckTime"),
-        )
-        return ret
+
+        ret: str | None = self._data.get(EntityDataProperties.FIRMWARE_DETAILS, {}).get("lastSuccessfulCheckTime")
+
+        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.FIRMWARE_DETAILS.value, ret),))
 
     @property
-    def manufacturer(self) -> str | None:
-        """Get the node manufacturer.
-
-        :return: String containing the name of the manufacturer
-        """
-        return cast(str | None, self._data.get("model", {}).get("manufacturer"))
-
-    @property
-    def model(self) -> str | None:
-        """Get the model of the node.
-
-        :return: A string containing the model
-        """
-        return cast(str | None, self._data.get("model", {}).get("modelNumber"))
-
-    @property
-    def parent_ip(self) -> str | None:
-        """IP of the parent node.
-
-        :return: The IP of the parent node or None if no node has been identified.
-        """
-
-        ret: str | None = None
-        if (parent := self._data.get(EntityDataProperties.PARENT_ENTITY)) is not None:
-            ret = next((adi.ip for adi in cast(NodeEntity, parent).adapter_info if adi.primary), None)
-
-        return ret
-
-    @property
-    def serial(self) -> str | None:
-        """Get the serial number of the node.
-
-        :return: A string containing the serial number
-        """
-        return cast(str | None, self._data.get("unit", {}).get("serialNumber"))
-
-    @property
-    def type(self) -> NodeType:
+    def type(self) -> MeshAttribute[NodeType]:
         """Get the node type.
 
         The node types are represented as primary or secondary.
@@ -1359,9 +1499,12 @@ class NodeEntity(MeshEntity):
         :return: A NodeType enumeration containing the node type.
         """
         ret = NodeType.UNKNOWN
-        native_type = self._data.get("nodeType", "").lower()
+        native_type = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("nodeType", "").lower()
         if native_type == "master":
             ret = NodeType.PRIMARY
         elif native_type == "slave":
             ret = NodeType.SECONDARY
-        return ret
+
+        return MeshAttribute[NodeType](
+            ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, native_type),)
+        )
