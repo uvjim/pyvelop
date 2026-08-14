@@ -21,7 +21,7 @@ from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .action_registry import ActionDefinition, ActionKey
+from .action_registry import ActionDefinition, ActionKey, ActionScope
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
@@ -198,12 +198,7 @@ class Mesh:
         self._disable_redaction: bool = disable_redaction
         # flag used to denote that initialise has been executed
         self._initialise_executed: bool = False
-        self._last_gather_details: dict[str, float | None] = {
-            "gather_end": None,
-            "gather_start": None,
-            "process_end": None,
-            "process_start": None,
-        }
+        self._last_gather_details: dict[str, float] = {}
         self._mesh_attributes: dict[str, Any] = {}
         _session: ClientSession = session if session is not None else self.__create_session()
         self._mesh_details: MeshDetails = MeshDetails(
@@ -297,14 +292,12 @@ class Mesh:
         """Execute the API request against the connected node.
 
         :param action: The JNAP action to execute
-        :param node_address: The node to send the request to (only valid for a subset of actions)
+        :param node_address: The node to send the request to
         :param payload: The relevant payload for the action
         :param raise_on_error: Raise an error if one is found
 
         :return: tuple containing the request and response objects or raises an error if need be
         """
-        if node_address is not None and action != api.Actions.REBOOT.action:
-            raise MeshInvalidArguments
 
         if payload is None:
             payload = []
@@ -351,21 +344,21 @@ class Mesh:
         # endregion
 
         if track_time:
-            self._last_gather_details.update({"gather_start": time.time()})
+            self._last_gather_details.update({"capability_gather_start": time.time()})
 
         responses: tuple[_ApiResponse, ...] = await asyncio.gather(
             self._async_make_request(api.Actions.TRANSACTION.action, payload=payload)
         )
 
         if track_time:
-            self._last_gather_details.update({"gather_end": time.time()})
-            self._last_gather_details.update({"process_start": time.time()})
+            self._last_gather_details.update({"capability_gather_end": time.time()})
+            self._last_gather_details.update({"capability_process_start": time.time()})
 
-        # region #-- prepare all the raw details --#
-        # this ensures that the data from a singular request or a transaction is made available
-        # in the return.
         def _set_raw_value(action: str, data: api.JnapResponse | None) -> None:
-            """Set the return value with all the raw data as returned by the api."""
+            """Set the return value with all the raw data as returned by the api.
+
+            This uses the action key to construct the return.
+            """
             try:
                 api_response: api.Response = api.Response(action=action, data=data)
             except MeshException as err:
@@ -377,6 +370,9 @@ class Mesh:
                 if _action is not None:
                     ret[_action.key] = api_response.data
 
+        # region #-- prepare all the capability details --#
+        # this ensures that the data from a singular request or a transaction is made available
+        # in the return.
         for response in responses:
             req, resp = response
             if req.action == api.Actions.TRANSACTION.action:
@@ -390,6 +386,57 @@ class Mesh:
             else:
                 _set_raw_value(action=req.action, data=getattr(resp, "_data", {}))
         # endregion
+
+        if track_time:
+            self._last_gather_details.update({"capability_process_end": time.time()})
+            self._last_gather_details.update({"per_node_gather_start": time.time()})
+
+        # region #-- action per node requests --#
+        # we'll only execute actions that are  scoped to the node here
+        node_actions: list[ActionDefinition] = [
+            action_definition
+            for action_definition in api.Actions.values()
+            if action_definition.scope == ActionScope.NODE
+        ]
+        # establish node IP addresses - quick and dirty here because we want the information back before full processing
+        nodes: list[dict[str, str]] = []
+        for dev in ret.get(api.Actions.GET_DEVICES.key, {}).get("devices", []):
+            if "nodeType" in dev:
+                ip_addr: str | None = next((conn.get("ipAddress") for conn in dev.get("connections", [])), None)
+                if ip_addr is not None:
+                    nodes.append({"id": dev.get("deviceID"), "ip": ip_addr})
+
+        requests = []
+        for n in nodes:
+            payload.clear()
+            for na in node_actions:
+                payload.append({"action": na.action, "request": na.payload})
+            requests.append(
+                self._async_make_request(api.Actions.TRANSACTION.action, payload=payload, node_address=n.get("ip"))
+            )
+
+        node_responses: list[_ApiResponse] = await asyncio.gather(*requests)
+        # process the responses - we'll amalgamate them.
+        for idx_n, n in enumerate(nodes):
+            _, nr = node_responses[idx_n]
+            for idx_na, na in enumerate(node_actions):
+                if na.key not in ret:
+                    ret[na.key] = []
+                if na.key == api.Actions.GET_NETWORK_CONNECTIONS.key:
+                    ret[na.key].extend(
+                        [
+                            {**conn, "parent_id": n.get("id")}
+                            for conn in cast(
+                                api.JnapResponse,
+                                api.Response(na.action, cast(list[api.JnapResponse], nr.data)[idx_na]).data,
+                            ).get("connections", [])
+                        ]
+                    )
+        # endregion
+
+        if track_time:
+            self._last_gather_details.update({"per_node_gather_end": time.time()})
+            self._last_gather_details.update({"process_entities_start": time.time()})
 
         # region #-- process mesh entities --#
         mesh_entities: list[DeviceEntity | NodeEntity] = []
@@ -441,6 +488,18 @@ class Mesh:
                             entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = connection
                             break
                     # endregion
+
+                    # region #-- retrieve details from the node network connections --#
+                    node_connection: dict[str, Any] | None = next(
+                        (
+                            conn
+                            for conn in ret.get(api.Actions.GET_NETWORK_CONNECTIONS.key, [])
+                            if conn.get("macAddress") == dev_mac
+                        ),
+                        None,
+                    )
+                    entity_data[EntityDataProperties.NODE_NETWORK_CONNECTIONS] = node_connection
+                    # endregion
                 # endregion
                 # endregion
             else:
@@ -477,6 +536,12 @@ class Mesh:
                 mesh_entities.append(NodeEntity(entity_data, self._mesh_details, self._supplementary_redactions))
             # endregion
         # endregion
+        # endregion
+        # endregion
+
+        if track_time:
+            self._last_gather_details.update({"process_entities_stop": time.time()})
+            self._last_gather_details.update({"remedial_work_start": time.time()})
 
         # region #-- remedial work for the entities --#
         # handle information here that needs a reference to the DeviceEntity or NodeEntity.
@@ -536,6 +601,22 @@ class Mesh:
                     )
                     # endregion
 
+                if not parent_node:
+                    # region #-- still no parent so let's look in the node network connections --#
+                    nc: dict[str, Any] | None = node_or_device.raw_details.get(
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS
+                    )
+                    if nc is not None:
+                        parent_node = nc.get("parent_id")
+                        audit_history.append(
+                            AttributeAuditEntry(
+                                EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                                parent_node,
+                                type=AttributeAction.REPLACE,
+                            )
+                        )
+                    # endregion
+
             if parent_node and not isinstance(parent_node, NodeEntity):  # we have the ID so let's get the NodeEntity
                 parent_node = cast(
                     NodeEntity | None, next((n for n in mesh_entities if n.unique_id == parent_node), None)
@@ -551,7 +632,7 @@ class Mesh:
         # endregion
 
         if track_time:
-            self._last_gather_details.update({"process_end": time.time()})
+            self._last_gather_details.update({"remedial_work_end": time.time()})
 
         return ret
 
@@ -586,6 +667,8 @@ class Mesh:
         _is_bridge_mode: bool = False
         ret: set[ActionKey] = set()
         requests: list[Coroutine[Any, Any, _ApiResponse]] = []
+        # Scoping is ignored here - all requests are sent to the primary node.
+        # This assumes the secondary nodes will have the same capability or send an error response accordingly at a later date.
         possible_capabilities: list[ActionDefinition] = [a for a in api.Actions.values() if a.is_capability]
         for qry in possible_capabilities:
             requests.append(
@@ -1316,19 +1399,15 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_WAN_INFO.key, attr),))
 
     @property
-    def last_gather_details(self) -> dict[str, float | None]:
+    def last_gather_details(self) -> list[tuple[str, float]]:
         """Return some timings about when the details were gathered.
 
         All times are epoch and are approximate.
-        Available values are: -
-
-        gather_start: when the requests started being made
-        gather_end: when the requests were finshed
-        process_start: when processing the results started
-        process_end: when processing the results finished
         """
 
-        return self._last_gather_details
+        ret: list[tuple[str, float]] = list(self._last_gather_details.items())
+        ret = sorted(ret, key=lambda itm: itm[1])
+        return ret
 
     @property
     @needs_initialise
@@ -1387,13 +1466,12 @@ class Mesh:
         :return: True if enabled, False if disabled and None if not supported.
         """
 
-        attr: bool | None = (
-            self._mesh_attributes.get(api.Actions.GET_MLO_SETTINGS.key, {})
-            .get("isMLOSupported", {})
-            .get("isMLOEnabled")
-        )
+        ret: bool | None = None
+        attr: dict[str, bool] | None = self._mesh_attributes.get(api.Actions.GET_MLO_SETTINGS.key)
+        if attr is not None:
+            ret = attr.get("isMLOEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(api.Actions.GET_MLO_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(api.Actions.GET_MLO_SETTINGS.key, ret),))
 
     @property
     @needs_initialise

@@ -58,6 +58,7 @@ class EntityDataProperties(StrEnum):
     CONNECTED_ENTITIES = "connected_entities"
     DEVICE_DETAILS = Actions.GET_DEVICES.key
     FIRMWARE_DETAILS = Actions.GET_UPDATE_FIRMWARE_STATE.key
+    NODE_NETWORK_CONNECTIONS = Actions.GET_NETWORK_CONNECTIONS.key
     PARENT_ENTITY = "parent_entity"
     PARENTAL_CONTROLS = Actions.GET_PARENTAL_CONTROL_INFO.key
     RESERVATION_DETAILS = Actions.GET_LAN_SETTINGS.key
@@ -675,14 +676,43 @@ class MeshEntity:
 
             # region #-- derive the adapter connection type --#
             adapter_conn_type: ConnectionType = ConnectionType(adapter.get("interfaceType", "Unknown"))
+            audit_history.append(
+                AttributeAuditEntry(
+                    EntityDataProperties.DEVICE_DETAILS.value,
+                    adapter_conn_type,
+                    type=AttributeAction.MERGE,
+                )
+            )
+
             if adapter_conn_type == ConnectionType.UNKNOWN and wifi_info:
                 adapter_conn_type = ConnectionType.WIRELESS
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
+                        adapter_conn_type,
+                        type=AttributeAction.MERGE,
+                    )
+                )
+
+            if adapter_conn_type == ConnectionType.UNKNOWN:
+                node_network_conns: dict[str, Any] | None = self._data.get(
+                    EntityDataProperties.NODE_NETWORK_CONNECTIONS
+                )
+                if node_network_conns is not None:
+                    adapter_conn_type = (
+                        ConnectionType.WIRELESS if node_network_conns.get("wireless") else ConnectionType.WIRED
+                    )
+                    audit_history.append(
+                        AttributeAuditEntry(
+                            EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                            adapter_conn_type,
+                            type=AttributeAction.MERGE,
+                        )
+                    )
+
             props_type: dict[str, Any] = {
                 "type": adapter_conn_type,
             }
-            audit_history.append(
-                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_type, type=AttributeAction.MERGE)
-            )
             props.update(props_type)
             # endregion
 
