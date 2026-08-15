@@ -774,7 +774,7 @@ class MeshEntity:
                 }
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_wifi, type=AttributeAction.MERGE
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_nnc, type=AttributeAction.MERGE
                     )
                 )
                 props.update(props_nnc)
@@ -829,21 +829,21 @@ class MeshEntity:
                 AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE)
             )
             if not adapter_conn_state and wifi_info:
-                props["connected"] = True
+                props_state["connected"] = True
                 audit_history.append(
                     AttributeAuditEntry(
                         EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE
                     )
                 )
             if not adapter_conn_state and wifi_info:
-                props["connected"] = True
+                props_state["connected"] = True
                 audit_history.append(
                     AttributeAuditEntry(
                         EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE
                     )
                 )
             if not adapter_conn_state and node_network_conns:
-                props["connected"] = True
+                props_state["connected"] = True
                 audit_history.append(
                     AttributeAuditEntry(
                         EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_state, type=AttributeAction.MERGE
