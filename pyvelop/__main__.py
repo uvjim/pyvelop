@@ -110,7 +110,7 @@ class StandardCommand(click.Command):
             click.Option(
                 ("--redact/--no-redact",),
                 default=True,
-                help="Redact sensitive information from output.",
+                help="Redact sensitive information from the debug output. This doesn't affect intended CLI output.",
                 is_flag=True,
             ),
             click.Option(
