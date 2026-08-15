@@ -876,6 +876,11 @@ class MeshEntity:
 
         ret = name_user or name_discovered or EMPTY_NAME
 
+        if ret == EMPTY_NAME:
+            audit.append(
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, EMPTY_NAME, type=AttributeAction.REPLACE)
+            )
+
         return MeshAttribute[str](ret, tuple(audit))
 
     @property
