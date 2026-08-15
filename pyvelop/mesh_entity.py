@@ -689,9 +689,10 @@ class MeshEntity:
         for adapter in my_adapters:
             props: dict[str, Any] = {}
             props_adapter: dict[str, Any] = {
-                "band": adapter.get("band"),
                 "mac": adapter.get("macAddress"),
             }
+            if adapter.get("band") is not None:
+                props_adapter["band"] = adapter.get("band")
             audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_adapter))
             props.update(props_adapter)
 
@@ -756,6 +757,29 @@ class MeshEntity:
                 props.update(props_wifi)
             # endregion
 
+            # region #-- derive information from node connection details --#
+            props_nnc: dict[str, Any] = {}
+            node_network_conns: dict[str, Any] | None = self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS)
+            if (
+                node_network_conns is not None
+                and node_network_conns.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
+            ):
+                signal_strength: SignalStrength | None = self._signal_strength_to_text(
+                    node_network_conns.get("wireless", {}).get("signalDecibels")
+                )
+                props_nnc = {
+                    "negotiated_mbps": node_network_conns.get("negotiatedMbps"),
+                    "rssi_dbm": node_network_conns.get("wireless", {}).get("signalDecibels"),
+                    "signal_strength": signal_strength,
+                }
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_wifi, type=AttributeAction.MERGE
+                    )
+                )
+                props.update(props_nnc)
+            # endregion
+
             # region #-- derive the adapter connection type --#
             adapter_conn_type: ConnectionType = ConnectionType(adapter.get("interfaceType", "Unknown"))
             props_type: dict[str, Any] = {
@@ -782,9 +806,6 @@ class MeshEntity:
                 )
 
             if adapter_conn_type == ConnectionType.UNKNOWN:
-                node_network_conns: dict[str, Any] | None = self._data.get(
-                    EntityDataProperties.NODE_NETWORK_CONNECTIONS
-                )
                 if node_network_conns is not None:
                     props_type = {
                         "type": ConnectionType.WIRELESS if node_network_conns.get("wireless") else ConnectionType.WIRED
@@ -812,6 +833,20 @@ class MeshEntity:
                 audit_history.append(
                     AttributeAuditEntry(
                         EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE
+                    )
+                )
+            if not adapter_conn_state and wifi_info:
+                props["connected"] = True
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE
+                    )
+                )
+            if not adapter_conn_state and node_network_conns:
+                props["connected"] = True
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_state, type=AttributeAction.MERGE
                     )
                 )
             props.update(props_state)
@@ -1010,6 +1045,13 @@ class MeshEntity:
             audit.append(
                 AttributeAuditEntry(
                     EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, conns, type=AttributeAction.REPLACE
+                )
+            )
+        if not conns:  # check if there are any node network connections
+            conns = bool(self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, {}))
+            audit.append(
+                AttributeAuditEntry(
+                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, conns, type=AttributeAction.REPLACE
                 )
             )
 
