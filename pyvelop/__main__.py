@@ -1368,30 +1368,17 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
         """Handle known serialisation errors."""
 
         if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
-            return obj.to_dict()
+            return obj.to_dict(include_audit=False)
 
         return repr(obj)
 
-    def _sanitise_for_display(d: dict[str, Any], prop: str) -> dict[str, Any]:
-        """Remove the given attribute from all dictionaries in the results."""
-
-        def walk(x: Any) -> Any:
-            """Wander through the given dictionary."""
-            if isinstance(x, dict):
-                return {k: walk(v) for k, v in x.items() if k != prop}
-            if isinstance(x, list):
-                return [walk(i) for i in x]
-            if isinstance(x, tuple):
-                return tuple(walk(i) for i in x)
-            return x
-
-        return walk(d)
-
     _output(None, f"# `{attr_name}` Details\n\n")
     attr_json: str = json.dumps(attr, default=_json_default)
-    attr_json_display = _sanitise_for_display(json.loads(attr_json), "audit")
+    attr_json_display = json.loads(attr_json)
     _output(None, "## Value (JSON encoded)\n\n")
-    _output(None, f"{json.dumps(attr_json_display.get("value"))}\n")
+    _output(
+        None, f"{json.dumps(attr_json_display.get("value") if "value" in attr_json_display else attr_json_display)}\n"
+    )
 
     if isinstance(attr, MeshAttribute):
         data.clear()
