@@ -41,7 +41,12 @@ class MeshAttribute[PropType]:
     value: PropType
     audit: tuple[AttributeAuditEntry, ...]
 
-    def __eq__(self, other):
+    def __bool__(self) -> bool:
+        """Truthy method."""
+
+        return bool(self.value)
+
+    def __eq__(self, other) -> bool:
         """Equal comparison method."""
 
         return self.value == other
