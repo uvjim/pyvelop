@@ -832,14 +832,7 @@ class MeshEntity:
                 props_state["connected"] = True
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE
-                    )
-                )
-            if not adapter_conn_state and wifi_info:
-                props_state["connected"] = True
-                audit_history.append(
-                    AttributeAuditEntry(
-                        EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE
+                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, props_state, type=AttributeAction.MERGE
                     )
                 )
             if not adapter_conn_state and node_network_conns:
