@@ -635,24 +635,38 @@ class MeshEntity:
 
         return resp
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_audit: bool = True) -> dict[str, Any]:
         """Return the instance as a dictionary."""
 
+        _adi: Any = None
+        if include_audit:
+            _adi = {"audit": [ae.to_dict() for ae in self.adapter_info.audit]}
+            _adi.update({"value": [adi.to_dict() for adi in self.adapter_info.value]})
+        else:
+            _adi = [adi.to_dict() for adi in self.adapter_info.value]
+
+        _parent: Any = None
+        if include_audit:
+            _parent = {"audit": [ae.to_dict() for ae in self.parent_name.audit]}
+            _parent.update({"value": repr(self.parent.value)})
+        else:
+            _parent = repr(self.parent.value)
+
         ret: dict[str, Any] = {
-            "adapter_info": [adi.to_dict() for adi in self.adapter_info.value],
-            "description": self.description.to_dict(),
-            "manufacturer": self.manufacturer.to_dict(),
-            "model": self.model.to_dict(),
-            "name": self.name.to_dict(),
-            "parent": {"audit": [ae.to_dict() for ae in self.parent_name.audit], "value": repr(self.parent.value)},
-            "parent_ip": self.parent_ip.to_dict(),
-            "parent_ipv6": self.parent_ipv6.to_dict(),
-            "parent_name": self.parent_name.to_dict(),
+            "adapter_info": _adi,
+            "description": self.description.to_dict(include_audit=include_audit),
+            "manufacturer": self.manufacturer.to_dict(include_audit=include_audit),
+            "model": self.model.to_dict(include_audit=include_audit),
+            "name": self.name.to_dict(include_audit=include_audit),
+            "parent": _parent,
+            "parent_ip": self.parent_ip.to_dict(include_audit=include_audit),
+            "parent_ipv6": self.parent_ipv6.to_dict(include_audit=include_audit),
+            "parent_name": self.parent_name.to_dict(include_audit=include_audit),
             "results_time": self.results_time,
-            "serial": self.serial.to_dict(),
-            "status": self.status.to_dict(),
-            "ui_type": self.ui_type.to_dict(),
-            "unique_id": self.unique_id.to_dict(),
+            "serial": self.serial.to_dict(include_audit=include_audit),
+            "status": self.status.to_dict(include_audit=include_audit),
+            "ui_type": self.ui_type.to_dict(include_audit=include_audit),
+            "unique_id": self.unique_id.to_dict(include_audit=include_audit),
         }
 
         return ret
@@ -1373,13 +1387,13 @@ class DeviceEntity(MeshEntity):
         await asyncio.gather(*requests)
 
     @override
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_audit: bool = True) -> dict[str, Any]:
 
-        ret = super().to_dict()
+        ret = super().to_dict(include_audit=include_audit)
         ret.update(
             {
-                "operating_system": self.operating_system.to_dict(),
-                "parental_control_schedule": self.parental_control_schedule.to_dict(),
+                "operating_system": self.operating_system.to_dict(include_audit=include_audit),
+                "parental_control_schedule": self.parental_control_schedule.to_dict(include_audit=include_audit),
             }
         )
 
@@ -1476,18 +1490,17 @@ class NodeEntity(MeshEntity):
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     @override
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_audit: bool = True) -> dict[str, Any]:
 
-        ret: dict[str, Any] = super().to_dict()
+        ret: dict[str, Any] = super().to_dict(include_audit=include_audit)
         ret.update(
             {
-                "adapter_info": [adi.to_dict() for adi in self.adapter_info.value],
-                "backhaul": self.backhaul.to_dict(),
+                "backhaul": self.backhaul.to_dict(include_audit=include_audit),
                 "connected_devices": [repr(dev) for dev in self.connected_devices],
-                "firmware": self.firmware.to_dict(),
-                "hardware_version": self.hardware_version.to_dict(),
-                "last_update_check": self.last_update_check.to_dict(),
-                "type": self.type.to_dict(),
+                "firmware": self.firmware.to_dict(include_audit=include_audit),
+                "hardware_version": self.hardware_version.to_dict(include_audit=include_audit),
+                "last_update_check": self.last_update_check.to_dict(include_audit=include_audit),
+                "type": self.type.to_dict(include_audit=include_audit),
             }
         )
 

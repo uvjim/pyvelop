@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import enum
+import inspect
 import logging
 from collections.abc import Iterable, Iterator, Mapping, Sized
 from dataclasses import dataclass, field
@@ -89,7 +90,7 @@ class MeshAttribute[PropType]:
 
         return f"{self.__class__.__name__}(value={self.value!r})"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_audit: bool = True) -> Any:
         """Convert the instance to a dictionary."""
 
         def to_jsonable(obj: PropType) -> Any:
@@ -106,7 +107,10 @@ class MeshAttribute[PropType]:
 
             # to_dict
             if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict", None)):
-                return to_jsonable(cast(Any, obj).to_dict())
+                meth = cast(Any, obj).to_dict
+                if "include_audit" in inspect.signature(meth).parameters:
+                    return meth(include_audit=include_audit)
+                return meth()
 
             # mappings
             if isinstance(obj, Mapping):
@@ -126,6 +130,10 @@ class MeshAttribute[PropType]:
             # last resort
             return repr(obj)
 
-        ret: dict[str, Any] = {"audit": [entry.to_dict() for entry in self.audit], "value": to_jsonable(self.value)}
+        if include_audit:
+            ret = {"value": to_jsonable(self.value)}
+            ret.update({"audit": [entry.to_dict() for entry in self.audit]})
+        else:
+            ret = to_jsonable(self.value)
 
         return ret
