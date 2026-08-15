@@ -258,7 +258,11 @@ async def device_details(
         for found_device in devices:
             try:
                 data: dict[str, Any] = {
-                    "Queried at": found_device.results_time,
+                    "Queried at": (
+                        dt.datetime.fromtimestamp(found_device.results_time).replace(tzinfo=dt.UTC)
+                        if found_device.results_time is not None
+                        else None
+                    ),
                     "Device ID": found_device.unique_id.value,
                     "Online": found_device.status.value,
                     "Parent": found_device.parent_name.value,
@@ -284,13 +288,13 @@ async def device_details(
                     _display(
                         outfile,
                         pd.DataFrame(
-                            found_device.parental_control_schedule.value.get("blocked_sites"),
+                            found_device.parental_control_schedule.get("blocked_sites"),
                             columns=["site"],
                         ),
                         title="Parental Control",
                     )
                 if num_blocked_sites == 0 and (
-                    schedule := found_device.parental_control_schedule.value.get("blocked_internet_access", {})
+                    schedule := found_device.parental_control_schedule.get("blocked_internet_access", {})
                 ):
                     _display(
                         outfile,
@@ -305,8 +309,7 @@ async def device_details(
                         index=True,
                     )
             except Exception as exc:
-                raise exc
-                # _write_error(exc)
+                _write_error(exc)
 
 
 @device_group.command(cls=StandardCommand, name="internet_access")
@@ -707,7 +710,7 @@ async def mesh_details(
                     title="Capabilities",
                 )
                 if Actions.GET_LED_NIGHT_MODE.key in mesh_obj.capabilities:
-                    data = {"Night mode": mesh_obj.night_mode.value}
+                    data = {"Night mode": str(mesh_obj.night_mode)}
                     _display(
                         outfile,
                         pd.DataFrame.from_dict(data, orient="index", columns=[""]),
@@ -718,9 +721,7 @@ async def mesh_details(
                     data = {
                         "Enabled": mesh_obj.scheduled_reboot_enabled.value,
                         "Interval": (
-                            mesh_obj.scheduled_reboot_interval.value
-                            if mesh_obj.scheduled_reboot_interval.value is not None
-                            else None
+                            str(mesh_obj.scheduled_reboot_interval) if mesh_obj.scheduled_reboot_interval else None
                         ),
                     }
                     _display(
@@ -756,7 +757,7 @@ async def mesh_details(
                         outfile,
                         pd.DataFrame(
                             mesh_obj.dhcp_reservations.value,
-                            index=pd.RangeIndex(start=1, stop=(len(mesh_obj.dhcp_reservations.value) + 1)),
+                            index=pd.RangeIndex(start=1, stop=(len(mesh_obj.dhcp_reservations) + 1)),
                         ),
                         index=True,
                         title="DHCP Reservations",
@@ -809,7 +810,7 @@ async def mesh_details(
                         "Mode": mesh_obj.mac_filtering_mode.value,
                         "Filters": (
                             mesh_obj.mac_filtering_addresses.value
-                            if len(mesh_obj.mac_filtering_addresses.value) > 0
+                            if len(mesh_obj.mac_filtering_addresses) > 0
                             else None
                         ),
                     }
@@ -879,7 +880,7 @@ async def mesh_details(
                         outfile,
                         pd.DataFrame(
                             mesh_obj.speedtest_results.value,
-                            index=pd.RangeIndex(start=1, stop=len(mesh_obj.speedtest_results.value) + 1),
+                            index=pd.RangeIndex(start=1, stop=len(mesh_obj.speedtest_results) + 1),
                         ),
                         index=True,
                         title="Speedtest Results",
@@ -1018,7 +1019,11 @@ async def node_details(
                     try:
                         _output(outfile, f"# Node: {node_name}\n")
                         data: dict[str, Any] = {
-                            "Queried at": found_node.results_time,
+                            "Queried at": (
+                                dt.datetime.fromtimestamp(found_node.results_time).replace(tzinfo=dt.UTC)
+                                if found_node.results_time
+                                else None
+                            ),
                             "Device ID": found_node.unique_id.value,
                             "Online": found_node.status.value,
                             "Node type": found_node.type.value.title(),
@@ -1046,13 +1051,11 @@ async def node_details(
                             outfile,
                             pd.DataFrame([found_node.firmware.value]),
                         )
-
-                        # click.echo(json.dumps([adi.as_dict() for adi in found_node.adapter_info.value]))
                         _display(
                             outfile,
                             pd.DataFrame(
                                 found_node.adapter_info.value,
-                                index=list(range(len(found_node.adapter_info.value))),
+                                index=list(range(len(found_node.adapter_info))),
                             ),
                             title="Connections",
                         )
