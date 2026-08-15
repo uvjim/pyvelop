@@ -1376,8 +1376,16 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
     attr_json: str = json.dumps(attr, default=_json_default)
     attr_json_display = json.loads(attr_json)
     _output(None, "## Value (JSON encoded)\n\n")
+    _display_val: Any
+    if isinstance(attr_json_display, (str, int, float, bool, type(None))):
+        _display_val = attr_json_display
+    else:
+        _display_val = (
+            cast(dict[str, Any], attr_json_display).get("value") if "value" in attr_json_display else attr_json_display
+        )
     _output(
-        None, f"{json.dumps(attr_json_display.get("value") if "value" in attr_json_display else attr_json_display)}\n"
+        None,
+        f"{json.dumps(_display_val)}\n",
     )
 
     if isinstance(attr, MeshAttribute):
