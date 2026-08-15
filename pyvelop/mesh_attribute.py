@@ -3,7 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
-from collections.abc import Sized
+from collections.abc import Iterable, Iterator, Sized
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
 from typing import Any
@@ -43,12 +43,12 @@ class MeshAttribute[PropType]:
     audit: tuple[AttributeAuditEntry, ...]
 
     def __bool__(self) -> bool:
-        """Truthy method."""
+        """Truthy method based on wrapped value."""
 
         return bool(self.value)
 
     def __eq__(self, other) -> bool:
-        """Equal comparison method."""
+        """Equal comparison method based on wrapped value."""
 
         return self.value == other
 
@@ -57,15 +57,22 @@ class MeshAttribute[PropType]:
 
         return getattr(self.value, name)
 
+    def __iter__(self) -> Iterator[Any]:
+        """Iterate over wrapped value."""
+
+        if isinstance(self.value, Iterable):
+            return iter(self.value)
+        raise TypeError(f"{type(self.value).__name__} does not support iteration")
+
     def __len__(self) -> int:
-        """Length method."""
+        """Length method based on wrapped value."""
 
         if isinstance(self.value, Sized):
             return len(self.value)
         raise TypeError(f"{type(self.value).__name__} does not support len()")
 
     def __str__(self) -> str:
-        """Return the string representation."""
+        """Return the string representation based on the wrapped value."""
 
         return str(self.value)
 
