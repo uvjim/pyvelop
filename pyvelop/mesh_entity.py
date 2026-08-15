@@ -1594,7 +1594,7 @@ class NodeEntity(MeshEntity):
             }
             audit_history.append(
                 AttributeAuditEntry(
-                    EntityDataProperties.DEVICE_DETAILS.value, props_available, type=AttributeAction.MERGE
+                    EntityDataProperties.FIRMWARE_DETAILS.value, props_available, type=AttributeAction.MERGE
                 )
             )
             ret.update(props_available)
