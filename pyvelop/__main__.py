@@ -807,7 +807,7 @@ async def mesh_details(
                 if Actions.GET_MAC_FILTERING_SETTINGS.key in mesh_obj.capabilities:
                     data = {
                         "Enabled": mesh_obj.mac_filtering_enabled.value,
-                        "Mode": mesh_obj.mac_filtering_mode.value,
+                        "Mode": str(mesh_obj.mac_filtering_mode),
                         "Filters": (
                             mesh_obj.mac_filtering_addresses.value
                             if len(mesh_obj.mac_filtering_addresses) > 0
