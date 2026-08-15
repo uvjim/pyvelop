@@ -49,6 +49,13 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
+class FirmwareUpdatePolicy(StrEnum):
+    """Possible values for the firmware update policy."""
+
+    AUTO = "AutomaticallyCheckAndInstall"
+    MANUAL = "Manual"
+
+
 class MacFilteringMode(StrEnum):
     """Possible values for the MAC filtering mode."""
 
@@ -1295,18 +1302,20 @@ class Mesh:
 
     @property
     @needs_initialise
-    def firmware_update_setting(self) -> MeshAttribute[str | None]:
+    def firmware_update_setting(self) -> MeshAttribute[FirmwareUpdatePolicy | None]:
         """Get the current setting for firmware updates.
 
-        :return: a lowercase string representing the update method
+        :return: Policy used for updating firmware on the Mesh.
         """
 
-        ret: str | None = None
-        attr: dict[str, Any] | None = self._mesh_attributes.get(api.Actions.GET_UPDATE_SETTINGS.key)
+        ret: FirmwareUpdatePolicy | None = None
+        attr: str | None = self._mesh_attributes.get(api.Actions.GET_UPDATE_SETTINGS.key, {}).get("updatePolicy")
         if attr is not None:
-            ret = attr.get("updatePolicy", "").lower()
+            ret = FirmwareUpdatePolicy(attr)
 
-        return MeshAttribute[str | None](ret, (AttributeAuditEntry(api.Actions.GET_UPDATE_SETTINGS.key, ret),))
+        return MeshAttribute[FirmwareUpdatePolicy | None](
+            ret, (AttributeAuditEntry(api.Actions.GET_UPDATE_SETTINGS.key, ret),)
+        )
 
     @property
     @needs_initialise
