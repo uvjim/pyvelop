@@ -49,6 +49,14 @@ _LOGGER = logging.getLogger(__name__)
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
+class MacFilteringMode(StrEnum):
+    """Possible values for the MAC filtering mode."""
+
+    ALLOW = "Allow"
+    DENY = "Deny"
+    DISABLED = "Disabled"
+
+
 class NightModeState(StrEnum):
     """Possible states for the night mode functionality."""
 
@@ -1440,21 +1448,22 @@ class Mesh:
 
     @property
     @needs_initialise
-    def mac_filtering_mode(self) -> MeshAttribute[str | None]:
+    def mac_filtering_mode(self) -> MeshAttribute[MacFilteringMode | None]:
         """Return the MAC filtering mode.
 
         :return: string containing the filtering mode
         """
 
-        ret: str | None = None
-        if self.mac_filtering_enabled:
-            ret = (
-                self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {})
-                .get("macFilterMode", "")
-                .lower()
-            )
+        ret: MacFilteringMode | None = None
+        _mode: str | None = self._mesh_attributes.get(api.Actions.GET_MAC_FILTERING_SETTINGS.key, {}).get(
+            "macFilterMode"
+        )
+        if _mode is not None:
+            ret = MacFilteringMode(_mode)
 
-        return MeshAttribute[str | None](ret, (AttributeAuditEntry(api.Actions.GET_MAC_FILTERING_SETTINGS.key, ret),))
+        return MeshAttribute[MacFilteringMode | None](
+            ret, (AttributeAuditEntry(api.Actions.GET_MAC_FILTERING_SETTINGS.key, ret),)
+        )
 
     @property
     @needs_initialise
