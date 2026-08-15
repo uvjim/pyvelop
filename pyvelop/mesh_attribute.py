@@ -3,14 +3,18 @@
 # region #-- imports --#
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Sized
-from dataclasses import asdict, dataclass, field
+import enum
+import logging
+from collections.abc import Iterable, Iterator, Mapping, Sized
+from dataclasses import dataclass, field
 from enum import StrEnum, auto
-from typing import Any
+from typing import Any, cast
 
 from .action_registry import ActionKey
 
 # endregion
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AttributeAction(StrEnum):
@@ -29,10 +33,14 @@ class AttributeAuditEntry[PropType]:
     value: PropType
     type: AttributeAction = field(default=AttributeAction.INIT, kw_only=True)
 
-    def as_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return a dictionary representation of the object."""
 
-        return asdict(self)
+        return {
+            "source": str(self.source),
+            "value": self.value,
+            "type": self.type.value,
+        }
 
 
 @dataclass(frozen=True)
@@ -80,3 +88,44 @@ class MeshAttribute[PropType]:
         """Return the repr string."""
 
         return f"{self.__class__.__name__}(value={self.value!r})"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the instance to a dictionary."""
+
+        def to_jsonable(obj: PropType) -> Any:
+            """Convert an arbitrary object to a structure json.dumps can handle."""
+
+            # basic JSON types
+            if obj is None or isinstance(obj, (str, int, float, bool)):
+                return obj
+
+            # enums
+            if isinstance(obj, enum.Enum):
+                val = obj.value
+                return val if isinstance(val, (str, int, float, bool, type(None))) else repr(obj)
+
+            # to_dict
+            if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict", None)):
+                return to_jsonable(cast(Any, obj).to_dict())
+
+            # mappings
+            if isinstance(obj, Mapping):
+                return {str(k): to_jsonable(v) for k, v in obj.items()}
+
+            # lists/tuples
+            if isinstance(obj, (list, tuple)):
+                return [to_jsonable(v) for v in obj]
+
+            # other iterables -> best-effort to list
+            if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes, bytearray)):
+                try:
+                    return [to_jsonable(v) for v in obj]
+                except TypeError:
+                    return repr(obj)
+
+            # last resort
+            return repr(obj)
+
+        ret: dict[str, Any] = {"audit": [entry.to_dict() for entry in self.audit], "value": to_jsonable(self.value)}
+
+        return ret

@@ -1062,7 +1062,7 @@ async def node_details(
                         if found_node.type.value == NodeType.SECONDARY:
                             data: dict[str, Any] = {
                                 "parent": f"{found_node.parent_name} ({found_node.parent_ip})",
-                                **cast(BackhaulInfo, found_node.backhaul.value).as_dict(),
+                                **cast(BackhaulInfo, found_node.backhaul.value).to_dict(),
                             }
                             _display(
                                 outfile,
@@ -1363,20 +1363,49 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
     """Display the given attribute details."""
 
     data: list[dict[str, Any]] = []
-    if isinstance(attr, MeshAttribute):
-        for audit_entry in attr.audit:
-            data.append(audit_entry.as_dict())
-    else:
-        data = [{"value": str(attr)}]
 
-    _output(None, f"# {attr_name}\n\n")
-    _display(
-        None,
-        pd.DataFrame(
-            data,
-        ),
-        index=True,
-    )
+    def _json_default(obj: Any):
+        """Handle known serialisation errors."""
+
+        if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
+            return obj.to_dict()
+
+        return repr(obj)
+
+    def _sanitise_for_display(d: dict[str, Any], prop: str) -> dict[str, Any]:
+        """Remove the given attribute from all dictionaries in the results."""
+
+        def walk(x: Any) -> Any:
+            """Wander through the given dictionary."""
+            if isinstance(x, dict):
+                return {k: walk(v) for k, v in x.items() if k != prop}
+            if isinstance(x, list):
+                return [walk(i) for i in x]
+            if isinstance(x, tuple):
+                return tuple(walk(i) for i in x)
+            return x
+
+        return walk(d)
+
+    _output(None, f"# `{attr_name}` Details\n\n")
+    attr_json: str = json.dumps(attr, default=_json_default)
+    attr_json_display = _sanitise_for_display(json.loads(attr_json), "audit")
+    _output(None, "## Value (JSON encoded)\n\n")
+    _output(None, f"{json.dumps(attr_json_display.get("value"))}\n")
+
+    if isinstance(attr, MeshAttribute):
+        data.clear()
+        for audit_entry in attr.audit:
+            data.append(audit_entry.to_dict())
+
+        _display(
+            None,
+            pd.DataFrame(
+                data,
+            ),
+            index=True,
+            title="Audit History",
+        )
 
 
 def _output(dest: str | None, contents: str) -> None:
