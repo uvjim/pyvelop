@@ -3,6 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
+from collections.abc import Sized
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
 from typing import Any
@@ -50,6 +51,18 @@ class MeshAttribute[PropType]:
         """Equal comparison method."""
 
         return self.value == other
+
+    def __getattr__(self, name: str):
+        """Missing attribute lookup."""
+
+        return getattr(self.value, name)
+
+    def __len__(self) -> int:
+        """Length method."""
+
+        if isinstance(self.value, Sized):
+            return len(self.value)
+        raise TypeError(f"{type(self.value).__name__} does not support len()")
 
     def __str__(self) -> str:
         """Return the string representation."""
