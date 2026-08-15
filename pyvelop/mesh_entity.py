@@ -10,9 +10,9 @@ import datetime as dt
 import logging
 from collections import namedtuple
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum, auto
-from typing import TYPE_CHECKING, Any, cast, final
+from typing import TYPE_CHECKING, Any, cast, final, override
 
 from . import jnap as api
 from .action_registry import ActionKey, Actions, ActionScope
@@ -243,10 +243,24 @@ class AdapterInfo:
     signal_strength: SignalStrength | None = None
     type: ConnectionType = ConnectionType.UNKNOWN
 
-    def as_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the instance as a dictionary."""
 
-        return asdict(self)
+        return {
+            "band": self.band,
+            "connected": self.connected,
+            "guest_network": self.guest_network,
+            "ip": self.ip,
+            "ipv6": self.ipv6,
+            "mac": self.mac,
+            "negotiated_mbps": self.negotiated_mbps,
+            "parent_id": self.parent_id,
+            "reservation": self.reservation,
+            "reservation_description": self.reservation_description,
+            "rssi_dbm": self.rssi_dbm,
+            "signal_strength": self.signal_strength.value if self.signal_strength is not None else None,
+            "type": self.type.value,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,6 +268,18 @@ class NodeAdapterInfo(AdapterInfo):
     """Representation of adapter information for a node."""
 
     primary: bool = False
+
+    @override
+    def to_dict(self) -> dict[str, Any]:
+
+        ret = super().to_dict()
+        ret.update(
+            {
+                "primary": self.primary,
+            }
+        )
+
+        return ret
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,10 +292,16 @@ class BackhaulInfo:
     rssi_dbm: int | None
     signal_strength: SignalStrength | None
 
-    def as_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the instance as a dictionary."""
 
-        return asdict(self)
+        return {
+            "connection": self.connection.value if self.connection else None,
+            "last_checked": "",
+            "speed_mbps": self.speed_mbps,
+            "rssi_dbm": self.rssi_dbm,
+            "signal_strength": self.signal_strength.value if self.signal_strength is not None else None,
+        }
 
 
 class ParentalControl:
@@ -603,6 +635,28 @@ class MeshEntity:
 
         return resp
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the instance as a dictionary."""
+
+        ret: dict[str, Any] = {
+            "adapter_info": [adi.to_dict() for adi in self.adapter_info.value],
+            "description": self.description.to_dict(),
+            "manufacturer": self.manufacturer.to_dict(),
+            "model": self.model.to_dict(),
+            "name": self.name.to_dict(),
+            "parent": {"audit": [ae.to_dict() for ae in self.parent_name.audit], "value": repr(self.parent.value)},
+            "parent_ip": self.parent_ip.to_dict(),
+            "parent_ipv6": self.parent_ipv6.to_dict(),
+            "parent_name": self.parent_name.to_dict(),
+            "results_time": self.results_time,
+            "serial": self.serial.to_dict(),
+            "status": self.status.to_dict(),
+            "ui_type": self.ui_type.to_dict(),
+            "unique_id": self.unique_id.to_dict(),
+        }
+
+        return ret
+
     @property
     def adapter_info(self) -> MeshAttribute[list[AdapterInfo]]:
         """Retrieve details about the entity's adapters.
@@ -678,7 +732,7 @@ class MeshEntity:
                 props_wifi = {
                     "negotiated_mbps": wifi_info.get("negotiatedMbps"),
                     "rssi_dbm": wifi_info.get("wireless", {}).get("signalDecibels"),
-                    "signal_strength": (signal_strength.value.lower() if signal_strength is not None else None),
+                    "signal_strength": signal_strength,
                 }
                 audit_history.append(
                     AttributeAuditEntry(
@@ -1313,6 +1367,19 @@ class DeviceEntity(MeshEntity):
 
         await asyncio.gather(*requests)
 
+    @override
+    def to_dict(self) -> dict[str, Any]:
+
+        ret = super().to_dict()
+        ret.update(
+            {
+                "operating_system": self.operating_system.to_dict(),
+                "parental_control_schedule": self.parental_control_schedule.to_dict(),
+            }
+        )
+
+        return ret
+
     @property
     def operating_system(self) -> MeshAttribute[str | None]:
         """Get the OS.
@@ -1403,6 +1470,24 @@ class NodeEntity(MeshEntity):
 
         _LOGGER.debug(self._log_formatter.format("exited"))
 
+    @override
+    def to_dict(self) -> dict[str, Any]:
+
+        ret: dict[str, Any] = super().to_dict()
+        ret.update(
+            {
+                "adapter_info": [adi.to_dict() for adi in self.adapter_info.value],
+                "backhaul": self.backhaul.to_dict(),
+                "connected_devices": [repr(dev) for dev in self.connected_devices],
+                "firmware": self.firmware.to_dict(),
+                "hardware_version": self.hardware_version.to_dict(),
+                "last_update_check": self.last_update_check.to_dict(),
+                "type": self.type.to_dict(),
+            }
+        )
+
+        return ret
+
     @property
     def adapter_info(self) -> MeshAttribute[list[NodeAdapterInfo]]:
         """Retrieve details about the entity's adapters.
@@ -1417,7 +1502,7 @@ class NodeEntity(MeshEntity):
         ret: list[NodeAdapterInfo] = []
         backhaul: dict[str, Any] = self._data.get(EntityDataProperties.BACKHAUL, {})
         for adapter in super_adapters.value:
-            props: dict[str, Any] = asdict(adapter)
+            props: dict[str, Any] = adapter.to_dict()
             props_primary: dict[str, bool] = {"primary": False}
             if adapter.ip == backhaul.get("ipAddress"):
                 props_primary["primary"] = True
@@ -1432,7 +1517,7 @@ class NodeEntity(MeshEntity):
                     )
                 )
             props.update(props_primary)
-
+            props["type"] = ConnectionType(props["type"])
             ret.append(NodeAdapterInfo(**props))
 
         return MeshAttribute[list[NodeAdapterInfo]](ret, tuple(audit_history))
