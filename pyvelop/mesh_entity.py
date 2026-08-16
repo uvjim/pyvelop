@@ -1650,7 +1650,18 @@ class NodeEntity(MeshEntity):
                     EntityDataProperties.FIRMWARE_DETAILS.value, props_available, type=AttributeAction.MERGE
                 )
             )
-            ret.update(props_available)
+        else:
+            props_available: dict[str, Any] = {
+                "latest_version": props_device.get("firmwareVersion"),
+                "latest_date": props_device.get("firmwareDate"),
+            }
+            audit_history.append(
+                AttributeAuditEntry(
+                    EntityDataProperties.DEVICE_DETAILS.value, props_available, type=AttributeAction.MERGE
+                )
+            )
+        ret.update(props_available)
+
         return MeshAttribute[dict[str, Any]](ret, tuple(audit_history))
 
     @property
