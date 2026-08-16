@@ -1680,15 +1680,20 @@ class NodeEntity(MeshEntity):
         return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
 
     @property
-    def last_update_check(self) -> MeshAttribute[str | None]:
+    def last_update_check(self) -> MeshAttribute[dt.datetime | None]:
         """Get the last time an update was checked for.
 
         :return: String containing the last update time as per the API
         """
 
-        ret: str | None = self._data.get(EntityDataProperties.FIRMWARE_DETAILS, {}).get("lastSuccessfulCheckTime")
+        ret: dt.datetime | None = None
+        _attr: str | None = self._data.get(EntityDataProperties.FIRMWARE_DETAILS, {}).get("lastSuccessfulCheckTime")
+        if _attr is not None:
+            ret = dt.datetime.fromisoformat(_attr)
 
-        return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.FIRMWARE_DETAILS.value, ret),))
+        return MeshAttribute[dt.datetime | None](
+            ret, (AttributeAuditEntry(EntityDataProperties.FIRMWARE_DETAILS.value, _attr),)
+        )
 
     @property
     def type(self) -> MeshAttribute[NodeType]:

@@ -3,6 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
+import datetime as dt
 import enum
 import inspect
 import logging
@@ -99,6 +100,10 @@ class MeshAttribute[PropType]:
             # basic JSON types
             if obj is None or isinstance(obj, (str, int, float, bool)):
                 return obj
+
+            # datetime
+            if isinstance(obj, dt.datetime):
+                return obj.isoformat()
 
             # enums
             if isinstance(obj, enum.Enum):
