@@ -292,7 +292,7 @@ class BackhaulInfo:
     rssi_dbm: int | None
     signal_strength: SignalStrength | None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, **kwargs) -> dict[str, Any]:
         """Return the instance as a dictionary."""
 
         return {
