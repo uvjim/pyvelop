@@ -91,7 +91,7 @@ class MeshAttribute[PropType]:
 
         return f"{self.__class__.__name__}(value={self.value!r})"
 
-    def to_dict(self, *, include_audit: bool = True) -> Any:
+    def to_dict(self, *, include_audit: bool = False) -> Any:
         """Convert the instance to a dictionary."""
 
         def to_jsonable(obj: PropType) -> Any:
