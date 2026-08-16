@@ -1639,9 +1639,11 @@ class NodeEntity(MeshEntity):
                 )
             )
             ret.update(props_device)
+
+        props_available: dict[str, Any] = {}
         available_updates = self._data.get(EntityDataProperties.FIRMWARE_DETAILS, {}).get("availableUpdate")
         if available_updates is not None:
-            props_available: dict[str, Any] = {
+            props_available = {
                 "latest_version": available_updates.get("firmwareVersion"),
                 "latest_date": available_updates.get("firmwareDate"),
             }
@@ -1651,9 +1653,9 @@ class NodeEntity(MeshEntity):
                 )
             )
         else:
-            props_available: dict[str, Any] = {
-                "latest_version": props_device.get("firmwareVersion"),
-                "latest_date": props_device.get("firmwareDate"),
+            props_available = {
+                "latest_version": props_device.get("version"),
+                "latest_date": props_device.get("date"),
             }
             audit_history.append(
                 AttributeAuditEntry(
