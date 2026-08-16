@@ -635,7 +635,7 @@ class MeshEntity:
 
         return resp
 
-    def to_dict(self, *, include_audit: bool = True) -> dict[str, Any]:
+    def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
         """Return the instance as a dictionary."""
 
         _adi: Any = None
@@ -1422,7 +1422,7 @@ class DeviceEntity(MeshEntity):
         await asyncio.gather(*requests)
 
     @override
-    def to_dict(self, *, include_audit: bool = True) -> dict[str, Any]:
+    def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
 
         ret = super().to_dict(include_audit=include_audit)
         ret.update(
@@ -1525,7 +1525,7 @@ class NodeEntity(MeshEntity):
         _LOGGER.debug(self._log_formatter.format("exited"))
 
     @override
-    def to_dict(self, *, include_audit: bool = True) -> dict[str, Any]:
+    def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
 
         ret: dict[str, Any] = super().to_dict(include_audit=include_audit)
         ret.update(
