@@ -822,27 +822,37 @@ class MeshEntity:
 
             # region #-- infer the adapter connected state if we can --#
             adapter_conn_state: bool = bool(connection_info)
-            props_state: dict[str, bool] = {
+            props_adapter_conn_state: dict[str, bool] = {
                 "connected": adapter_conn_state,
             }
             audit_history.append(
-                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_state, type=AttributeAction.MERGE)
+                AttributeAuditEntry(
+                    EntityDataProperties.DEVICE_DETAILS.value, props_adapter_conn_state, type=AttributeAction.MERGE
+                )
             )
+            props.update(props_adapter_conn_state)
             if not adapter_conn_state and wifi_info:
-                props_state["connected"] = True
+                props_wifi_state: dict[str, bool] = {
+                    "connected": True,
+                }
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, props_state, type=AttributeAction.MERGE
+                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
+                        props_wifi_state,
+                        type=AttributeAction.MERGE,
                     )
                 )
+                props.update(props_wifi_state)
             if not adapter_conn_state and node_network_conns:
-                props_state["connected"] = True
+                props_nnc_state: dict[str, bool] = {
+                    "connected": True,
+                }
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_state, type=AttributeAction.MERGE
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_nnc_state, type=AttributeAction.MERGE
                     )
                 )
-            props.update(props_state)
+                props.update(props_nnc_state)
             # endregion
 
             # region #-- parent details --#
