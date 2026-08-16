@@ -94,7 +94,7 @@ class MeshAttribute[PropType]:
     def to_dict(self, *, include_audit: bool = False) -> Any:
         """Convert the instance to a dictionary."""
 
-        def to_jsonable(obj: PropType) -> Any:
+        def to_jsonable(obj: Any) -> Any:
             """Convert an arbitrary object to a structure json.dumps can handle."""
 
             # basic JSON types
@@ -137,7 +137,7 @@ class MeshAttribute[PropType]:
 
         if include_audit:
             ret = {"value": to_jsonable(self.value)}
-            ret.update({"audit": [entry.to_dict() for entry in self.audit]})
+            ret.update({"audit": [to_jsonable(entry.to_dict()) for entry in self.audit]})
         else:
             ret = to_jsonable(self.value)
 
