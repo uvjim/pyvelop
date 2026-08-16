@@ -297,7 +297,7 @@ class BackhaulInfo:
 
         return {
             "connection": self.connection.value if self.connection else None,
-            "last_checked": "",
+            "last_checked": self.last_checked.isoformat() if self.last_checked is not None else None,
             "speed_mbps": self.speed_mbps,
             "rssi_dbm": self.rssi_dbm,
             "signal_strength": self.signal_strength.value if self.signal_strength is not None else None,
