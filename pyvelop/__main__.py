@@ -1319,6 +1319,8 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             msg = f"{ctx.params.get('primary_node')} is not the primary node"
         except MeshTimeoutError:
             msg = f"Timed out connecting to {ctx.params.get('primary_node')}"
+        except MeshException as exc:
+            msg = str(exc)
         else:
             return mesh_object
 
@@ -1368,7 +1370,7 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
         """Handle known serialisation errors."""
 
         if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
-            return obj.to_dict(include_audit=False)
+            return obj.to_dict(include_audit=True)
 
         return repr(obj)
 
@@ -1391,7 +1393,7 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
     if isinstance(attr, MeshAttribute):
         data.clear()
         for audit_entry in attr.audit:
-            data.append(audit_entry.to_dict())
+            data.append(json.loads(json.dumps(audit_entry.to_dict(), default=_json_default)))
 
         _display(
             None,

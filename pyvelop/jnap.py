@@ -14,7 +14,6 @@ import aiohttp
 from .action_registry import ActionDefinition, Actions
 from .exceptions import (
     MeshAlreadyInProgress,
-    MeshBadResponse,
     MeshCannotDeleteDevice,
     MeshConnectionError,
     MeshDeviceDbFailure,
@@ -207,17 +206,19 @@ class Response:
         if self._data is None:
             return
 
-        if self._data.get(self.RESULT_KEY) != "OK" and self._raise_on_error:
+        err: MeshException | None = None
+
+        if self._data.get(self.RESULT_KEY) != "OK":  # seemingly there is an error
+            # build a list of the responses - transactions will already be a list
             responses = (
-                self._data.get(self.DATA_KEY_TRANSACTION, {})
+                self._data.get(self.DATA_KEY_TRANSACTION, [])
                 if self.action == Actions.TRANSACTION.action
                 else [self._data]
             )
-            if responses is None:
-                raise MeshException("error processing response")
 
-            err: MeshException | None = None
-            for resp in responses:
+            # establish errors and work through them
+            err_responses = [resp for resp in responses if resp.get(self.RESULT_KEY) != "OK"]
+            for resp in err_responses:  # loop through the responses
                 err = None
                 if resp is None:
                     err = MeshInvalidOutput(resp)
@@ -250,20 +251,17 @@ class Response:
                     err = MeshInvalidInput("Unknown Device")
                 elif resp.get(self.RESULT_KEY, "").startswith("_"):
                     err = MeshInvalidInput(f"{resp.get(self.RESULT_KEY)}: '{self.action}'")
-                else:
-                    # _LOGGER.debug(resp.get(self.RESULT_KEY))
-                    err = MeshException(f"{self.action}: {resp}")
+                else:  # don't know the error, log and raise exception
+                    _LOGGER.error(
+                        self._log_formatter.format("unknown error received: %s"),
+                        self._data,
+                    )
+                    err = MeshException(json.dumps(resp.get(self.RESULT_KEY)))
 
-                if err:
+                if err:  # break out of the for loop if we have an error
                     break
 
-            if err is None:
-                _LOGGER.error(
-                    self._log_formatter.format("unknown error received: %s"),
-                    self._data,
-                )
-                err = MeshBadResponse()
-
+        if err and self._raise_on_error:
             raise err
 
     # region #-- properties --#
