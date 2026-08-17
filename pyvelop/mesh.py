@@ -959,10 +959,12 @@ class Mesh:
         await self.async_gather_details()
 
     async def async_ping(self) -> str | None:
-        """Test to see if the mesh is reachable."""
+        """Test to see if the mesh is reachable.
+
+        :return: `pong` if the mesh was reachable, `None` otherwise.
+        """
 
         ret: str | None = None
-        _LOGGER.debug("checking for connection, %s", self._mesh_details.host)
         with contextlib.suppress(TimeoutError, asyncio.TimeoutError):
             resp = await self._mesh_details.session.head(
                 api.jnap_url(self._mesh_details.host),
