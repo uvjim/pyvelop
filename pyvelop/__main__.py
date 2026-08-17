@@ -936,6 +936,25 @@ async def mesh_details(
                 _write_error(exc)
 
 
+@mesh_group.command(cls=StandardCommand, name="ping")
+@click.pass_context
+async def mesh_ping(
+    ctx: click.Context,
+    /,
+    **_: Any,
+):
+    """Test connecting to the mesh.
+
+    You get the option to try again allowing you to disconnect if needed.
+    """
+
+    if mesh_obj := await _async_mesh_connect(ctx):
+        async with mesh_obj:
+            click.echo(await mesh_obj.async_ping())
+            if click.confirm(text="Do you want to try again?"):
+                click.echo(await mesh_obj.async_ping())
+
+
 @mesh_group.command(cls=StandardCommand, name="scheduled_reboot")
 @click.option("--interval")
 @click.pass_context
