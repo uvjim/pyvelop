@@ -1364,41 +1364,35 @@ def _display(
 def _display_attribute(attr_name: str, attr: Any) -> None:
     """Display the given attribute details."""
 
-    data: list[dict[str, Any]] = []
+    def _sanitise_display(obj: Any) -> Any:
+        """Remove "audit" and promote "value" recursively."""
 
-    def _json_default(obj: Any):
-        """Handle known serialisation errors."""
+        if isinstance(obj, dict):
+            sanitised = {k: _sanitise_display(v) for k, v in obj.items() if k != "audit"}
+            return sanitised.get("value", sanitised)
 
-        if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
-            return obj.to_dict(include_audit=True)
+        if isinstance(obj, list):
+            return [_sanitise_display(v) for v in obj]
 
-        return repr(obj)
+        return obj
 
     _output(None, f"# `{attr_name}` Details\n\n")
-    attr_json: str = json.dumps(attr, default=_json_default)
-    attr_json_display = json.loads(attr_json)
-    _output(None, "## Value (JSON encoded)\n\n")
-    _display_val: Any
-    if isinstance(attr_json_display, (str, int, float, bool, type(None))):
-        _display_val = attr_json_display
-    else:
-        _display_val = (
-            cast(dict[str, Any], attr_json_display).get("value") if "value" in attr_json_display else attr_json_display
-        )
-    _output(
-        None,
-        f"{json.dumps(_display_val)}\n",
+    _attr_json: str = json.dumps(attr.to_dict(include_audit=True) if isinstance(attr, MeshAttribute) else attr)
+    _attr_json_display = json.loads(_attr_json)
+
+    _display_val = (
+        _attr_json_display.get("value")
+        if isinstance(_attr_json_display, dict) and "value" in _attr_json_display
+        else _attr_json_display
     )
+    _output(None, "## Value (JSON encoded)\n\n")
+    _output(None, f"{json.dumps(_sanitise_display(_display_val))}\n")
 
     if isinstance(attr, MeshAttribute):
-        data.clear()
-        for audit_entry in attr.audit:
-            data.append(json.loads(json.dumps(audit_entry.to_dict(), default=_json_default)))
-
         _display(
             None,
             pd.DataFrame(
-                data,
+                [{**ae, **{"value": json.dumps(ae.get("value"))}} for ae in _attr_json_display.get("audit", [])],
             ),
             index=True,
             title="Audit History",
