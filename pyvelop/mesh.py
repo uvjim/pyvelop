@@ -376,8 +376,8 @@ class Mesh:
             """
             try:
                 api_response: api.Response = api.Response(action=action, data=data)
-            except MeshException as err:
-                _LOGGER.debug("%s", err)
+            except MeshException as exc:
+                _LOGGER.debug("%s", exc)
             else:
                 _action: api.ActionDefinition | None = next(
                     (a for a in api.Actions.values() if a.action == action), None
@@ -438,15 +438,22 @@ class Mesh:
                 if na.key not in ret:
                     ret[na.key] = []
                 if na.key == api.Actions.GET_NETWORK_CONNECTIONS.key:
-                    ret[na.key].extend(
-                        [
-                            {**conn, "parent_id": n.get("id")}
-                            for conn in cast(
-                                api.JnapResponse,
-                                api.Response(na.action, cast(list[api.JnapResponse], nr.data)[idx_na]).data,
-                            ).get("connections", [])
-                        ]
-                    )
+                    try:
+                        api_response: api.Response = api.Response(
+                            na.action, cast(list[api.JnapResponse], nr.data)[idx_na]
+                        )
+                    except MeshException as exc:
+                        _LOGGER.debug("%s", exc)
+                    else:
+                        ret[na.key].extend(
+                            [
+                                {**conn, "parent_id": n.get("id")}
+                                for conn in cast(
+                                    api.JnapResponse,
+                                    api_response.data,
+                                ).get("connections", [])
+                            ]
+                        )
         # endregion
 
         if track_time:
