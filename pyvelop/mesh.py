@@ -958,6 +958,22 @@ class Mesh:
         self._initialise_executed = True  # flag here so that async_gather_details will run
         await self.async_gather_details()
 
+    async def async_ping(self) -> str | None:
+        """Test to see if the mesh is reachable."""
+
+        ret: str | None = None
+        _LOGGER.debug("checking for connection, %s", self._mesh_details.host)
+        with contextlib.suppress(TimeoutError, asyncio.TimeoutError):
+            resp = await self._mesh_details.session.head(
+                api.jnap_url(self._mesh_details.host),
+                raise_for_status=False,
+                timeout=2,  # pyright:ignore[reportArgumentType] if float is passed it's classed as total
+            )
+            if resp.status == 404:  # the mesh will respond with an invalid URL as it hasn't been formatted properly
+                ret = "pong"
+
+        return ret
+
     async def async_reboot_mesh(self) -> None:
         """Reboot the mesh."""
 
