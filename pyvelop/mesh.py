@@ -28,6 +28,7 @@ from .exceptions import (
     MeshException,
     MeshInvalidArguments,
     MeshInvalidCredentials,
+    MeshInvalidCredentialsUnlikely,
     MeshInvalidInput,
     MeshNeedsInitialise,
 )
@@ -320,7 +321,7 @@ class Mesh:
         if not self.__passed_session and self._mesh_details.session.closed:  # session closed so recreate it
             self._mesh_details.session = self.__create_session()
 
-        req = api.Request(
+        req: api.Request = api.Request(
             action=action,
             password=self._mesh_details.password,
             payload=payload,
@@ -332,9 +333,59 @@ class Mesh:
             supplementary_redactions=self._supplementary_redactions,
         )
         try:
-            req_resp = await req.execute(timeout=self._mesh_details.request_timeout)
-        except Exception as err:
-            raise err from None
+            req_resp: api.Response = await req.execute(timeout=self._mesh_details.request_timeout)
+        except MeshInvalidCredentialsUnlikely as exc:
+            _LOGGER.debug("!!!")
+            _LOGGER.debug("!!! %s !!!", exc)
+            _LOGGER.debug("!!!")
+            # only seen this exception happen with a transaction but check to make sure
+            if req.action == api.Actions.TRANSACTION.action:
+                # region #-- split the transacion and retry --#
+                # When this exception is seen we need to do the following: -
+                # - test whether the credentials are valid or not
+                # - if they're not raise the MeshInvalidCredentials exception
+                # - if they're valid still then (because resending the transaction doesn't solve it): -
+                #   - split the transaction up into individual requests
+                #   - send all requests and wair for responses
+                #   - reconstruct the response as a transaction request (the caller is likely expecting that type of response)
+                _LOGGER.debug("testing creds because they may have been invalid")
+                valid_creds: bool = await self.async_test_credentials()
+                if valid_creds:
+                    _LOGGER.debug("tested creds and they are valid, retrying as separate requests")
+                    if req.payload is not None:
+                        req_ind = [
+                            api.Request(
+                                action=cast(dict[str, Any], pi).get("action", ""),
+                                password=self._mesh_details.password,
+                                payload=cast(dict[str, Any], pi).get("request", {}),
+                                raise_on_error=raise_on_error,
+                                session=self._mesh_details.session,
+                                target=node_address or self._mesh_details.host,
+                                username=self._mesh_details.user,
+                                redact=self._disable_redaction is False,
+                                supplementary_redactions=self._supplementary_redactions,
+                            ).execute()
+                            for pi in req.payload
+                        ]
+                        req_ind_resp = await asyncio.gather(*req_ind)
+                        _LOGGER.debug("rebuilding output")
+                        req_resp = api.Response(
+                            action=api.Actions.TRANSACTION.action,
+                            data={
+                                api.Response.RESULT_KEY: "OK",
+                                api.Response.DATA_KEY_TRANSACTION: [
+                                    {api.Response.RESULT_KEY: "OK", api.Response.DATA_KEY_SINGLE: r.data}
+                                    for r in req_ind_resp
+                                ],
+                            },
+                        )
+                        _LOGGER.debug("rebuilt output")
+                # endregion
+                else:
+                    _LOGGER.debug("tested creds and they are invalid")
+                    raise MeshInvalidCredentials()
+        except Exception as exc:
+            raise exc from None
 
         return (req, req_resp)
 

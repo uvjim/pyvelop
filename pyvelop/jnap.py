@@ -259,6 +259,9 @@ class Response:
                     )
                     err = MeshException(json.dumps(resp.get(self.RESULT_KEY)))
 
+                # occasionaly see an error stating that credentials are invalid even though
+                # an action in the transaction has already been processed, so they can't be invalid
+                # we'll raise a different exception to cover that so the caller can respond accordingly.
                 if isinstance(err, MeshInvalidCredentials) and len(err_responses) != len(responses):
                     err = MeshInvalidCredentialsUnlikely()
 
