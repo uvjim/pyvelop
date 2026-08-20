@@ -19,6 +19,7 @@ from .exceptions import (
     MeshDeviceDbFailure,
     MeshException,
     MeshInvalidCredentials,
+    MeshInvalidCredentialsUnlikely,
     MeshInvalidInput,
     MeshInvalidOutput,
     MeshNodeNotPrimary,
@@ -257,6 +258,9 @@ class Response:
                         self._data,
                     )
                     err = MeshException(json.dumps(resp.get(self.RESULT_KEY)))
+
+                if isinstance(err, MeshInvalidCredentials) and len(err_responses) != len(responses):
+                    err = MeshInvalidCredentialsUnlikely()
 
                 if err:  # break out of the for loop if we have an error
                     break
