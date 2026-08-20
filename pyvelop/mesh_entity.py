@@ -763,29 +763,38 @@ class MeshEntity:
 
             # region #-- derive the adapter connection type --#
             adapter_conn_type: ConnectionType = ConnectionType(adapter.get("interfaceType", "Unknown"))
-            props_type: dict[str, Any] = {
+            props_device_type: dict[str, ConnectionType] = {
                 "type": adapter_conn_type,
             }
             audit_history.append(
                 AttributeAuditEntry(
                     EntityDataProperties.DEVICE_DETAILS.value,
-                    props_type,
+                    props_device_type,
                     type=AttributeAction.MERGE,
                 )
             )
+            props_type = props_device_type
 
-            if adapter_conn_type == ConnectionType.UNKNOWN and props_wifi:
-                props_type = {
+            props_wifi_type: dict[str, ConnectionType] = {}
+            # weird state where the device is listed as wired but has wifi info so change to wireless
+            if adapter_conn_type == ConnectionType.WIRED and props_wifi:
+                props_wifi_type = {"type": ConnectionType.WIRELESS}
+            # unknown but we have wifi info so assume wireless
+            elif adapter_conn_type == ConnectionType.UNKNOWN and props_wifi:
+                props_wifi_type = {
                     "type": ConnectionType.WIRELESS,
                 }
+            if props_wifi_type:
                 audit_history.append(
                     AttributeAuditEntry(
                         EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                        props_type,
+                        props_wifi_type,
                         type=AttributeAction.MERGE,
                     )
                 )
+                props_type = props_wifi_type
 
+            # unknown still so let's derive from GetNetworkConnections2
             if adapter_conn_type == ConnectionType.UNKNOWN:
                 if node_network_conns is not None:
                     props_type = {
@@ -806,6 +815,7 @@ class MeshEntity:
             # endregion
 
             # region #-- establish a valid node connection record --#
+            # this relies on the "type" being established so needs to come after that.
             nnc: dict[str, Any] | None = next(
                 (
                     n
