@@ -513,15 +513,12 @@ class Mesh:
                     # endregion
 
                     # region #-- retrieve details from the node network connections --#
-                    node_connection: dict[str, Any] | None = next(
-                        (
-                            conn
-                            for conn in ret.get(api.Actions.GET_NETWORK_CONNECTIONS.key, [])
-                            if conn.get("macAddress") == dev_mac
-                        ),
-                        None,
-                    )
-                    entity_data[EntityDataProperties.NODE_NETWORK_CONNECTIONS] = node_connection
+                    nnc: list[dict[str, Any]] = [
+                        conn
+                        for conn in ret.get(api.Actions.GET_NETWORK_CONNECTIONS.key, [])
+                        if conn.get("macAddress") == dev_mac
+                    ]
+                    entity_data[EntityDataProperties.NODE_NETWORK_CONNECTIONS] = nnc
                     # endregion
                 # endregion
                 # endregion
@@ -623,18 +620,20 @@ class Mesh:
 
                 if not parent_node:
                     # region #-- still no parent so let's look in the node network connections --#
-                    nc: dict[str, Any] | None = node_or_device.raw_details.get(
-                        EntityDataProperties.NODE_NETWORK_CONNECTIONS
+                    nnc: list[dict[str, Any]] = cast(
+                        list[dict[str, Any]],
+                        node_or_device.raw_details.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, []),
                     )
-                    if nc is not None:
-                        parent_node = nc.get("parent_id")
-                        audit_history.append(
-                            AttributeAuditEntry(
-                                EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                                parent_node,
-                                type=AttributeAction.REPLACE,
+                    for n in nnc:
+                        parent_node = n.get("parent_id")
+                        if parent_node is not None:
+                            audit_history.append(
+                                AttributeAuditEntry(
+                                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                                    parent_node,
+                                    type=AttributeAction.REPLACE,
+                                )
                             )
-                        )
                     # endregion
 
             if parent_node and not isinstance(parent_node, NodeEntity):  # we have the ID so let's get the NodeEntity
