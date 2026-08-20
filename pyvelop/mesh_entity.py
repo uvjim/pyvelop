@@ -781,9 +781,7 @@ class MeshEntity:
                 props_wifi_type = {"type": ConnectionType.WIRELESS}
             # unknown but we have wifi info so assume wireless
             elif adapter_conn_type == ConnectionType.UNKNOWN and props_wifi:
-                props_wifi_type = {
-                    "type": ConnectionType.WIRELESS,
-                }
+                props_wifi_type = {"type": ConnectionType.WIRELESS}
             if props_wifi_type:
                 audit_history.append(
                     AttributeAuditEntry(
@@ -795,22 +793,21 @@ class MeshEntity:
                 props_type = props_wifi_type
 
             # unknown still so let's derive from GetNetworkConnections2
-            if adapter_conn_type == ConnectionType.UNKNOWN:
-                if node_network_conns is not None:
-                    props_type = {
-                        "type": (
-                            ConnectionType.WIRELESS
-                            if any(nnc.get("wireless") for nnc in node_network_conns)
-                            else ConnectionType.WIRED
-                        )
-                    }
-                    audit_history.append(
-                        AttributeAuditEntry(
-                            EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                            props_type,
-                            type=AttributeAction.MERGE,
-                        )
+            if node_network_conns is not None:
+                props_type = {
+                    "type": (
+                        ConnectionType.WIRELESS
+                        if any(nnc.get("wireless", {}).get("signalDecibels") for nnc in node_network_conns)
+                        else ConnectionType.WIRED
                     )
+                }
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                        props_type,
+                        type=AttributeAction.MERGE,
+                    )
+                )
             props.update(props_type)
             # endregion
 
@@ -871,7 +868,7 @@ class MeshEntity:
                 props.update(props_wifi_state)
             if not adapter_conn_state and nnc:
                 if props.get("type") == ConnectionType.WIRED or (
-                    props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless")
+                    props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless", {}).get("signalDecibels")
                 ):
                     props_nnc_state: dict[str, bool] = {
                         "connected": True,
@@ -894,12 +891,13 @@ class MeshEntity:
                 props_parent: dict[str, Any] = {}
                 if parent is not None and parent.value is not None:
                     props_parent = {"parent_id": parent.value.unique_id.value}
-                audit_history.append(
-                    AttributeAuditEntry(
-                        EntityDataProperties.DEVICE_DETAILS.value, props_parent, type=AttributeAction.MERGE
+                if props_parent:
+                    audit_history.append(
+                        AttributeAuditEntry(
+                            EntityDataProperties.DEVICE_DETAILS.value, props_parent, type=AttributeAction.MERGE
+                        )
                     )
-                )
-                props.update(props_parent)
+                    props.update(props_parent)
             # endregion
 
             ret.append(AdapterInfo(**props))
@@ -1092,8 +1090,8 @@ class MeshEntity:
                     (
                         n
                         for n in self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, [])
-                        if (adi.type == ConnectionType.WIRED and not n.get("wireless"))
-                        or (adi.type == ConnectionType.WIRELESS and n.get("wireless"))
+                        if (adi.type == ConnectionType.WIRED and not n.get("wireless").get("signalDecibels"))
+                        or (adi.type == ConnectionType.WIRELESS and n.get("wireless").get("signalDecibels"))
                     ),
                     None,
                 )
