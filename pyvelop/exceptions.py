@@ -79,6 +79,14 @@ class MeshInvalidCredentials(MeshException):
         super().__init__("Invalid Credentials")
 
 
+class MeshInvalidCredentialsUnlikely(MeshException):
+    """Credentials are invalid."""
+
+    def __init__(self) -> None:
+        """Initialise and default message."""
+        super().__init__("An unlikely invalid credentials exception found.")
+
+
 class MeshInvalidInput(MeshException):
     """Parameters passed to the API are in valid."""
 
