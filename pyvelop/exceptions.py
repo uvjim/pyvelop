@@ -84,7 +84,7 @@ class MeshInvalidCredentialsUnlikely(MeshException):
 
     def __init__(self) -> None:
         """Initialise and default message."""
-        super().__init__("An unlikely invalid credentials exception found.")
+        super().__init__("An unlikely invalid credentials exception found")
 
 
 class MeshInvalidInput(MeshException):
