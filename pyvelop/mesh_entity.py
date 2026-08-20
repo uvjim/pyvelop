@@ -1096,6 +1096,7 @@ class MeshEntity:
                             EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, nnc_state, type=AttributeAction.REPLACE
                         )
                     )
+                    ret = nnc_state
 
         return MeshAttribute[bool | None](ret, tuple(audit))
 
