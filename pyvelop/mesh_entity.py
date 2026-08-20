@@ -696,8 +696,7 @@ class MeshEntity:
             audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_adapter))
             props.update(props_adapter)
 
-            # region #-- derive details from the device details --#
-            props_ci: dict[str, Any] = {}
+            # region #-- prep all the info we need to use for making decisions --#
             connection_info: dict[str, Any] | None = next(
                 (
                     conn
@@ -706,6 +705,13 @@ class MeshEntity:
                 ),
                 None,
             )
+            node_network_conns: list[dict[str, Any]] = self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, [])
+            reservation_info: dict[str, Any] | None = self._data.get(EntityDataProperties.RESERVATION_DETAILS)
+            wifi_info: dict[str, Any] | None = self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS)
+            # endregion
+
+            # region #-- derive details from the device details --#
+            props_ci: dict[str, Any] = {}
             if connection_info is not None:
                 props_ci = {
                     "guest_network": connection_info.get("isGuest", False),
@@ -720,7 +726,6 @@ class MeshEntity:
 
             # region #-- derive reservation information --#
             props_reservation: dict[str, Any] = {}
-            reservation_info: dict[str, Any] | None = self._data.get(EntityDataProperties.RESERVATION_DETAILS)
             if reservation_info is not None:
                 props_reservation = {
                     "reservation": bool(reservation_info),
@@ -736,7 +741,6 @@ class MeshEntity:
 
             # region #-- derive wireless information --#
             props_wifi: dict[str, Any] = {}
-            wifi_info: dict[str, Any] | None = self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS)
             if (
                 wifi_info is not None
                 and wifi_info.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
@@ -755,29 +759,6 @@ class MeshEntity:
                     )
                 )
                 props.update(props_wifi)
-            # endregion
-
-            # region #-- derive information from node connection details --#
-            props_nnc: dict[str, Any] = {}
-            node_network_conns: dict[str, Any] | None = self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS)
-            if (
-                node_network_conns is not None
-                and node_network_conns.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
-            ):
-                signal_strength: SignalStrength | None = self._signal_strength_to_text(
-                    node_network_conns.get("wireless", {}).get("signalDecibels")
-                )
-                props_nnc = {
-                    "negotiated_mbps": node_network_conns.get("negotiatedMbps"),
-                    "rssi_dbm": node_network_conns.get("wireless", {}).get("signalDecibels"),
-                    "signal_strength": signal_strength,
-                }
-                audit_history.append(
-                    AttributeAuditEntry(
-                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_nnc, type=AttributeAction.MERGE
-                    )
-                )
-                props.update(props_nnc)
             # endregion
 
             # region #-- derive the adapter connection type --#
@@ -808,7 +789,11 @@ class MeshEntity:
             if adapter_conn_type == ConnectionType.UNKNOWN:
                 if node_network_conns is not None:
                     props_type = {
-                        "type": ConnectionType.WIRELESS if node_network_conns.get("wireless") else ConnectionType.WIRED
+                        "type": (
+                            ConnectionType.WIRELESS
+                            if any(nnc.get("wireless") for nnc in node_network_conns)
+                            else ConnectionType.WIRED
+                        )
                     }
                     audit_history.append(
                         AttributeAuditEntry(
@@ -818,6 +803,37 @@ class MeshEntity:
                         )
                     )
             props.update(props_type)
+            # endregion
+
+            # region #-- establish a valid node connection record --#
+            nnc: dict[str, Any] | None = next(
+                (
+                    n
+                    for n in node_network_conns
+                    if (props.get("type") == ConnectionType.WIRED and not n.get("wireless"))
+                    or (props.get("type") == ConnectionType.WIRELESS and n.get("wireless"))
+                ),
+                None,
+            )
+            # endregion
+
+            # region #-- derive information from node connection details --#
+            props_nnc: dict[str, Any] = {}
+            if nnc is not None:
+                signal_strength: SignalStrength | None = self._signal_strength_to_text(
+                    nnc.get("wireless", {}).get("signalDecibels")
+                )
+                props_nnc = {
+                    "negotiated_mbps": nnc.get("negotiatedMbps"),
+                    "rssi_dbm": nnc.get("wireless", {}).get("signalDecibels"),
+                    "signal_strength": signal_strength,
+                }
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_nnc, type=AttributeAction.MERGE
+                    )
+                )
+                props.update(props_nnc)
             # endregion
 
             # region #-- infer the adapter connected state if we can --#
@@ -843,16 +859,21 @@ class MeshEntity:
                     )
                 )
                 props.update(props_wifi_state)
-            if not adapter_conn_state and node_network_conns:
-                props_nnc_state: dict[str, bool] = {
-                    "connected": True,
-                }
-                audit_history.append(
-                    AttributeAuditEntry(
-                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_nnc_state, type=AttributeAction.MERGE
+            if not adapter_conn_state and nnc:
+                if props.get("type") == ConnectionType.WIRED or (
+                    props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless")
+                ):
+                    props_nnc_state: dict[str, bool] = {
+                        "connected": True,
+                    }
+                    audit_history.append(
+                        AttributeAuditEntry(
+                            EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                            props_nnc_state,
+                            type=AttributeAction.MERGE,
+                        )
                     )
-                )
-                props.update(props_nnc_state)
+                    props.update(props_nnc_state)
             # endregion
 
             # region #-- parent details --#
@@ -1040,25 +1061,43 @@ class MeshEntity:
         :return: True if connected. False if not.
         """
 
+        ret: bool | None = None
         audit: list[AttributeAuditEntry] = []
-        conns: bool = bool(self._data.get(EntityDataProperties.DEVICE_DETAILS.value, {}).get("connections", []))
-        audit.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, conns))
-        if not conns:  # check if there are wireless connection details
-            conns = bool(self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {}))
+        device_status: bool = bool(self._data.get(EntityDataProperties.DEVICE_DETAILS.value, {}).get("connections", []))
+        audit.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, device_status))
+        ret = device_status
+        if not ret:  # check if there are wireless connection details
+            wifi_status: bool = bool(self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {}))
             audit.append(
                 AttributeAuditEntry(
-                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, conns, type=AttributeAction.REPLACE
+                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, wifi_status, type=AttributeAction.REPLACE
                 )
             )
-        if not conns:  # check if there are any node network connections
-            conns = bool(self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, {}))
-            audit.append(
-                AttributeAuditEntry(
-                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, conns, type=AttributeAction.REPLACE
+            ret = wifi_status
+        if not ret:  # check if there are any node network connections
+            adi: AdapterInfo | None = next(iter(self.adapter_info), None)
+            if adi is not None:
+                # region #-- establish a valid node connection record --#
+                nnc: dict[str, Any] | None = next(
+                    (
+                        n
+                        for n in self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, [])
+                        if (adi.type == ConnectionType.WIRED and not n.get("wireless"))
+                        or (adi.type == ConnectionType.WIRELESS and n.get("wireless"))
+                    ),
+                    None,
                 )
-            )
+                # endregion
 
-        return MeshAttribute[bool | None](conns, tuple(audit))
+                if (adi.type == ConnectionType.WIRELESS and nnc is not None) or adi.type == ConnectionType.WIRED:
+                    nnc_state: bool = True
+                    audit.append(
+                        AttributeAuditEntry(
+                            EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, nnc_state, type=AttributeAction.REPLACE
+                        )
+                    )
+
+        return MeshAttribute[bool | None](ret, tuple(audit))
 
     @property
     def ui_type(self) -> MeshAttribute[UiType | str | None]:
