@@ -1099,14 +1099,17 @@ class MeshEntity:
                 )
                 # endregion
 
-                if (adi.type == ConnectionType.WIRELESS and nnc is not None) or adi.type == ConnectionType.WIRED:
-                    nnc_state: bool = True
-                    audit.append(
-                        AttributeAuditEntry(
-                            EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, nnc_state, type=AttributeAction.REPLACE
+                if nnc is not None:
+                    if adi.type in (ConnectionType.WIRELESS, ConnectionType.WIRED):
+                        nnc_state: bool = True
+                        audit.append(
+                            AttributeAuditEntry(
+                                EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                                nnc_state,
+                                type=AttributeAction.REPLACE,
+                            )
                         )
-                    )
-                    ret = nnc_state
+                        ret = nnc_state
 
         return MeshAttribute[bool | None](ret, tuple(audit))
 
