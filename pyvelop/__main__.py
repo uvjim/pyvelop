@@ -26,7 +26,7 @@ from .exceptions import (
     MeshTimeoutError,
 )
 from .jnap import Actions, Response
-from .logger import set_logging_format
+from .logger import Logger
 from .mesh import (
     Mesh,
     NightModeState,
@@ -65,7 +65,7 @@ class StandardCommand(click.Command):
             """Handle logging."""
             if param.name == "verbose":
                 if value:
-                    logging.basicConfig(format=set_logging_format(include_func_name=True, include_lineno=True))
+                    logging.basicConfig()
                     _LOGGER.setLevel(logging.DEBUG)
                     _LOGGER.debug("args: %s", sys.argv[1:])
                     _LOGGER.debug("Setting up logging")
@@ -169,7 +169,7 @@ class AllowedChecks(StrEnum):
     NETWORK_DETAILS = auto()
 
 
-_LOGGER = logging.getLogger(f"{__package__}.cli")
+_LOGGER: Logger = Logger(logging.getLogger(f"{__package__}.cli"))
 
 
 def get_properties[T](cls: type[T]) -> set[str]:

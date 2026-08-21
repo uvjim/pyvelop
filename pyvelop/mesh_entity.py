@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 # endregion
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
+_LOGGER: Logger = Logger(logging.getLogger(__name__))
 
 EMPTY_NAME: str = "Network Device"
 
@@ -554,7 +554,6 @@ class MeshEntity:
         """Initialise."""
 
         self._data: dict[str, Any] = data
-        self._log_formatter = Logger()
         self._mesh_details: MeshDetails = mesh_details
         self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
 
@@ -1242,7 +1241,7 @@ class DeviceEntity(MeshEntity):
         :return: None
         """
         _LOGGER.debug(
-            self._log_formatter.format("entered, rules: %s"),
+            "entered, rules: %s",
             rules,
         )
 
@@ -1278,7 +1277,7 @@ class DeviceEntity(MeshEntity):
         cached_schedule = self._get_user_property(DeviceProperty.ACTUAL_WAN_SCHEDULE)
         new_rule = ParentalControl.human_readable_to_binary(rules)
         if new_rule != ParentalControl.ALL_ALLOWED_SCHEDULE():
-            _LOGGER.debug(self._log_formatter.format("adding new rules"))
+            _LOGGER.debug("adding new rules")
             if this_device_rules:
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
@@ -1292,15 +1291,15 @@ class DeviceEntity(MeshEntity):
                     )
         else:
             if cached_schedule:
-                _LOGGER.debug(self._log_formatter.format("restoring backed up schedule"))
+                _LOGGER.debug("restoring backed up schedule")
                 new_rule = ParentalControl.backup_to_binary(cached_schedule)
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
                 if len(this_device_rules) > 0 and this_device_rules[0].get("blockedURLs", []):
-                    _LOGGER.debug(self._log_formatter.format("blocked URLs found, applying permissive rule"))
+                    _LOGGER.debug("blocked URLs found, applying permissive rule")
                     this_device_rules[0]["wanSchedule"] = new_rule
                 else:
-                    _LOGGER.debug(self._log_formatter.format("removing from rules"))
+                    _LOGGER.debug("removing from rules")
                     this_device_rules = []
         # endregion
 
@@ -1381,7 +1380,7 @@ class DeviceEntity(MeshEntity):
         :return: None
         """
         _LOGGER.debug(
-            self._log_formatter.format("entered, urls: %s, merge: %s"),
+            "entered, urls: %s, merge: %s",
             urls,
             merge,
         )
@@ -1560,10 +1559,7 @@ class NodeEntity(MeshEntity):
 
         :return: None
         """
-        _LOGGER.debug(
-            self._log_formatter.format("entered, force: %s"),
-            force,
-        )
+        _LOGGER.debug("entered, force: %s", force)
 
         # region #-- check for primary node --#
         if self.type == NodeType.PRIMARY and not force:
@@ -1583,7 +1579,7 @@ class NodeEntity(MeshEntity):
         await self._async_api_request(api.Actions.REBOOT.action, ip=target_ip)
         # endregion
 
-        _LOGGER.debug(self._log_formatter.format("exited"))
+        _LOGGER.debug("exited")
 
     @override
     def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
