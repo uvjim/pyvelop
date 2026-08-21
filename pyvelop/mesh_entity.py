@@ -772,7 +772,7 @@ class MeshEntity:
                     type=AttributeAction.MERGE,
                 )
             )
-            props_type = props_device_type
+            props.update(props_device_type)
 
             props_wifi_type: dict[str, ConnectionType] = {}
             # weird state where the device is listed as wired but has wifi info so change to wireless
@@ -789,7 +789,7 @@ class MeshEntity:
                         type=AttributeAction.MERGE,
                     )
                 )
-                props_type = props_wifi_type
+                props.update(props_wifi_type)
 
             # unknown still so let's derive from GetNetworkConnections2
             props_nnc_type: dict[str, Any] = {}
@@ -806,7 +806,7 @@ class MeshEntity:
                         type=AttributeAction.MERGE,
                     )
                 )
-                props.update(props_type)
+                props.update(props_nnc_type)
             # endregion
 
             # region #-- establish a valid node connection record --#
