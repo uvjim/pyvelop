@@ -32,6 +32,7 @@ from .exceptions import (
     MeshInvalidInput,
     MeshNeedsInitialise,
 )
+from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 from .mesh_entity import (
     AdapterInfo,
@@ -46,7 +47,7 @@ from .mesh_entity import (
 type _ApiResponse = tuple[api.Request, api.Response]
 
 _ATTR_PROCESSED_DEVICES: str = "processed_devices"
-_LOGGER = logging.getLogger(__name__)
+_LOGGER: Logger = Logger(logging.getLogger(__name__))
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
@@ -1192,7 +1193,7 @@ class Mesh:
         try:
             await self._async_make_request(action=api.Actions.START_CHANNEL_SCAN.action)
         except MeshAlreadyInProgress as err:
-            _LOGGER.debug(err)
+            _LOGGER.debug("%s", err)
         except MeshInvalidInput as err:
             _LOGGER.warning(
                 "%s - are you sure the functionality is available",

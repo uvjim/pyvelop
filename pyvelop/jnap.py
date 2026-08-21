@@ -31,7 +31,7 @@ from .logger import Logger
 
 type JnapResponse = dict[str, Any]
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER: Logger = Logger(logging.getLogger(__name__))
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
@@ -71,7 +71,6 @@ class Request:
         """
         self._action: str = action
         self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
-        self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._payload: list[dict[str, Any]] | dict[str, Any] | None = payload
         self._raise_on_error: bool = raise_on_error
         self._redact: bool = redact
@@ -125,10 +124,10 @@ class Request:
             aiohttp.ClientConnectorError,
             aiohttp.ContentTypeError,
         ) as err:
-            _LOGGER.error(self._log_formatter.format("%s"), err)
+            _LOGGER.error("%s", err)
             raise MeshConnectionError from None
         except json.JSONDecodeError as err:
-            _LOGGER.error(self._log_formatter.format("%s"), err)
+            _LOGGER.error("%s", err)
             raise err from None
 
         # region #-- log the response --#
@@ -141,7 +140,7 @@ class Request:
             if self._redact and to_log["response"].get("result") == "OK":
                 to_log["response"].update(
                     {
-                        "output": self._log_formatter.redact(
+                        "output": _LOGGER.redact(
                             to_log["response"].get("output", {}),
                             _build_redactions(self._action),
                         )
@@ -152,7 +151,7 @@ class Request:
                 action: str = cast(list, self._payload)[idx].get("action", "") if self._payload is not None else ""
                 redactions = _build_redactions(action)
                 if self._redact and r_json.get("result") == "OK":
-                    r_json.update({"output": self._log_formatter.redact(r_json.get("output", {}), redactions)})
+                    r_json.update({"output": _LOGGER.redact(r_json.get("output", {}), redactions)})
 
         _LOGGER_VERBOSE.debug(json.dumps(to_log))
         # endregion
@@ -196,7 +195,6 @@ class Response:
         """
         self._action: str = action
         self._data: JnapResponse | None = data
-        self._log_formatter = Logger(prefix=f"{self.__class__.__name__}.")
         self._raise_on_error: bool = raise_on_error
 
         self._process_data()
@@ -253,10 +251,7 @@ class Response:
                 elif resp.get(self.RESULT_KEY, "").startswith("_"):
                     err = MeshInvalidInput(f"{resp.get(self.RESULT_KEY)}: '{self.action}'")
                 else:  # don't know the error, log and raise exception
-                    _LOGGER.error(
-                        self._log_formatter.format("unknown error received: %s"),
-                        self._data,
-                    )
+                    _LOGGER.error("unknown error received: %s", self._data)
                     err = MeshException(json.dumps(resp.get(self.RESULT_KEY)))
 
                 # occasionaly see an error stating that credentials are invalid even though
