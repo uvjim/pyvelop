@@ -793,21 +793,20 @@ class MeshEntity:
 
             # unknown still so let's derive from GetNetworkConnections2
             props_nnc_type: dict[str, Any] = {}
-            if node_network_conns is not None:
+            if node_network_conns:
                 if any(nnc.get("wireless", {}).get("signalDecibels") for nnc in node_network_conns):
                     props_nnc_type = {"type": ConnectionType.WIRELESS}
                 else:
-                    if any(nnc for nnc in node_network_conns if nnc.get("macAddress") == props.get("mac")):
-                        props_nnc_type = {"type": ConnectionType.WIRED}
-                if props_nnc_type:
-                    audit_history.append(
-                        AttributeAuditEntry(
-                            EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                            props_nnc_type,
-                            type=AttributeAction.MERGE,
-                        )
+                    props_nnc_type = {"type": ConnectionType.WIRED}
+            if props_nnc_type:
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                        props_nnc_type,
+                        type=AttributeAction.MERGE,
                     )
-                    props.update(props_type)
+                )
+                props.update(props_type)
             # endregion
 
             # region #-- establish a valid node connection record --#
