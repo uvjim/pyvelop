@@ -17,6 +17,7 @@ from enum import StrEnum, auto
 from types import MappingProxyType
 from typing import Any, cast
 
+import aiohttp
 from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
@@ -1016,7 +1017,9 @@ class Mesh:
         """
 
         ret: str | None = None
-        with contextlib.suppress(TimeoutError, asyncio.TimeoutError):
+        with contextlib.suppress(
+            TimeoutError, asyncio.TimeoutError, aiohttp.ClientConnectionError, aiohttp.ClientConnectorError
+        ):
             resp = await self._mesh_details.session.head(
                 api.jnap_url(self._mesh_details.host),
                 raise_for_status=False,
