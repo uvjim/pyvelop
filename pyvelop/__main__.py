@@ -54,13 +54,6 @@ class StandardCommand(click.Command):
         """Initialise."""
         super().__init__(*args, **kwargs)
 
-        def _create_session(ctx: click.Context, param: click.Option, value: Any) -> None:
-            """Create the session and store for late use."""
-            if param.name == "create_session":
-                if value:
-                    _LOGGER.debug("Pre-creating a session")
-                    ctx.obj = ctx.with_async_resource(aiohttp.ClientSession(raise_for_status=True))
-
         def _setup_logging(_: click.Context, param: click.Option, value: Any) -> None:
             """Handle logging."""
             if param.name == "verbose":
@@ -90,7 +83,6 @@ class StandardCommand(click.Command):
             ),
             click.Option(
                 ("-c", "--create-session"),
-                callback=_create_session,
                 default=True,
                 help="Supply this argument to create a session to pass into the library.",
                 hidden=True,
@@ -136,6 +128,18 @@ class StandardCommand(click.Command):
         standard_options.reverse()
         for opt in standard_options:
             self.params.insert(0, opt)
+
+    async def invoke(self, ctx: click.Context) -> Any:
+        """Initialise the session if need be and defer to normal processing."""
+
+        create_session = ctx.params.get("create_session", True)
+
+        if not create_session:
+            return await super().invoke(ctx)
+
+        async with aiohttp.ClientSession(raise_for_status=True) as session:
+            ctx.obj = session
+            return await super().invoke(ctx)
 
 
 MESH_ALLOWED_ACTIONS: set[str] = {
@@ -187,7 +191,7 @@ def get_properties[T](cls: type[T]) -> set[str]:
 
 @click.group()
 @click.version_option(package_name=__package__)
-def cli() -> None:
+async def cli() -> None:
     """CLI for interacting with the pyvelop module."""
 
 
@@ -1321,7 +1325,7 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             node=ctx.params.get("primary_node", ""),
             password=ctx.params.get("password", ""),
             request_timeout=ctx.params.get("timeout", 30),
-            session=await ctx.obj if ctx.obj else None,
+            session=ctx.obj if ctx.obj else None,
             username=ctx.params.get("username", ""),
             disable_redaction=not ctx.params.get("redact", True),
             supplementary_redactions=supplementary_redactions,
