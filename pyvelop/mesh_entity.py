@@ -816,8 +816,8 @@ class MeshEntity:
                 (
                     n
                     for n in node_network_conns
-                    if (props.get("type") == ConnectionType.WIRED and not n.get("wireless"))
-                    or (props.get("type") == ConnectionType.WIRELESS and n.get("wireless"))
+                    if (props.get("type") == ConnectionType.WIRED and not n.get("wireless", {}).get("signalDecibels"))
+                    or (props.get("type") == ConnectionType.WIRELESS and n.get("wireless", {}).get("signalDecibels"))
                 ),
                 None,
             )
@@ -1089,8 +1089,8 @@ class MeshEntity:
                     (
                         n
                         for n in self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, [])
-                        if (adi.type == ConnectionType.WIRED and not n.get("wireless").get("signalDecibels"))
-                        or (adi.type == ConnectionType.WIRELESS and n.get("wireless").get("signalDecibels"))
+                        if (adi.type == ConnectionType.WIRED and not n.get("wireless", {}).get("signalDecibels"))
+                        or (adi.type == ConnectionType.WIRELESS and n.get("wireless", {}).get("signalDecibels"))
                     ),
                     None,
                 )
