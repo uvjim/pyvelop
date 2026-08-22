@@ -8,6 +8,7 @@ import base64
 import contextlib
 import datetime as dt
 import logging
+from abc import ABC, abstractmethod
 from collections import namedtuple
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -542,7 +543,7 @@ class ParentalControl:
         return cast(dict[str, str], self._rule.get("wanSchedule", {}))
 
 
-class MeshEntity:
+class MeshEntity(ABC):
     """Represents a base level entity on the mesh."""
 
     def __init__(
@@ -634,6 +635,7 @@ class MeshEntity:
 
         return resp
 
+    @abstractmethod
     def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
         """Return the instance as a dictionary."""
 
@@ -685,14 +687,16 @@ class MeshEntity:
         my_adapters: list[dict[str, Any]] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
             "knownInterfaces", []
         )
-        for adapter in my_adapters:
+        for idx, adapter in enumerate(my_adapters):
             props: dict[str, Any] = {}
             props_adapter: dict[str, Any] = {
                 "mac": adapter.get("macAddress"),
             }
             if adapter.get("band") is not None:
                 props_adapter["band"] = adapter.get("band")
-            audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_adapter))
+            audit_history.append(
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_adapter, index=idx)
+            )
             props.update(props_adapter)
 
             # region #-- prep all the info we need to use for making decisions --#
@@ -718,7 +722,9 @@ class MeshEntity:
                     "ipv6": connection_info.get("ipv6Address"),
                 }
                 audit_history.append(
-                    AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, props_ci, type=AttributeAction.MERGE)
+                    AttributeAuditEntry(
+                        EntityDataProperties.DEVICE_DETAILS.value, props_ci, type=AttributeAction.MERGE, index=idx
+                    )
                 )
                 props.update(props_ci)
             # endregion
@@ -732,7 +738,10 @@ class MeshEntity:
                 }
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.RESERVATION_DETAILS.value, props_reservation, type=AttributeAction.MERGE
+                        EntityDataProperties.RESERVATION_DETAILS.value,
+                        props_reservation,
+                        type=AttributeAction.MERGE,
+                        index=idx,
                     )
                 )
                 props.update(props_reservation)
@@ -754,7 +763,10 @@ class MeshEntity:
                 }
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, props_wifi, type=AttributeAction.MERGE
+                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
+                        props_wifi,
+                        type=AttributeAction.MERGE,
+                        index=idx,
                     )
                 )
                 props.update(props_wifi)
@@ -770,6 +782,7 @@ class MeshEntity:
                     EntityDataProperties.DEVICE_DETAILS.value,
                     props_device_type,
                     type=AttributeAction.MERGE,
+                    index=idx,
                 )
             )
             props.update(props_device_type)
@@ -787,6 +800,7 @@ class MeshEntity:
                         EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
                         props_wifi_type,
                         type=AttributeAction.MERGE,
+                        index=idx,
                     )
                 )
                 props.update(props_wifi_type)
@@ -804,6 +818,7 @@ class MeshEntity:
                         EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                         props_nnc_type,
                         type=AttributeAction.MERGE,
+                        index=idx,
                     )
                 )
                 props.update(props_nnc_type)
@@ -835,7 +850,10 @@ class MeshEntity:
                 }
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, props_nnc, type=AttributeAction.MERGE
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                        props_nnc,
+                        type=AttributeAction.MERGE,
+                        index=idx,
                     )
                 )
                 props.update(props_nnc)
@@ -848,11 +866,14 @@ class MeshEntity:
             }
             audit_history.append(
                 AttributeAuditEntry(
-                    EntityDataProperties.DEVICE_DETAILS.value, props_adapter_conn_state, type=AttributeAction.MERGE
+                    EntityDataProperties.DEVICE_DETAILS.value,
+                    props_adapter_conn_state,
+                    type=AttributeAction.MERGE,
+                    index=idx,
                 )
             )
             props.update(props_adapter_conn_state)
-            if not adapter_conn_state and wifi_info:
+            if not props.get("connected", False) and wifi_info:
                 props_wifi_state: dict[str, bool] = {
                     "connected": True,
                 }
@@ -861,10 +882,11 @@ class MeshEntity:
                         EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
                         props_wifi_state,
                         type=AttributeAction.MERGE,
+                        index=idx,
                     )
                 )
                 props.update(props_wifi_state)
-            if not adapter_conn_state and nnc:
+            if not props.get("connected", False) and nnc:
                 if props.get("type") == ConnectionType.WIRED or (
                     props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless", {}).get("signalDecibels")
                 ):
@@ -876,6 +898,7 @@ class MeshEntity:
                             EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                             props_nnc_state,
                             type=AttributeAction.MERGE,
+                            index=idx,
                         )
                     )
                     props.update(props_nnc_state)
@@ -892,7 +915,10 @@ class MeshEntity:
                 if props_parent:
                     audit_history.append(
                         AttributeAuditEntry(
-                            EntityDataProperties.DEVICE_DETAILS.value, props_parent, type=AttributeAction.MERGE
+                            EntityDataProperties.DEVICE_DETAILS.value,
+                            props_parent,
+                            type=AttributeAction.MERGE,
+                            index=idx,
                         )
                     )
                     props.update(props_parent)
@@ -1058,56 +1084,14 @@ class MeshEntity:
         return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
 
     @property
+    @abstractmethod
     def status(self) -> MeshAttribute[bool | None]:
         """Get whether the device is currently connected to the mesh or not.
-
-        Assumes that if there are no connections specified for the device then it is offline.
-        Will also check if there are wireless connection details because these shouldn't exist if the device is offline.
 
         :return: True if connected. False if not.
         """
 
-        ret: bool | None = None
-        audit: list[AttributeAuditEntry] = []
-        device_status: bool = bool(self._data.get(EntityDataProperties.DEVICE_DETAILS.value, {}).get("connections", []))
-        audit.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, device_status))
-        ret = device_status
-        if not ret:  # check if there are wireless connection details
-            wifi_status: bool = bool(self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {}))
-            audit.append(
-                AttributeAuditEntry(
-                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, wifi_status, type=AttributeAction.REPLACE
-                )
-            )
-            ret = wifi_status
-        if not ret:  # check if there are any node network connections
-            adi: AdapterInfo | None = next(iter(self.adapter_info), None)
-            if adi is not None:
-                # region #-- establish a valid node connection record --#
-                nnc: dict[str, Any] | None = next(
-                    (
-                        n
-                        for n in self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, [])
-                        if (adi.type == ConnectionType.WIRED and not n.get("wireless", {}).get("signalDecibels"))
-                        or (adi.type == ConnectionType.WIRELESS and n.get("wireless", {}).get("signalDecibels"))
-                    ),
-                    None,
-                )
-                # endregion
-
-                if nnc is not None:
-                    if adi.type in (ConnectionType.WIRELESS, ConnectionType.WIRED):
-                        nnc_state: bool = True
-                        audit.append(
-                            AttributeAuditEntry(
-                                EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                                nnc_state,
-                                type=AttributeAction.REPLACE,
-                            )
-                        )
-                        ret = nnc_state
-
-        return MeshAttribute[bool | None](ret, tuple(audit))
+        raise NotImplementedError
 
     @property
     def ui_type(self) -> MeshAttribute[UiType | str | None]:
@@ -1525,6 +1509,34 @@ class DeviceEntity(MeshEntity):
             ret, (AttributeAuditEntry(EntityDataProperties.PARENTAL_CONTROLS.value, ret),)
         )
 
+    @property
+    @override
+    def status(self) -> MeshAttribute[bool | None]:
+
+        audit_history: list[AttributeAuditEntry] = []
+        ret: bool | None = None
+
+        _adapter_info: MeshAttribute[list[AdapterInfo]] = self.adapter_info
+        adi: AdapterInfo | None = next(iter(_adapter_info), None)  # assume a single adapter
+        if adi is not None:
+            ret = adi.connected
+            audit_history = [ae for ae in _adapter_info.audit if "connected" in ae.value]
+            # modify the audit log to show the first entry as he initial one.
+            # do this otherwise it could show as merge which makes no sense in this context.
+            if audit_history:
+                audit_history.insert(
+                    0,
+                    AttributeAuditEntry(
+                        audit_history[0].source,
+                        audit_history[0].value,
+                        type=AttributeAction.INIT,
+                        index=audit_history[0].index,
+                    ),
+                )
+                audit_history.pop(1)
+
+        return MeshAttribute[bool | None](ret, tuple(audit_history))
+
 
 class NodeEntity(MeshEntity):
     """Represents a node on the mesh."""
@@ -1610,19 +1622,21 @@ class NodeEntity(MeshEntity):
         audit_history: list[AttributeAuditEntry] = list(super_adapters.audit)
         ret: list[NodeAdapterInfo] = []
         backhaul: dict[str, Any] = self._data.get(EntityDataProperties.BACKHAUL, {})
-        for adapter in super_adapters.value:
+        for idx, adapter in enumerate(super_adapters.value):
             props: dict[str, Any] = adapter.to_dict()
             props_primary: dict[str, bool] = {"primary": False}
             if adapter.ip == backhaul.get("ipAddress"):
                 props_primary["primary"] = True
                 audit_history.append(
-                    AttributeAuditEntry(EntityDataProperties.BACKHAUL.value, props_primary, type=AttributeAction.MERGE)
+                    AttributeAuditEntry(
+                        EntityDataProperties.BACKHAUL.value, props_primary, type=AttributeAction.MERGE, index=idx
+                    )
                 )
             elif self.type == NodeType.PRIMARY:
                 props_primary["primary"] = True
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.DEVICE_DETAILS.value, props_primary, type=AttributeAction.MERGE
+                        EntityDataProperties.DEVICE_DETAILS.value, props_primary, type=AttributeAction.MERGE, index=idx
                     )
                 )
             props.update(props_primary)
@@ -1750,6 +1764,28 @@ class NodeEntity(MeshEntity):
         return MeshAttribute[dt.datetime | None](
             ret, (AttributeAuditEntry(EntityDataProperties.FIRMWARE_DETAILS.value, _attr),)
         )
+
+    @property
+    @override
+    def status(self) -> MeshAttribute[bool | None]:
+
+        audit_history: list[AttributeAuditEntry] = []
+        ret: bool | None = None
+
+        _adapter_info: MeshAttribute[list[NodeAdapterInfo]] = self.adapter_info
+        adi: tuple[int, NodeAdapterInfo] | None = next(((i, a) for i, a in enumerate(_adapter_info) if a.primary), None)
+        if adi is not None:
+            _LOGGER.debug("%s", adi[0])
+            audit_history = [ae for ae in _adapter_info.audit if "connected" in ae.value and ae.index == adi[0]]
+            # modify the audit log to show the first entry as he initial one.
+            # do this otherwise it could show as merge which makes no sense in this context.
+            if audit_history:
+                audit_history.insert(
+                    0, AttributeAuditEntry(audit_history[0].source, audit_history[0].value, type=AttributeAction.INIT)
+                )
+                audit_history.pop(1)
+
+        return MeshAttribute[bool | None](ret, tuple(audit_history))
 
     @property
     def type(self) -> MeshAttribute[NodeType]:
