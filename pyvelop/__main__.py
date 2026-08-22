@@ -1012,8 +1012,11 @@ async def node_attr(
                 click.echo("No nodes found")
             else:
                 found_node = next((node for node in nodes if node.name.value == node_name), None)
-                attr: Any = getattr(found_node, attribute, None)
-                _display_attribute(attribute, attr)
+                if found_node is None:
+                    _write_error(f"Node not found ({node_name})")
+                else:
+                    attr: Any = getattr(found_node, attribute, None)
+                    _display_attribute(attribute, attr)
 
 
 @node_group.command(cls=StandardCommand, name="details")
