@@ -31,6 +31,7 @@ class AttributeAction(StrEnum):
 class AttributeAuditEntry[PropType]:
     """Representation of an audit log entry."""
 
+    index: int | None = field(default=None, kw_only=True)
     source: ActionKey
     value: PropType
     type: AttributeAction = field(default=AttributeAction.INIT, kw_only=True)
@@ -38,11 +39,14 @@ class AttributeAuditEntry[PropType]:
     def to_dict(self) -> dict[str, Any]:
         """Return a dictionary representation of the object."""
 
-        return {
+        ret: dict[str, Any] = {
+            "index": self.index,
             "source": str(self.source),
             "value": self.value,
             "type": self.type.value,
         }
+
+        return ret
 
 
 @dataclass(frozen=True)
