@@ -1775,7 +1775,7 @@ class NodeEntity(MeshEntity):
         _adapter_info: MeshAttribute[list[NodeAdapterInfo]] = self.adapter_info
         adi: tuple[int, NodeAdapterInfo] | None = next(((i, a) for i, a in enumerate(_adapter_info) if a.primary), None)
         if adi is not None:
-            _LOGGER.debug("%s", adi[0])
+            ret = adi[1].connected
             audit_history = [ae for ae in _adapter_info.audit if "connected" in ae.value and ae.index == adi[0]]
             # modify the audit log to show the first entry as he initial one.
             # do this otherwise it could show as merge which makes no sense in this context.
