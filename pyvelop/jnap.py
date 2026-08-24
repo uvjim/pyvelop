@@ -29,8 +29,6 @@ from .logger import Logger
 
 # endregion
 
-type JnapResponse = dict[str, Any]
-
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
@@ -52,7 +50,7 @@ class Request:
         action: str,
         password: str,
         target: str,
-        payload: list[dict[str, Any]] | dict[str, Any] | None = None,
+        payload: list[dict[str, Any]] | dict[str, Any] = {},
         raise_on_error: bool = True,
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
@@ -71,7 +69,7 @@ class Request:
         """
         self._action: str = action
         self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
-        self._payload: list[dict[str, Any]] | dict[str, Any] | None = payload
+        self._payload: list[dict[str, Any]] | dict[str, Any] = payload
         self._raise_on_error: bool = raise_on_error
         self._redact: bool = redact
         self._session: aiohttp.ClientSession = (
@@ -79,8 +77,6 @@ class Request:
         )
         self._supplementary_redactions: dict[str, set[str]] = supplementary_redactions or {}
 
-        if self._payload is None:
-            self._payload = []
         self._jnap_url: str = jnap_url(target=target)
 
     async def execute(self, timeout: float = 10) -> Response:
@@ -113,10 +109,10 @@ class Request:
             resp = await self._session.post(
                 url=self._jnap_url,
                 headers=headers,
-                json=self._payload or {},
+                json=self._payload,
                 timeout=timeout,  # pyright:ignore[reportArgumentType] if float is passed it's classed as total
             )
-            resp_json: JnapResponse = await resp.json()
+            resp_json: dict[str, Any] = await resp.json()
         except TimeoutError as err:
             raise MeshTimeoutError from err
         except (
@@ -160,7 +156,6 @@ class Request:
 
         return ret
 
-    # region #-- properties --#
     @property
     def action(self) -> str:
         """Return the action used in the request.
@@ -170,14 +165,12 @@ class Request:
         return self._action
 
     @property
-    def payload(self) -> list[dict[str, Any]] | dict[str, Any] | None:
+    def payload(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Return the payload used for the request.
 
         :return: list[dict] | dict | None containing the payload
         """
         return self._payload
-
-    # endregion
 
 
 class Response:
@@ -187,14 +180,14 @@ class Response:
     DATA_KEY_TRANSACTION: str = "responses"
     RESULT_KEY: str = "result"
 
-    def __init__(self, action: str, data: JnapResponse | None, raise_on_error: bool = True) -> None:
+    def __init__(self, action: str, data: dict[str, Any], raise_on_error: bool = True) -> None:
         """Initialise the response.
 
         :param action: The action that was issued in the request to cause the response
         :param data: The JSON response received in response to the API call
         """
         self._action: str = action
-        self._data: JnapResponse | None = data
+        self._data: dict[str, Any] = data
         self._raise_on_error: bool = raise_on_error
 
         self._process_data()
@@ -266,7 +259,6 @@ class Response:
         if err and self._raise_on_error:
             raise err
 
-    # region #-- properties --#
     @property
     def action(self) -> str:
         """Return the action that resulted in the response.
@@ -276,18 +268,16 @@ class Response:
         return self._action
 
     @property
-    def data(self) -> JnapResponse | list[JnapResponse] | None:
-        """Return the response data."""
+    def data(self) -> list[dict[str, Any]]:
+        """Return the response data.
 
-        if self._data is None:
-            return None
+        :return: always returns a list whether or not the action was a transaction.
+        """
 
-        ret = (
-            self._data.get(self.DATA_KEY_TRANSACTION)
+        ret: list[dict[str, Any]] = (
+            self._data.get(self.DATA_KEY_TRANSACTION, {})
             if self.action == Actions.TRANSACTION.action
-            else self._data.get(self.DATA_KEY_SINGLE, self._data)
+            else [self._data.get(self.DATA_KEY_SINGLE, self._data)]
         )
 
         return ret
-
-    # endregion
