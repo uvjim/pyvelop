@@ -45,7 +45,7 @@ from .mesh_entity import (
 
 # endregion
 
-type _ApiResponse = tuple[api.Request, api.Response]
+type ApiReqResp = tuple[api.Request, api.Response]
 
 _ATTR_PROCESSED_DEVICES: str = "processed_devices"
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
@@ -306,7 +306,7 @@ class Mesh:
         node_address: str | None = None,
         payload: list[dict[str, Any]] | dict[str, Any] | None = None,
         raise_on_error: bool = True,
-    ) -> _ApiResponse:
+    ) -> ApiReqResp:
         """Execute the API request against the connected node.
 
         :param action: The JNAP action to execute
@@ -340,52 +340,54 @@ class Mesh:
             _LOGGER.debug("!!!")
             _LOGGER.debug("!!! %s !!!", exc)
             _LOGGER.debug("!!!")
-            # only seen this exception happen with a transaction but check to make sure
-            if req.action == api.Actions.TRANSACTION.action:
-                # region #-- split the transacion and retry --#
-                # When this exception is seen we need to do the following: -
-                # - test whether the credentials are valid or not
-                # - if they're not raise the MeshInvalidCredentials exception
-                # - if they're valid still then (because resending the transaction doesn't solve it): -
-                #   - split the transaction up into individual requests
-                #   - send all requests and wair for responses
-                #   - reconstruct the response as a transaction request (the caller is likely expecting that type of response)
-                _LOGGER.debug("testing creds because they may have been invalid")
-                valid_creds: bool = await self.async_test_credentials()
-                if valid_creds:
-                    _LOGGER.debug("tested creds and they are valid, retrying as separate requests")
-                    if req.payload is not None:
-                        req_ind = [
-                            api.Request(
-                                action=cast(dict[str, Any], pi).get("action", ""),
-                                password=self._mesh_details.password,
-                                payload=cast(dict[str, Any], pi).get("request", {}),
-                                raise_on_error=raise_on_error,
-                                session=self._mesh_details.session,
-                                target=node_address or self._mesh_details.host,
-                                username=self._mesh_details.user,
-                                redact=self._disable_redaction is False,
-                                supplementary_redactions=self._supplementary_redactions,
-                            ).execute()
-                            for pi in req.payload
-                        ]
-                        req_ind_resp = await asyncio.gather(*req_ind)
-                        _LOGGER.debug("rebuilding output")
-                        req_resp = api.Response(
-                            action=api.Actions.TRANSACTION.action,
-                            data={
-                                api.Response.RESULT_KEY: "OK",
-                                api.Response.DATA_KEY_TRANSACTION: [
-                                    {api.Response.RESULT_KEY: "OK", api.Response.DATA_KEY_SINGLE: r.data}
-                                    for r in req_ind_resp
-                                ],
-                            },
-                        )
-                        _LOGGER.debug("rebuilt output")
-                # endregion
-                else:
-                    _LOGGER.debug("tested creds and they are invalid")
-                    raise MeshInvalidCredentials()
+
+            # only seen this exception happen with a transaction so re-raise
+            if req.action != api.Actions.TRANSACTION.action:
+                raise MeshInvalidCredentials() from exc
+
+            # region #-- split the transacion and retry --#
+            # When this exception is seen we need to do the following: -
+            # - test whether the credentials are valid or not
+            # - if they're not raise the MeshInvalidCredentials exception
+            # - if they're valid still then (because resending the transaction doesn't solve it): -
+            #   - split the transaction up into individual requests
+            #   - send all requests and wair for responses
+            #   - reconstruct the response as a transaction request (the caller is likely expecting that type of response)
+            _LOGGER.debug("testing creds because they may have been invalid")
+            valid_creds: bool = await self.async_test_credentials()
+
+            if not valid_creds:
+                _LOGGER.debug("tested creds and they are invalid")
+                raise MeshInvalidCredentials()
+
+            _LOGGER.debug("tested creds and they are valid, retrying as separate requests")
+            req_ind = [
+                api.Request(
+                    action=cast(dict[str, Any], pi).get("action", ""),
+                    password=self._mesh_details.password,
+                    payload=cast(dict[str, Any], pi).get("request", {}),
+                    raise_on_error=raise_on_error,
+                    session=self._mesh_details.session,
+                    target=node_address or self._mesh_details.host,
+                    username=self._mesh_details.user,
+                    redact=self._disable_redaction is False,
+                    supplementary_redactions=self._supplementary_redactions,
+                ).execute()
+                for pi in req.payload
+            ]
+            req_ind_resp = await asyncio.gather(*req_ind)
+            _LOGGER.debug("rebuilding output")
+            req_resp = api.Response(
+                action=api.Actions.TRANSACTION.action,
+                data={
+                    api.Response.RESULT_KEY: "OK",
+                    api.Response.DATA_KEY_TRANSACTION: [
+                        {api.Response.RESULT_KEY: "OK", api.Response.DATA_KEY_SINGLE: r.data} for r in req_ind_resp
+                    ],
+                },
+            )
+            _LOGGER.debug("rebuilt output")
+            # endregion
         except Exception as exc:
             raise exc from None
 
@@ -414,7 +416,7 @@ class Mesh:
         if track_time:
             self._last_gather_details.update({"capability_gather_start": time.time()})
 
-        responses: tuple[_ApiResponse, ...] = await asyncio.gather(
+        responses: tuple[ApiReqResp, ...] = await asyncio.gather(
             self._async_make_request(api.Actions.TRANSACTION.action, payload=payload)
         )
 
@@ -422,7 +424,7 @@ class Mesh:
             self._last_gather_details.update({"capability_gather_end": time.time()})
             self._last_gather_details.update({"capability_process_start": time.time()})
 
-        def _set_raw_value(action: str, data: api.JnapResponse | None) -> None:
+        def _set_raw_value(action: str, data: dict[str, Any]) -> None:
             """Set the return value with all the raw data as returned by the api.
 
             This uses the action key to construct the return.
@@ -436,23 +438,19 @@ class Mesh:
                     (a for a in api.Actions.values() if a.action == action), None
                 )
                 if _action is not None:
-                    ret[_action.key] = api_response.data
+                    ret[_action.key] = api_response.data[0]
 
         # region #-- prepare all the capability details --#
         # this ensures that the data from a singular request or a transaction is made available
         # in the return.
         for response in responses:
             req, resp = response
-            if req.action == api.Actions.TRANSACTION.action:
-                if resp.data is not None and isinstance(resp.data, list):
-                    for idx, action_response in enumerate(resp.data):
-                        if isinstance(req.payload, list):
-                            _set_raw_value(
-                                action=req.payload[idx].get("action", ""),
-                                data=action_response,
-                            )
-            else:
-                _set_raw_value(action=req.action, data=getattr(resp, "_data", {}))
+            for idx, action_response in enumerate(resp.data):
+                if req.action == api.Actions.TRANSACTION.action:  # loop through the data and marry with payload
+                    if isinstance(req.payload, list):
+                        _set_raw_value(req.payload[idx].get("action", ""), action_response)
+                else:  # just set the details
+                    _set_raw_value(req.action, action_response)
         # endregion
 
         if track_time:
@@ -483,7 +481,7 @@ class Mesh:
                 self._async_make_request(api.Actions.TRANSACTION.action, payload=payload, node_address=n.get("ip"))
             )
 
-        node_responses: list[_ApiResponse] = await asyncio.gather(*requests)
+        node_responses: list[ApiReqResp] = await asyncio.gather(*requests)
         # process the responses - we'll amalgamate them.
         for idx_n, n in enumerate(nodes):
             _, nr = node_responses[idx_n]
@@ -492,21 +490,15 @@ class Mesh:
                     ret[na.key] = []
                 if na.key == api.Actions.GET_NETWORK_CONNECTIONS.key:
                     try:
-                        api_response: api.Response = api.Response(
-                            na.action, cast(list[api.JnapResponse], nr.data)[idx_na]
-                        )
+                        api_response: api.Response = api.Response(na.action, nr.data[idx_na])
                     except MeshException as exc:
                         _LOGGER.debug("%s", exc)
                     else:
-                        ret[na.key].extend(
-                            [
-                                {**conn, "parent_id": n.get("id")}
-                                for conn in cast(
-                                    api.JnapResponse,
-                                    api_response.data,
-                                ).get("connections", [])
-                            ]
-                        )
+                        data: dict[str, Any] | None = next(iter(api_response.data), None)
+                        if data is not None:
+                            ret[na.key].extend(
+                                [{**conn, "parent_id": n.get("id")} for conn in data.get("connections", [])]
+                            )
         # endregion
 
         if track_time:
@@ -738,7 +730,7 @@ class Mesh:
         """
         _is_bridge_mode: bool = False
         ret: set[ActionKey] = set()
-        requests: list[Coroutine[Any, Any, _ApiResponse]] = []
+        requests: list[Coroutine[Any, Any, ApiReqResp]] = []
         # Scoping is ignored here - all requests are sent to the primary node.
         # This assumes the secondary nodes will have the same capability or send an error response accordingly at a later date.
         possible_capabilities: list[ActionDefinition] = [a for a in api.Actions.values() if a.is_capability]
@@ -751,48 +743,50 @@ class Mesh:
                 )
             )
 
-        responses: list[tuple[api.Request, api.Response]] = await asyncio.gather(*requests)
+        responses: list[ApiReqResp] = await asyncio.gather(*requests)
         for idx, resp in enumerate(responses):
             _, jnap_response = resp
-            if isinstance(jnap_response.data, dict) and "result" in jnap_response.data:
-                _LOGGER.debug(
-                    "capability not found: %s, response: %s",
-                    possible_capabilities[idx].key,
-                    jnap_response.data,
-                )
-                continue
+            data: dict[str, Any] | None = next(iter(jnap_response.data), None)
+            if data is not None:
+                if "result" in data:
+                    _LOGGER.debug(
+                        "capability not found: %s, response: %s",
+                        possible_capabilities[idx].key,
+                        jnap_response.data,
+                    )
+                    continue
 
-            if jnap_response.action == api.Actions.GET_WAN_INFO.action:
-                _is_bridge_mode = (
-                    cast(dict[str, Any], jnap_response.data).get("detectedWANType", "").lower() == "bridge"
-                )
-            ret.add(possible_capabilities[idx].key)
+                if jnap_response.action == api.Actions.GET_WAN_INFO.action:
+                    _is_bridge_mode = data.get("detectedWANType", "").lower() == "bridge"
+                ret.add(possible_capabilities[idx].key)
 
         # region #-- tidy up capabilities --#
         # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
         capabilities_to_remove: set[ActionKey] = set()
-        for resp in responses:
-            if resp[0].action == api.Actions.GET_SPEEDTEST_TYPES.action:
-                # region #-- remove speedtest related capabilities if they aren't really available --#
-                # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
-                _LOGGER.debug("establishing if speedtest is actually available")
-                healthcheck_modules: set[str] = set(
-                    cast(api.JnapResponse, resp[1].data).get("supportedHealthCheckModules", [])
-                )
+        for _, resp in responses:
+            data: dict[str, Any] | None = next(iter(resp.data), None)
+            if data is not None:
+                if resp.action == api.Actions.GET_SPEEDTEST_TYPES.action:
+                    # region #-- remove speedtest related capabilities if they aren't really available --#
+                    # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
+                    _LOGGER.debug("establishing if speedtest is actually available")
+                    healthcheck_modules: set[str] = set(data.get("supportedHealthCheckModules", []))
 
-                valid_onboard_speedtest: set[str] = {"SpeedTest"}
-                if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
-                    _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
-                    capabilities_to_remove = capabilities_to_remove.union(FeatureCapabilities.get("speedtest", set()))
-                # endregion
-            elif resp[0].action == api.Actions.GET_PARENTAL_CONTROL_INFO:
-                # region #-- tidy up for bridge mode --#
-                if _is_bridge_mode:
-                    _LOGGER.debug("in bridge mode so removing parental control capability")
-                    capabilities_to_remove = capabilities_to_remove.union(
-                        FeatureCapabilities.get("parental_control", set())
-                    )
-                # endregion
+                    valid_onboard_speedtest: set[str] = {"SpeedTest"}
+                    if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
+                        _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
+                        capabilities_to_remove = capabilities_to_remove.union(
+                            FeatureCapabilities.get("speedtest", set())
+                        )
+                    # endregion
+                elif resp.action == api.Actions.GET_PARENTAL_CONTROL_INFO:
+                    # region #-- tidy up for bridge mode --#
+                    if _is_bridge_mode:
+                        _LOGGER.debug("in bridge mode so removing parental control capability")
+                        capabilities_to_remove = capabilities_to_remove.union(
+                            FeatureCapabilities.get("parental_control", set())
+                        )
+                    # endregion
         for capability in capabilities_to_remove:
             if capability in ret:
                 ret.remove(capability)
@@ -941,10 +935,11 @@ class Mesh:
             "lastNumberOfResults": count,
         }
         _, resp = await self._async_make_request(action=api.Actions.GET_SPEEDTEST_RESULTS.action, payload=payload)
+        data: dict[str, Any] | None = next(iter(resp.data), None)
 
         ret: list[SpeedtestResult] = []
-        if resp.data is not None and not isinstance(resp.data, list):
-            speedtest_results = resp.data.get("healthCheckResults", [])
+        if data is not None:
+            speedtest_results = data.get("healthCheckResults", [])
             for res in speedtest_results:
                 sres: SpeedtestResult | None = self._process_speedtest_results(res)
                 if sres is not None:
@@ -1692,8 +1687,8 @@ class Mesh:
 
         ret: list[SpeedtestResult] = []
 
-        speedtest_results: list[dict[str, Any]] = cast(
-            dict[str, Any], self._mesh_attributes.get(api.Actions.GET_SPEEDTEST_RESULTS.key, {})
+        speedtest_results: list[dict[str, Any]] = self._mesh_attributes.get(
+            api.Actions.GET_SPEEDTEST_RESULTS.key, {}
         ).get("healthCheckResults", [])
         for res in speedtest_results:
             sres: SpeedtestResult | None = self._process_speedtest_results(res)
