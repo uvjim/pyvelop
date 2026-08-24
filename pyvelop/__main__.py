@@ -577,7 +577,7 @@ async def mesh_action(
                 elif action == "channel_scan_start":
                     await mesh_obj.async_start_channel_scan()
                 elif action == "detect_capabilities":
-                    ret = await mesh_obj.async_detect_capabilities()
+                    ret = list(await mesh_obj.async_detect_capabilities())
                 elif action == "guest_wifi_off":
                     await mesh_obj.async_set_guest_wifi_state(state=False)
                 elif action == "guest_wifi_on":
