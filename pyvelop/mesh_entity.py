@@ -614,7 +614,7 @@ class MeshEntity(ABC):
     async def _async_api_request(
         self,
         action: str,
-        payload: list[dict[str, Any]] | dict[str, Any] | None = None,
+        payload: dict[str, Any] = {},
         *,
         ip: str | None = None,
         raise_on_error: bool = True,
@@ -810,9 +810,11 @@ class MeshEntity(ABC):
             # unknown still so let's derive from GetNetworkConnections2
             props_nnc_type: dict[str, Any] = {}
             if node_network_conns:
-                if any(nnc.get("wireless", {}).get("signalDecibels") for nnc in node_network_conns):
+                if props.get("type") != ConnectionType.WIRELESS and any(
+                    nnc.get("wireless", {}).get("signalDecibels") for nnc in node_network_conns
+                ):
                     props_nnc_type = {"type": ConnectionType.WIRELESS}
-                else:
+                elif props.get("type") == ConnectionType.UNKNOWN:
                     props_nnc_type = {"type": ConnectionType.WIRED}
             if props_nnc_type:
                 audit_history.append(
