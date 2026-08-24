@@ -269,7 +269,6 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_SPEEDTEST_STATUS",
             "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus",
-            is_capability=True,
         ),
         ActionDefinition(
             "GET_SPEEDTEST_TYPES",
