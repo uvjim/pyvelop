@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from enum import IntEnum, auto
+from enum import IntEnum, IntFlag, auto
 from types import MappingProxyType
 from typing import Any, Literal
 
@@ -52,6 +52,22 @@ ActionKey = Literal[
 ]
 
 
+class ActionFeatures(IntFlag):
+    """Features that allow grouping of actions."""
+
+    DEVICE_INFO = auto()
+    SPEEDTEST = auto()
+    PARENTAL_CONTROL = auto()
+
+
+class ActionPurpose(IntEnum):
+    """Purpose of the action."""
+
+    GET = auto()
+    INVOKE = auto()
+    SET = auto()
+
+
 class ActionScope(IntEnum):
     """Possible scopes used for the actions."""
 
@@ -65,8 +81,10 @@ class ActionDefinition:
 
     key: ActionKey
     action: str
+    features: ActionFeatures | None = field(default=None, kw_only=True)
     is_capability: bool = field(default=False, kw_only=True)
     payload: dict[str, Any] = field(default_factory=dict, kw_only=True)
+    purpose: ActionPurpose = field(default=ActionPurpose.GET, kw_only=True)
     redactions: set[str] = field(default_factory=set, kw_only=True)
     scope: ActionScope = field(default=ActionScope.MESH, kw_only=True)
 
@@ -147,10 +165,12 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "CLEAR_SPEEDTEST_RESULTS",
             "http://linksys.com/jnap/healthcheck/ClearHealthCheckHistory",
+            purpose=ActionPurpose.INVOKE,
         ),
         ActionDefinition(
             "DELETE_DEVICE",
             "http://linksys.com/jnap/devicelist/DeleteDevice",
+            purpose=ActionPurpose.INVOKE,
         ),
         ActionDefinition(
             "GET_ALG_SETTINGS",
@@ -170,6 +190,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_DEVICES",
             "http://linksys.com/jnap/devicelist/GetDevices3",
+            features=ActionFeatures.DEVICE_INFO,
             is_capability=True,
             redactions={
                 "devices.connections.macAddress",
@@ -201,6 +222,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_LAN_SETTINGS",
             "http://linksys.com/jnap/router/GetLANSettings",
+            features=ActionFeatures.DEVICE_INFO,
             is_capability=True,
             redactions={
                 "hostName",
@@ -228,6 +250,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_NETWORK_CONNECTIONS",
             "http://linksys.com/jnap/networkconnections/GetNetworkConnections2",
+            features=ActionFeatures.DEVICE_INFO,
             scope=ActionScope.NODE,
             redactions={
                 "connections.macAddress",
@@ -237,6 +260,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_NODE_WIRELESS_CONNECTIONS",
             "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections",
+            features=ActionFeatures.DEVICE_INFO,
             is_capability=True,
             redactions={
                 "nodeWirelessConnections.connections.wireless.bssid",
@@ -246,6 +270,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_PARENTAL_CONTROL_INFO",
             "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings",
+            features=ActionFeatures.DEVICE_INFO | ActionFeatures.PARENTAL_CONTROL,
             is_capability=True,
             redactions={
                 "rules.macAddresses",
@@ -259,6 +284,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_SPEEDTEST_RESULTS",
             "http://linksys.com/jnap/healthcheck/GetHealthCheckResults",
+            features=ActionFeatures.SPEEDTEST,
             is_capability=True,
             payload={
                 "healthCheckModule": "SpeedTest",
@@ -269,6 +295,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_SPEEDTEST_STATUS",
             "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus",
+            features=ActionFeatures.SPEEDTEST,
         ),
         ActionDefinition(
             "GET_SPEEDTEST_TYPES",
@@ -327,46 +354,57 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "REBOOT",
             "http://linksys.com/jnap/core/Reboot",
+            purpose=ActionPurpose.INVOKE,
         ),
         ActionDefinition(
             "SET_DEVICE_PROPERTY",
             "http://linksys.com/jnap/devicelist/SetDeviceProperties",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "SET_GUEST_NETWORK",
             "http://linksys.com/jnap/guestnetwork/SetGuestRadioSettings2",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "SET_HOMEKIT_SETTINGS",
             "http://linksys.com/jnap/homekit/SetHomeKitSettings",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "SET_LED_NIGHT_MODE",
             "http://linksys.com/jnap/routerleds/SetLedNightModeSetting2",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "SET_PARENTAL_CONTROL_INFO",
             "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "SET_SCHEDULED_REBOOT_SETTINGS",
             "http://linksys.com/jnap/diagnostics/SetScheduledRebootSettings",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "SET_UPNP_SETTINGS",
             "http://linksys.com/jnap/routerupnp/SetUPnPSettings",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "SET_WPS_SERVER_SETTINGS",
             "http://linksys.com/jnap/wirelessap/SetWPSServerSettings",
+            purpose=ActionPurpose.SET,
         ),
         ActionDefinition(
             "START_CHANNEL_SCAN",
             "http://linksys.com/jnap/nodes/setup/StartAutoChannelSelection",
+            purpose=ActionPurpose.INVOKE,
         ),
         ActionDefinition(
             "START_SPEEDTEST",
             "http://linksys.com/jnap/healthcheck/RunHealthCheck",
+            purpose=ActionPurpose.INVOKE,
         ),
         ActionDefinition(
             "TRANSACTION",
@@ -375,6 +413,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "UPDATE_FIRMWARE",
             "http://linksys.com/jnap/nodes/firmwareupdate/UpdateFirmwareNow",
+            purpose=ActionPurpose.INVOKE,
         ),
     )
 )
