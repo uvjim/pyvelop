@@ -575,9 +575,11 @@ class MeshEntity(ABC):
         user_properties: list[dict[str, Any]] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
             "properties", []
         )
-        user_prop: list[dict[str, Any]] = [prop for prop in user_properties if prop.get("name") == property_name.value]
-        if user_prop:
-            ret = user_prop[0].get("value")
+        user_prop: dict[str, Any] | None = next(
+            (prop for prop in user_properties if prop.get("name") == property_name.value), None
+        )
+        if user_prop is not None:
+            ret = user_prop.get("value")
 
         return ret
 
