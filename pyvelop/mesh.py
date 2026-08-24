@@ -340,12 +340,11 @@ class Mesh:
             _LOGGER.debug("!!!")
             _LOGGER.debug("!!! %s !!!", exc)
             _LOGGER.debug("!!!")
-
             # only seen this exception happen with a transaction so re-raise
             if req.action != api.Actions.TRANSACTION.action:
                 raise MeshInvalidCredentials() from exc
 
-            # region #-- split the transacion and retry --#
+            # region #-- split the transaction and retry --#
             # When this exception is seen we need to do the following: -
             # - test whether the credentials are valid or not
             # - if they're not raise the MeshInvalidCredentials exception
@@ -375,14 +374,14 @@ class Mesh:
                 ).execute()
                 for pi in req.payload
             ]
-            req_ind_resp = await asyncio.gather(*req_ind)
+            req_ind_resp: list[api.Response] = await asyncio.gather(*req_ind)
             _LOGGER.debug("rebuilding output")
             req_resp = api.Response(
                 action=api.Actions.TRANSACTION.action,
                 data={
                     api.Response.RESULT_KEY: "OK",
                     api.Response.DATA_KEY_TRANSACTION: [
-                        {api.Response.RESULT_KEY: "OK", api.Response.DATA_KEY_SINGLE: r.data} for r in req_ind_resp
+                        {api.Response.RESULT_KEY: "OK", api.Response.DATA_KEY_SINGLE: r.data[0]} for r in req_ind_resp
                     ],
                 },
             )
@@ -430,14 +429,14 @@ class Mesh:
             This uses the action key to construct the return.
             """
             try:
-                api_response: api.Response = api.Response(action=action, data=data)
+                api_response: api.Response = api.Response(action, data)
             except MeshException as exc:
                 _LOGGER.debug("%s", exc)
             else:
                 _action: api.ActionDefinition | None = next(
                     (a for a in api.Actions.values() if a.action == action), None
                 )
-                if _action is not None:
+                if _action is not None and len(api_response.data):
                     ret[_action.key] = api_response.data[0]
 
         # region #-- prepare all the capability details --#
