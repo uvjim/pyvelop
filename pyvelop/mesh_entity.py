@@ -711,8 +711,16 @@ class MeshEntity(ABC):
                 None,
             )
             node_network_conns: list[dict[str, Any]] = self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, [])
-            reservation_info: dict[str, Any] | None = self._data.get(EntityDataProperties.RESERVATION_DETAILS)
-            wifi_info: dict[str, Any] | None = self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS)
+            reservation_info: list[dict[str, Any]] = [
+                ri
+                for ri in self._data.get(EntityDataProperties.RESERVATION_DETAILS, [])
+                if ri.get("macAddress", "").lower() == props.get("mac", "").lower()
+            ]
+            wifi_info: list[dict[str, Any]] = [
+                wi
+                for wi in self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, [])
+                if wi.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
+            ]
             # endregion
 
             # region #-- derive details from the device details --#
@@ -733,34 +741,35 @@ class MeshEntity(ABC):
 
             # region #-- derive reservation information --#
             props_reservation: dict[str, Any] = {}
-            if reservation_info is not None:
-                props_reservation = {
-                    "reservation": bool(reservation_info),
-                    "reservation_description": reservation_info.get("description"),
-                }
-                audit_history.append(
-                    AttributeAuditEntry(
-                        EntityDataProperties.RESERVATION_DETAILS.value,
-                        props_reservation,
-                        type=AttributeAction.MERGE,
-                        index=idx,
-                    )
+            if len(reservation_info) > 1:
+                raise ValueError("Unexpected DHCP reservation data")
+
+            props_reservation = {
+                "reservation": bool(reservation_info),
+                "reservation_description": next(iter(reservation_info), {}).get("description"),
+            }
+            audit_history.append(
+                AttributeAuditEntry(
+                    EntityDataProperties.RESERVATION_DETAILS.value,
+                    props_reservation,
+                    type=AttributeAction.MERGE,
+                    index=idx,
                 )
-                props.update(props_reservation)
+            )
+            props.update(props_reservation)
             # endregion
 
             # region #-- derive wireless information --#
             props_wifi: dict[str, Any] = {}
-            if (
-                wifi_info is not None
-                and wifi_info.get("macAddress", "").lower() == adapter.get("macAddress", "").lower()
-            ):
+            if len(wifi_info) > 1:
+                raise ValueError("Unexpected wi-fi data")
+            if wifi_info:
                 signal_strength: SignalStrength | None = self._signal_strength_to_text(
-                    wifi_info.get("wireless", {}).get("signalDecibels")
+                    wifi_info[0].get("wireless", {}).get("signalDecibels")
                 )
                 props_wifi = {
-                    "negotiated_mbps": wifi_info.get("negotiatedMbps"),
-                    "rssi_dbm": wifi_info.get("wireless", {}).get("signalDecibels"),
+                    "negotiated_mbps": wifi_info[0].get("negotiatedMbps"),
+                    "rssi_dbm": wifi_info[0].get("wireless", {}).get("signalDecibels"),
                     "signal_strength": signal_strength,
                 }
                 audit_history.append(
