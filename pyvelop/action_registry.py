@@ -251,6 +251,7 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_NETWORK_CONNECTIONS",
             "http://linksys.com/jnap/networkconnections/GetNetworkConnections2",
             features=ActionFeatures.DEVICE_INFO,
+            is_capability=True,
             scope=ActionScope.NODE,
             redactions={
                 "connections.macAddress",
