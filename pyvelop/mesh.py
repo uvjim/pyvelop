@@ -11,18 +11,19 @@ import logging
 import re
 import time
 import uuid
+from collections import defaultdict
 from collections.abc import Coroutine, Iterable
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import aiohttp
 from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .action_registry import ActionDefinition, ActionKey, ActionScope
+from .action_registry import ActionDefinition, ActionKey, Actions, ActionScope
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
@@ -36,7 +37,6 @@ from .exceptions import (
 from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 from .mesh_entity import (
-    AdapterInfo,
     DeviceEntity,
     EntityDataProperties,
     NodeEntity,
@@ -47,9 +47,17 @@ from .mesh_entity import (
 
 type ApiReqResp = tuple[api.Request, api.Response]
 
+_ACTION_BY_NAME: dict[str, ActionDefinition] = {action.action: action for action in Actions.values()}
 _ATTR_PROCESSED_DEVICES: str = "processed_devices"
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
+
+
+class CapabilityScopedGroups(NamedTuple):
+    """Representation of the groups of capabilities."""
+
+    mesh: tuple[ActionDefinition, ...]
+    node: tuple[ActionDefinition, ...]
 
 
 class FirmwareUpdatePolicy(StrEnum):
@@ -73,6 +81,23 @@ class NightModeState(StrEnum):
     ALWAYS = auto()
     NIGHT_MODE = auto()
     OFF = auto()
+
+
+class ProcessTimerLabels(StrEnum):
+    """Possible timers that can be stored."""
+
+    ENTITIES_PROCESS_END = auto()
+    ENTITIES_PROCESS_START = auto()
+    MESH_SCOPED_GATHER_DETAILS_END = auto()
+    MESH_SCOPED_GATHER_DETAILS_START = auto()
+    MESH_SCOPED_PROCESS_DETAILS_START = auto()
+    MESH_SCOPED_PROCESS_DETAILS_END = auto()
+    NODE_SCOPED_GATHER_DETAILS_END = auto()
+    NODE_SCOPED_GATHER_DETAILS_START = auto()
+    NODE_SCOPED_PROCESS_DETAILS_END = auto()
+    NODE_SCOPED_PROCESS_DETAILS_START = auto()
+    REMEDIAL_WORK_END = auto()
+    REMEDIAL_WORK_START = auto()
 
 
 class ScheduledRebootInterval(StrEnum):
@@ -112,7 +137,10 @@ class MeshDetails:
     user: str
 
     def __repr__(self) -> str:
-        """Friendly string representation of the class."""
+        """Friendly string representation of the class.
+
+        :return: Concatenation of the class name and the specified host,
+        """
         return f"{self.__class__.__name__}: {self.host}"
 
 
@@ -274,6 +302,216 @@ class Mesh:
         session = ClientSession(raise_for_status=True)
         return session
 
+    def _build_mesh_entities(self, track_time, mesh_details: dict[str, Any]) -> list[DeviceEntity | NodeEntity]:
+        """Build a list of mesh entities with the given information."""
+
+        ret: list[DeviceEntity | NodeEntity] = []
+
+        self._mark_time(track_time, ProcessTimerLabels.ENTITIES_PROCESS_START)
+        # region #-- pre-index device ID based info --#
+        backhaul_by_device_id: dict[str, Any] = {
+            bi.get("deviceUUID"): bi
+            for bi in mesh_details.get(api.Actions.GET_BACKHAUL.key, {}).get("backhaulDevices", [])
+            if bi.get("deviceUUID")
+        }
+        firmware_by_device_id: dict[str, Any] = {
+            fds.get("deviceUUID"): fds
+            for fds in mesh_details.get(api.Actions.GET_UPDATE_FIRMWARE_STATE.key, {}).get("firmwareUpdateStatus", [])
+            if fds.get("deviceUUID")
+        }
+        wifi_connections_by_id: dict[str, Any] = {
+            nwc.get("deviceID"): nwc
+            for nwc in mesh_details.get(Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get(
+                "nodeWirelessConnections", []
+            )
+            if nwc.get("deviceID")
+        }
+        # endregion
+
+        # region #-- pre-index mac based information
+        dhcp_reservations_by_mac: dict[str, Any] = {
+            reservation["macAddress"].lower(): reservation
+            for reservation in mesh_details.get(Actions.GET_LAN_SETTINGS.key, {})
+            .get("dhcpSettings", {})
+            .get("reservations", [])
+            if reservation.get("macAddress")
+        }
+        network_connections_by_mac: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for connection in mesh_details.get(Actions.GET_NETWORK_CONNECTIONS.key, []):
+            mac = connection.get("macAddress")
+            if mac:
+                network_connections_by_mac[mac.lower()].append(connection)
+        node_wirless_connections_by_mac: dict[str, dict[str, Any]] = {
+            mac.lower(): connection
+            for connection in mesh_details.get(Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get("connections", [])
+            if connection.get("macAddress")
+        }
+        parental_control_by_mac: dict[str, Any] = {
+            mac.lower(): rule
+            for rule in mesh_details.get(Actions.GET_PARENTAL_CONTROL_INFO.key, {}).get("rules", [])
+            for mac in rule.get("macAddresses", [])
+        }
+        # endregion
+
+        # we'll treat the information from GET_DEVICES as our starting point.
+        for entity in mesh_details.get(api.Actions.GET_DEVICES.key, {}).get("devices", []):
+            # prepare variables for holding processed data
+            entity_dhcp_reservations: list[dict[str, Any]] = []
+            entity_network_connections: list[dict[str, Any]] = []
+            entity_pc_schedules: list[dict[str, Any]] = []
+            entity_wifi_connections: list[dict[str, Any]] = []
+            # entity_data will be used to store all the information needed to build the appropriate MeshEntity object.
+            entity_data: dict[str, Any] = {}
+            # stamp the gather time into each entity
+            entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get(
+                ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_START.value
+            )
+            # all details as per the API response get added
+            entity_data[EntityDataProperties.DEVICE_DETAILS] = entity
+            # region #-- process additional information --#
+            # this is gathered, infered and linked from other API calls
+            if "nodeType" not in entity:  # process end devices connected to the mesh
+                for adapter in entity.get("knownInterfaces", []):  # per MAC details
+                    mac = adapter.get("macAddress", "").lower()
+
+                    # region #-- get parental control details --#
+                    if pc_rule := parental_control_by_mac.get(mac):
+                        entity_pc_schedules.append(pc_rule)
+                    # endregion
+
+                    # region #-- get DHCP reservation info --#
+                    if reservation := dhcp_reservations_by_mac.get(mac):
+                        entity_dhcp_reservations.append(reservation)
+                    # endregion
+
+                    # region #-- wireless connection details --#
+                    if connection := node_wirless_connections_by_mac.get(mac):
+                        entity_wifi_connections.append(connection)
+                    # endregion
+
+                    # region #-- retrieve details from the node network connections --#
+                    if conns := network_connections_by_mac.get(mac):
+                        entity_network_connections.extend(conns)
+                    # endregion
+
+                entity_data[EntityDataProperties.NODE_NETWORK_CONNECTIONS] = entity_network_connections
+                entity_data[EntityDataProperties.PARENTAL_CONTROLS] = entity_pc_schedules
+                entity_data[EntityDataProperties.RESERVATION_DETAILS] = entity_dhcp_reservations
+                entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = entity_wifi_connections
+            else:  # process nodes connected to the mesh
+                # region #-- determine the backhaul information --#
+                if backhaul := backhaul_by_device_id.get(entity.get("deviceID")):
+                    entity_data[EntityDataProperties.BACKHAUL] = backhaul
+                # endregion
+
+                # region #-- firmware update details --#
+                if firmware := firmware_by_device_id.get(entity.get("deviceID")):
+                    entity_data[EntityDataProperties.FIRMWARE_DETAILS] = firmware
+                # endregion
+
+                # region #-- wifi connection details --#
+                if wifi_conn := wifi_connections_by_id.get(entity.get("deviceID")):
+                    entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = wifi_conn.get("connections", [])
+                # endregion
+            # endregion
+
+            # region #-- build the MeshEntity objects --#
+            if "nodeType" not in entity:
+                ret.append(DeviceEntity(entity_data, self._mesh_details, self._supplementary_redactions))
+            else:
+                ret.append(NodeEntity(entity_data, self._mesh_details, self._supplementary_redactions))
+            # endregion
+        self._mark_time(track_time, ProcessTimerLabels.ENTITIES_PROCESS_END)
+
+        return ret
+
+    def _get_nodes_from_raw(self, raw_details: dict[str, Any]) -> list[dict[str, str]]:
+        """Retrieve the nodes from raw details.
+
+        :return: list of dictionaries containing the IP and unique_id
+        """
+
+        ret: list[dict[str, str]] = []
+
+        for device in raw_details.get(Actions.GET_DEVICES.key, {}).get("devices", []):
+            if "nodeType" not in device:
+                continue
+
+            ip_address = next(
+                (
+                    connection.get("ipAddress")
+                    for connection in device.get("connections", [])
+                    if connection.get("ipAddress")
+                ),
+                None,
+            )
+
+            if ip_address:
+                ret.append({"id": device["deviceID"], "ip": ip_address})
+
+        return ret
+
+    def _mark_time(self, enabled: bool, name: ProcessTimerLabels) -> None:
+        """Stamp the time into the tracking object."""
+
+        if enabled:
+            self._last_gather_details[name.value] = time.time()
+
+    def _parse_raw_value(self, action: str, data: dict[str, Any]) -> tuple[str, Any] | None:
+        """Parse the data returned by the API ready for storing."""
+
+        try:
+            response = api.Response(action, data)
+        except MeshException as exc:
+            _LOGGER.debug("%s", exc)
+            return None
+
+        action_definition = _ACTION_BY_NAME.get(action)
+
+        if action_definition is None or not response.data:
+            return None
+
+        return action_definition.key, response.data[0]
+
+    def _process_node_response(
+        self, node: dict[str, str], actions: Iterable[ActionDefinition], response: ApiReqResp
+    ) -> dict[str, Any]:
+        """Process the node scoped results."""
+
+        _, api_response = response
+        result: dict[str, Any] = {}
+
+        for idx, action in enumerate(actions):
+            if idx >= len(api_response.data):
+                break
+
+            try:
+                parsed = api.Response(
+                    action.action,
+                    api_response.data[idx],
+                )
+            except MeshException as exc:
+                _LOGGER.debug("%s", exc)
+                continue
+
+            if not parsed.data:
+                continue
+
+            data = parsed.data[0]
+
+            if action.key == Actions.GET_NETWORK_CONNECTIONS.key:
+                result[action.key] = [
+                    {
+                        **connection,
+                        "parent_id": node["id"],
+                    }
+                    for connection in data.get("connections", [])
+                ]
+            else:
+                result[action.key] = data
+
+        return result
+
     def _process_speedtest_results(self, results: dict[str, Any]) -> SpeedtestResult | None:
         """Build a SpeedtestResult object from the provisded results."""
 
@@ -298,6 +536,122 @@ class Mesh:
             "upload_bandwidth": result_set.get("uploadBandwidth"),
         }
         return SpeedtestResult(**props)
+
+    def _remediate_mesh_entities(
+        self, track_time: bool, entity_details: list[DeviceEntity | NodeEntity]
+    ) -> list[DeviceEntity | NodeEntity]:
+        """Apply any remediations necessary to ensure mesh entity details are as complete as possible."""
+
+        ret: list[DeviceEntity | NodeEntity] = []
+
+        self._mark_time(track_time, ProcessTimerLabels.REMEDIAL_WORK_START)
+        for node_or_device in entity_details:
+            # region #-- establish the parent/child relationship for entities
+            audit_history: list[AttributeAuditEntry] = []
+            # check if the parent is known in GetDevices3 - assumes the first connection that has a parent is correct
+            parent_node: str | NodeEntity | None = next(
+                (
+                    conn.get("parentDeviceID")
+                    for conn in node_or_device.raw_details.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
+                        "connections", []
+                    )
+                ),
+                None,
+            )
+            audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, parent_node))
+            if isinstance(node_or_device, NodeEntity):  # node?
+                # use backhaul info
+                parent_ip: str | None = node_or_device.raw_details.get(EntityDataProperties.BACKHAUL, {}).get(
+                    "parentIPAddress"
+                )
+                if parent_ip is not None:
+                    parent_node = next(
+                        (
+                            node
+                            for node in entity_details
+                            if isinstance(node, NodeEntity)
+                            and any(adapter.primary and adapter.ip == parent_ip for adapter in node.adapter_info.value)
+                        ),
+                        None,
+                    )
+                    if parent_node is not None:
+                        audit_history.append(
+                            AttributeAuditEntry(
+                                EntityDataProperties.BACKHAUL.value, parent_ip, type=AttributeAction.REPLACE
+                            )
+                        )
+            elif isinstance(node_or_device, DeviceEntity) and node_or_device.status:
+                if not parent_node:
+                    # region #-- let's look in the wireless node connections for a parent --#
+                    adapter_macs: set[str] = {
+                        adi.mac for adi in node_or_device.adapter_info.value if adi.mac is not None
+                    }
+                    if adapter_macs:
+                        nodes = [node for node in entity_details if isinstance(node, NodeEntity)]
+                        for node in nodes:
+                            if any(
+                                pd.get("macAddress") in adapter_macs
+                                for pd in node.raw_details.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, {})
+                            ):
+                                parent_node = node.unique_id.value
+                                break
+                        audit_history.append(
+                            AttributeAuditEntry(
+                                EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
+                                parent_node,
+                                type=AttributeAction.REPLACE,
+                            )
+                        )
+                    # endregion
+
+                if not parent_node:
+                    # region #-- still no parent so let's look in the node network connections --#
+                    nnc: list[dict[str, Any]] = cast(
+                        list[dict[str, Any]],
+                        node_or_device.raw_details.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, []),
+                    )
+                    for n in nnc:
+                        parent_node = n.get("parent_id")
+                        if parent_node is not None:
+                            audit_history.append(
+                                AttributeAuditEntry(
+                                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                                    parent_node,
+                                    type=AttributeAction.REPLACE,
+                                )
+                            )
+                    # endregion
+
+            if parent_node and not isinstance(parent_node, NodeEntity):  # we have the ID so let's get the NodeEntity
+                parent_node = cast(
+                    NodeEntity | None, next((n for n in entity_details if n.unique_id == parent_node), None)
+                )
+            if isinstance(parent_node, NodeEntity):
+                node_or_device._update_parent(MeshAttribute(parent_node, tuple(audit_history)))
+                if isinstance(node_or_device, DeviceEntity):
+                    parent_node._update_connected_devices(node_or_device)
+
+            ret.append(node_or_device)
+
+        self._mark_time(track_time, ProcessTimerLabels.REMEDIAL_WORK_END)
+
+        return ret
+
+    def _split_capability_into_scopes(self, capabilities: Iterable[ActionKey]) -> CapabilityScopedGroups:
+        """Group the given capabilities into scopes."""
+
+        mesh: list[ActionDefinition] = []
+        node: list[ActionDefinition] = []
+
+        for capability in capabilities:
+            action = Actions[capability]
+
+            if action.scope == ActionScope.MESH:
+                mesh.append(action)
+            elif action.scope == ActionScope.NODE:
+                node.append(action)
+
+        return CapabilityScopedGroups(tuple(mesh), tuple(node))
 
     async def _async_make_request(
         self,
@@ -392,310 +746,123 @@ class Mesh:
 
         return (req, req_resp)
 
-    async def _async_gather_details(  # noqa: C901
+    async def _async_gather_details(
         self,
         capabilities: Iterable[ActionKey],
         *,
         track_time: bool = False,
     ) -> dict[str, Any]:
-        """Work is done here to gather the necessary details for mesh.
+        """Work is done here to gather the necessary details from the mesh.
 
         :return: A dictionary containing the relevant details.
         """
 
         ret: dict[str, Any] = {}
-        payload: list[dict[str, Any]] = []
 
-        # region #-- only make requests for the discovered capabilities --#
-        for capability in capabilities:
-            jnap_action: ActionDefinition = api.Actions[capability]
-            payload.append({"action": jnap_action.action, "request": jnap_action.payload})
+        capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(capabilities)
+
+        # region #-- gather the details for the mesh scoped capabilities --#
+        ret.update(await self._async_gather_mesh_details(track_time, capability_scope_groups.mesh))
         # endregion
-
-        if track_time:
-            self._last_gather_details.update({"capability_gather_start": time.time()})
-
-        responses: tuple[ApiReqResp, ...] = await asyncio.gather(
-            self._async_make_request(api.Actions.TRANSACTION.action, payload=payload)
-        )
-
-        if track_time:
-            self._last_gather_details.update({"capability_gather_end": time.time()})
-            self._last_gather_details.update({"capability_process_start": time.time()})
-
-        def _set_raw_value(action: str, data: dict[str, Any]) -> None:
-            """Set the return value with all the raw data as returned by the api.
-
-            This uses the action key to construct the return.
-            """
-            try:
-                api_response: api.Response = api.Response(action, data)
-            except MeshException as exc:
-                _LOGGER.debug("%s", exc)
-            else:
-                _action: api.ActionDefinition | None = next(
-                    (a for a in api.Actions.values() if a.action == action), None
-                )
-                if _action is not None and len(api_response.data):
-                    ret[_action.key] = api_response.data[0]
-
-        # region #-- prepare all the capability details --#
-        # this ensures that the data from a singular request or a transaction is made available
-        # in the return.
-        for response in responses:
-            req, resp = response
-            for idx, action_response in enumerate(resp.data):
-                if req.action == api.Actions.TRANSACTION.action:  # loop through the data and marry with payload
-                    if isinstance(req.payload, list):
-                        _set_raw_value(req.payload[idx].get("action", ""), action_response)
-                else:  # just set the details
-                    _set_raw_value(req.action, action_response)
-        # endregion
-
-        if track_time:
-            self._last_gather_details.update({"capability_process_end": time.time()})
-            self._last_gather_details.update({"per_node_gather_start": time.time()})
 
         # region #-- action per node requests --#
-        # we'll only execute actions that are  scoped to the node here
-        node_actions: list[ActionDefinition] = [
-            action_definition
-            for action_definition in api.Actions.values()
-            if action_definition.scope == ActionScope.NODE
-        ]
-        # establish node IP addresses - quick and dirty here because we want the information back before full processing
-        nodes: list[dict[str, str]] = []
-        for dev in ret.get(api.Actions.GET_DEVICES.key, {}).get("devices", []):
-            if "nodeType" in dev:
-                ip_addr: str | None = next((conn.get("ipAddress") for conn in dev.get("connections", [])), None)
-                if ip_addr is not None:
-                    nodes.append({"id": dev.get("deviceID"), "ip": ip_addr})
-
-        requests = []
-        for n in nodes:
-            payload.clear()
-            for na in node_actions:
-                payload.append({"action": na.action, "request": na.payload})
-            requests.append(
-                self._async_make_request(api.Actions.TRANSACTION.action, payload=payload, node_address=n.get("ip"))
-            )
-
-        node_responses: list[ApiReqResp] = await asyncio.gather(*requests)
-        # process the responses - we'll amalgamate them.
-        for idx_n, n in enumerate(nodes):
-            _, nr = node_responses[idx_n]
-            for idx_na, na in enumerate(node_actions):
-                if na.key not in ret:
-                    ret[na.key] = []
-                if na.key == api.Actions.GET_NETWORK_CONNECTIONS.key:
-                    try:
-                        api_response: api.Response = api.Response(na.action, nr.data[idx_na])
-                    except MeshException as exc:
-                        _LOGGER.debug("%s", exc)
-                    else:
-                        data: dict[str, Any] | None = next(iter(api_response.data), None)
-                        if data is not None:
-                            ret[na.key].extend(
-                                [{**conn, "parent_id": n.get("id")} for conn in data.get("connections", [])]
-                            )
+        nodes: list[dict[str, str]] = self._get_nodes_from_raw(ret)
+        ret.update(await self._async_gather_node_details(track_time, nodes, capability_scope_groups.node))
         # endregion
 
-        if track_time:
-            self._last_gather_details.update({"per_node_gather_end": time.time()})
-            self._last_gather_details.update({"process_entities_start": time.time()})
-
-        # region #-- process mesh entities --#
-        mesh_entities: list[DeviceEntity | NodeEntity] = []
-        # region #-- build the properties for the mesh entity types --#
-        # we'll treat the information from GET_DEVICES as our starting point.
-        for entity in ret.get(api.Actions.GET_DEVICES.key, {}).get("devices", []):
-            # entity_data will be used to store all the information needed to build the appropriate MeshEntity object.
-            entity_data: dict[str, Any] = {}
-            # stamp the gather time into each entity
-            entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get("capability_gather_end")
-            # all details as per the API response get added
-            entity_data[EntityDataProperties.DEVICE_DETAILS] = entity
-            # region #-- process additional information --#
-            # this is gathered, infered and linked from other API calls
-            if "nodeType" not in entity:
-                # region #-- process end devices connected to the mesh --#
-                # region #-- link up MAC based information --#
-                dev_adapter_macs: list[str] = [
-                    dev_adapter.get("macAddress") for dev_adapter in entity.get("knownInterfaces", [])
-                ]
-                dev_pc_schedule: list[dict[str, Any]] = []
-                for dev_mac in dev_adapter_macs:
-                    # region #-- get parental control details --#
-                    dev_pc_schedule: list[dict[str, Any]] = []
-                    for rule in ret.get(api.Actions.GET_PARENTAL_CONTROL_INFO.key, {}).get("rules", []):
-                        if dev_mac in rule.get("macAddresses", []):
-                            dev_pc_schedule.append(rule)
-                            break
-                    entity_data[EntityDataProperties.PARENTAL_CONTROLS] = dev_pc_schedule
-                    # endregion
-
-                    # region #-- get DHCP reservation info --#
-                    for reservation in (
-                        ret.get(api.Actions.GET_LAN_SETTINGS.key, {}).get("dhcpSettings", {}).get("reservations", [])
-                    ):
-                        if reservation.get("macAddress", "").lower() == dev_mac.lower():
-                            entity_data[EntityDataProperties.RESERVATION_DETAILS] = reservation
-                            break
-                    # endregion
-
-                    # region #-- wireless connection details --#
-                    for nwc in ret.get(api.Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get(
-                        "nodeWirelessConnections", []
-                    ):
-                        if (
-                            connection := next(
-                                (c for c in nwc.get("connections", {}) if c.get("macAddress") == dev_mac), None
-                            )
-                        ) is not None:
-                            entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = connection
-                            break
-                    # endregion
-
-                    # region #-- retrieve details from the node network connections --#
-                    nnc: list[dict[str, Any]] = [
-                        conn
-                        for conn in ret.get(api.Actions.GET_NETWORK_CONNECTIONS.key, [])
-                        if conn.get("macAddress") == dev_mac
-                    ]
-                    entity_data[EntityDataProperties.NODE_NETWORK_CONNECTIONS] = nnc
-                    # endregion
-                # endregion
-                # endregion
-            else:
-                # region #-- process nodes connected to the mesh --#
-                # region #-- determine the backhaul information --#
-                entity_data[EntityDataProperties.BACKHAUL] = next(
-                    (
-                        bi
-                        for bi in ret.get(api.Actions.GET_BACKHAUL.key, {}).get("backhaulDevices", [])
-                        if bi.get("deviceUUID") == entity.get("deviceID")
-                    ),
-                    {},
-                )
-                # endregion
-
-                # region #-- calculate if there is a firmware update available --#
-                entity_data[EntityDataProperties.FIRMWARE_DETAILS] = next(
-                    (
-                        fds
-                        for fds in ret.get(api.Actions.GET_UPDATE_FIRMWARE_STATE.key, {}).get(
-                            "firmwareUpdateStatus", []
-                        )
-                        if fds.get("deviceUUID") == entity.get("deviceID")
-                    ),
-                    {},
-                )
-                # endregion
-                # endregion
-
-            # region #-- build the MeshEntity objects --#
-            if "nodeType" not in entity:
-                mesh_entities.append(DeviceEntity(entity_data, self._mesh_details, self._supplementary_redactions))
-            else:
-                mesh_entities.append(NodeEntity(entity_data, self._mesh_details, self._supplementary_redactions))
-            # endregion
+        # region #-- prepare the mesh entities --#
+        mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(track_time, ret)
         # endregion
-        # endregion
-        # endregion
-
-        if track_time:
-            self._last_gather_details.update({"process_entities_stop": time.time()})
-            self._last_gather_details.update({"remedial_work_start": time.time()})
 
         # region #-- remedial work for the entities --#
-        # handle information here that needs a reference to the DeviceEntity or NodeEntity.
-        for node_or_device in mesh_entities:
-            audit_history: list[AttributeAuditEntry] = []
-            # region #-- establish the parent/child relationship for entities
-            parent_node: str | NodeEntity | None = next(
-                (
-                    conn.get("parentDeviceID")
-                    for conn in node_or_device.raw_details.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
-                        "connections", []
-                    )
-                ),
-                None,
-            )
-            audit_history.append(AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, parent_node))
-            if isinstance(node_or_device, NodeEntity):
-                # region #-- use backhaul information to set parent for a node --#
-                parent_ip: str | None = node_or_device.raw_details.get(EntityDataProperties.BACKHAUL, {}).get(
-                    "parentIPAddress"
-                )
-                if parent_ip is not None:
-                    for n in mesh_entities:
-                        if isinstance(n, NodeEntity):
-                            nadi: AdapterInfo | None = next((adi for adi in n.adapter_info.value if adi.primary), None)
-                            if nadi is not None and parent_ip == nadi.ip:
-                                parent_node = n
-                                break
-                    audit_history.append(
-                        AttributeAuditEntry(
-                            EntityDataProperties.BACKHAUL.value, parent_ip, type=AttributeAction.REPLACE
-                        )
-                    )
-                # endregion
-            elif isinstance(node_or_device, DeviceEntity) and node_or_device.status:
-                if not parent_node:
-                    # region #-- let's look in the wireless node connections for a parent --#
-                    adapter_macs: set[str] = {
-                        adi.mac for adi in node_or_device.adapter_info.value if adi.mac is not None
-                    }
-                    if adapter_macs:
-                        for nwc in ret.get(api.Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get(
-                            "nodeWirelessConnections", []
-                        ):
-                            if any(pd.get("macAddress") in adapter_macs for pd in nwc.get("connections", [])):
-                                parent_node = nwc.get("deviceID")
-                                break
-                    audit_history.append(
-                        AttributeAuditEntry(
-                            EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                            parent_node,
-                            type=AttributeAction.REPLACE,
-                        )
-                    )
-                    # endregion
-
-                if not parent_node:
-                    # region #-- still no parent so let's look in the node network connections --#
-                    nnc: list[dict[str, Any]] = cast(
-                        list[dict[str, Any]],
-                        node_or_device.raw_details.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, []),
-                    )
-                    for n in nnc:
-                        parent_node = n.get("parent_id")
-                        if parent_node is not None:
-                            audit_history.append(
-                                AttributeAuditEntry(
-                                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                                    parent_node,
-                                    type=AttributeAction.REPLACE,
-                                )
-                            )
-                    # endregion
-
-            if parent_node and not isinstance(parent_node, NodeEntity):  # we have the ID so let's get the NodeEntity
-                parent_node = cast(
-                    NodeEntity | None, next((n for n in mesh_entities if n.unique_id == parent_node), None)
-                )
-            if isinstance(parent_node, NodeEntity):
-                node_or_device._update_parent(MeshAttribute(parent_node, tuple(audit_history)))
-                if isinstance(node_or_device, DeviceEntity):
-                    parent_node._update_connected_devices(node_or_device)
-
+        mesh_entities = self._remediate_mesh_entities(track_time, mesh_entities)
         # endregion
 
         ret[_ATTR_PROCESSED_DEVICES] = mesh_entities or []
         # endregion
 
-        if track_time:
-            self._last_gather_details.update({"remedial_work_end": time.time()})
+        return ret
+
+    async def _async_gather_mesh_details(
+        self, track_time: bool, capabilities: Iterable[ActionDefinition]
+    ) -> dict[str, Any]:
+        """Build the instructions needed to gather details from the mesh, execute and return."""
+
+        # region #-- build and make the request --#
+        self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_START)
+        actions = tuple(capabilities)
+        payload = [{"action": action.action, "request": action.payload} for action in actions]
+
+        if not payload:
+            return {}
+
+        response: ApiReqResp = await self._async_make_request(
+            Actions.TRANSACTION.action,
+            payload=payload,
+        )
+        self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_END)
+        # endregion
+
+        # region #-- process the responses --#
+        self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_PROCESS_DETAILS_START)
+        ret: dict[str, Any] = {}
+        _, api_response = response
+
+        for requested, data in zip(payload, api_response.data):
+            parsed_data: tuple[str, Any] | None = self._parse_raw_value(requested["action"], data)
+            if parsed_data is not None:
+                key, value = parsed_data
+                ret[key] = value
+        self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_PROCESS_DETAILS_END)
+        # endregion
+
+        return ret
+
+    async def _async_gather_node_details(
+        self, track_time: bool, nodes: Iterable[dict[str, Any]], capabilities: Iterable[ActionDefinition]
+    ) -> dict[str, Any]:
+        """Retrieve the details for node scoped requests."""
+
+        def _combine_node_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
+            combined: dict[str, Any] = {}
+
+            for result in results:
+                for key, value in result.items():
+                    if key == Actions.GET_NETWORK_CONNECTIONS.key:
+                        combined.setdefault(key, []).extend(value)
+                    else:
+                        combined.setdefault(key, value)
+
+            return combined
+
+        # region #-- build and make the requests --#
+        self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_START)
+        actions = tuple(capabilities)
+        nodes = tuple(nodes)
+        if not actions or not nodes:
+            return {}
+
+        requests = [
+            self._async_make_request(
+                Actions.TRANSACTION.action,
+                payload=[{"action": action.action, "request": action.payload} for action in actions],
+                node_address=node["ip"],
+            )
+            for node in nodes
+        ]
+
+        responses = await asyncio.gather(*requests)
+        self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_END)
+        # endregion
+
+        # region #-- process the responses --#
+        self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_PROCESS_DETAILS_START)
+        per_node_results = [
+            self._process_node_response(node, actions, response) for node, response in zip(nodes, responses)
+        ]
+        ret = _combine_node_results(per_node_results)
+        self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_PROCESS_DETAILS_END)
+        # endregion
 
         return ret
 
