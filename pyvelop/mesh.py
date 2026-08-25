@@ -15,7 +15,6 @@ from collections import defaultdict
 from collections.abc import Coroutine, Iterable
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
-from types import MappingProxyType
 from typing import Any, NamedTuple, cast
 
 import aiohttp
@@ -23,7 +22,13 @@ from aiohttp import ClientSession
 
 from . import __version__, camel_to_snake
 from . import jnap as api
-from .action_registry import ActionDefinition, ActionKey, Actions, ActionScope
+from .action_registry import (
+    ActionDefinition,
+    ActionFeatures,
+    ActionKey,
+    Actions,
+    ActionScope,
+)
 from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
@@ -192,25 +197,6 @@ def needs_initialise(func: Any) -> Any:
 
     wrapped = functools.wraps(func)(wrapper)
     return wrapped
-
-
-FeatureCapabilities: MappingProxyType[str, set[ActionKey]] = MappingProxyType(
-    {
-        "devices": {
-            "GET_DEVICES",
-            "GET_LAN_SETTINGS",
-            "GET_NODE_WIRELESS_CONNECTIONS",
-            "GET_PARENTAL_CONTROL_INFO",
-        },
-        "parental_control": {
-            "GET_PARENTAL_CONTROL_INFO",
-        },
-        "speedtest": {
-            "GET_SPEEDTEST_RESULTS",
-            "GET_SPEEDTEST_STATUS",
-        },
-    }
-)
 
 
 class Mesh:
@@ -941,17 +927,25 @@ class Mesh:
                     valid_onboard_speedtest: set[str] = {"SpeedTest"}
                     if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
                         _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
-                        capabilities_to_remove = capabilities_to_remove.union(
-                            FeatureCapabilities.get("speedtest", set())
-                        )
+                        speedtest_capabilities: set[ActionKey] = {
+                            act.key
+                            for act in Actions.values()
+                            if act.features is not None and ActionFeatures.SPEEDTEST in act.features
+                        }
+                        capabilities_to_remove = capabilities_to_remove.union(speedtest_capabilities)
+                    else:  # add SPEEDTEST_STATUS to the capabilities
+                        ret.add(Actions.GET_SPEEDTEST_STATUS.key)
                     # endregion
                 elif resp.action == api.Actions.GET_PARENTAL_CONTROL_INFO:
                     # region #-- tidy up for bridge mode --#
                     if _is_bridge_mode:
                         _LOGGER.debug("in bridge mode so removing parental control capability")
-                        capabilities_to_remove = capabilities_to_remove.union(
-                            FeatureCapabilities.get("parental_control", set())
-                        )
+                        pc_capabilities: set[ActionKey] = {
+                            act.key
+                            for act in Actions.values()
+                            if act.features is not None and ActionFeatures.PARENTAL_CONTROL in act.features
+                        }
+                        capabilities_to_remove = capabilities_to_remove.union(pc_capabilities)
                     # endregion
         for capability in capabilities_to_remove:
             if capability in ret:
@@ -1003,9 +997,12 @@ class Mesh:
         ret: list[DeviceEntity] = []
 
         if force_refresh:
-            gathered_devices = await self._async_gather_details(
-                [cap for cap in FeatureCapabilities.get("devices", {}) if cap in self._mesh_capabilities]
-            )
+            device_capabilities: set[ActionKey] = {
+                act.key
+                for act in Actions.values()
+                if act.features is not None and ActionFeatures.DEVICE_INFO in act.features
+            }
+            gathered_devices = await self._async_gather_details(device_capabilities)
             all_devices = [
                 dev for dev in gathered_devices.get(_ATTR_PROCESSED_DEVICES, []) if type(dev) is DeviceEntity
             ]
