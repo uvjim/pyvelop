@@ -19,6 +19,48 @@ from .action_registry import ActionKey
 _LOGGER = logging.getLogger(__name__)
 
 
+def to_jsonable(obj: Any, *, include_audit: bool = False) -> Any:
+    """Convert an arbitrary object to a structure json.dumps can handle."""
+
+    # basic JSON types
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+
+    # datetime
+    if isinstance(obj, dt.datetime):
+        return obj.isoformat()
+
+    # enums
+    if isinstance(obj, enum.Enum):
+        val = obj.value
+        return val if isinstance(val, (str, int, float, bool, type(None))) else repr(obj)
+
+    # to_dict
+    if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict", None)):
+        meth = cast(Any, obj).to_dict
+        if "include_audit" in inspect.signature(meth).parameters:
+            return meth(include_audit=include_audit)
+        return meth()
+
+    # mappings
+    if isinstance(obj, Mapping):
+        return {str(k): to_jsonable(v, include_audit=include_audit) for k, v in obj.items()}
+
+    # lists/tuples
+    if isinstance(obj, (list, tuple)):
+        return [to_jsonable(v, include_audit=include_audit) for v in obj]
+
+    # other iterables -> best-effort to list
+    if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes, bytearray)):
+        try:
+            return [to_jsonable(v, include_audit=include_audit) for v in obj]
+        except TypeError:
+            return repr(obj)
+
+    # last resort
+    return repr(obj)
+
+
 class AttributeAction(StrEnum):
     """Possible actions for the action of an attribute in the audit histroy."""
 
@@ -34,7 +76,7 @@ class AttributeAuditEntry[PropType]:
     index: int | None = field(default=None, kw_only=True)
     source: ActionKey
     value: PropType
-    type: AttributeAction = field(default=AttributeAction.INIT, kw_only=True)
+    kind: AttributeAction = field(default=AttributeAction.INIT, kw_only=True)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a dictionary representation of the object."""
@@ -43,13 +85,13 @@ class AttributeAuditEntry[PropType]:
             "index": self.index,
             "source": str(self.source),
             "value": self.value,
-            "type": self.type.value,
+            "type": self.kind.value,
         }
 
         return ret
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MeshAttribute[PropType]:
     """Base representation of an attribute."""
 
@@ -63,7 +105,8 @@ class MeshAttribute[PropType]:
 
     def __eq__(self, other) -> bool:
         """Equal comparison method based on wrapped value."""
-
+        if isinstance(other, MeshAttribute):
+            return self.value == other.value
         return self.value == other
 
     def __getattr__(self, name: str):
@@ -98,51 +141,10 @@ class MeshAttribute[PropType]:
     def to_dict(self, *, include_audit: bool = False) -> Any:
         """Convert the instance to a dictionary."""
 
-        def to_jsonable(obj: Any) -> Any:
-            """Convert an arbitrary object to a structure json.dumps can handle."""
-
-            # basic JSON types
-            if obj is None or isinstance(obj, (str, int, float, bool)):
-                return obj
-
-            # datetime
-            if isinstance(obj, dt.datetime):
-                return obj.isoformat()
-
-            # enums
-            if isinstance(obj, enum.Enum):
-                val = obj.value
-                return val if isinstance(val, (str, int, float, bool, type(None))) else repr(obj)
-
-            # to_dict
-            if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict", None)):
-                meth = cast(Any, obj).to_dict
-                if "include_audit" in inspect.signature(meth).parameters:
-                    return meth(include_audit=include_audit)
-                return meth()
-
-            # mappings
-            if isinstance(obj, Mapping):
-                return {str(k): to_jsonable(v) for k, v in obj.items()}
-
-            # lists/tuples
-            if isinstance(obj, (list, tuple)):
-                return [to_jsonable(v) for v in obj]
-
-            # other iterables -> best-effort to list
-            if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes, bytearray)):
-                try:
-                    return [to_jsonable(v) for v in obj]
-                except TypeError:
-                    return repr(obj)
-
-            # last resort
-            return repr(obj)
-
         if include_audit:
-            ret = {"value": to_jsonable(self.value)}
-            ret.update({"audit": [to_jsonable(entry.to_dict()) for entry in self.audit]})
+            ret = {"value": to_jsonable(self.value, include_audit=include_audit)}
+            ret.update({"audit": [to_jsonable(entry.to_dict(), include_audit=include_audit) for entry in self.audit]})
         else:
-            ret = to_jsonable(self.value)
+            ret = to_jsonable(self.value, include_audit=include_audit)
 
         return ret
