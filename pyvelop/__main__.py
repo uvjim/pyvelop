@@ -9,8 +9,9 @@ import datetime as dt
 import json
 import logging
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from enum import StrEnum, auto
+from types import MappingProxyType
 from typing import Any, cast
 
 import aiohttp
@@ -45,6 +46,130 @@ from .mesh_entity import (
 )
 
 # endregion
+
+
+class MeshWorkflows:
+    """Namespaced CLI workflows for the mesh."""
+
+    @staticmethod
+    async def channel_scan_info(mesh: Mesh) -> dict[str, Any]:
+        """Rerieve the channel scan information.
+
+        :return: details about the last channel scan.
+        """
+        return await mesh.async_get_channel_scan_info()
+
+    @staticmethod
+    async def detect_capabilities(mesh: Mesh) -> list[ActionKey]:
+        """Retrieve the mesh capabilities from the last time they were discovered.
+
+        :return: the capabilities that were discovered on the mesh.
+        """
+        capabilities = mesh.capabilities
+        return list(capabilities)
+
+    @staticmethod
+    async def channel_scan_start(mesh: Mesh) -> None:
+        """Start a channel scan."""
+        await mesh.async_start_channel_scan()
+
+    @staticmethod
+    async def check_for_updates(mesh: Mesh) -> None:
+        """Check for updates to the mesh nodes."""
+        await mesh.async_check_for_updates()
+
+    @staticmethod
+    async def guest_wifi_state(mesh: Mesh, enabled: bool) -> None:
+        """Change the state of guest Wi-Fi.
+
+        :param enabled: `True` to turn the feature on.
+        """
+        await mesh.async_set_guest_wifi_state(enabled)
+
+    @staticmethod
+    async def homekit_state(mesh: Mesh, enabled: bool) -> None:
+        """Change the state of the HomeKit feature.
+
+        :param enabled: `True` to turn the feature on.
+        """
+        await mesh.async_set_homekit_state(enabled)
+
+    @staticmethod
+    async def night_mode_state(mesh: Mesh, state: NightModeState) -> None:
+        """Change the state of the night mode functionality.
+
+        :param state: the intended state.
+        """
+        await mesh.async_set_night_mode_state(state)
+
+    @staticmethod
+    async def parental_control_state(mesh: Mesh, enabled: bool) -> None:
+        """Change the state of the parental control feature.
+
+        :param enabled: `True` to turn the feature on.
+        """
+        await mesh.async_set_parental_control_state(enabled)
+
+    @staticmethod
+    async def speedtest_clear_results(mesh: Mesh) -> None:
+        """Clear all Speedtest results from the mesh."""
+        await mesh.async_clear_speedtest_results()
+
+    @staticmethod
+    async def speedtest_get_results(mesh: Mesh) -> None:
+        """Retrieve the Speedtest results from the mesh."""
+        await mesh.async_get_speedtest_results()
+
+    @staticmethod
+    async def speedtest_get_state(mesh: Mesh) -> None:
+        """Retrieve the current speedtest state from the mesh."""
+        await mesh.async_get_speedtest_state()
+
+    @staticmethod
+    async def speedtest_start(mesh: Mesh) -> dict[str, Any]:
+        """Start a Speedtest on the mesh.
+
+        The function waits for the test to complete and displays the results.
+
+        :return: details of the last executed speedtest.
+        """
+        ret: dict[str, Any] = {}
+        await mesh.async_start_speedtest()
+        res: SpeedtestResult | None = await mesh.async_get_speedtest_state()
+        if res is not None:
+            click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
+            prev_res: SpeedtestResult = res
+            while res.exit_code == SpeedtestExitCode.UNAVAILABLE:
+                await asyncio.sleep(1)
+                res = await mesh.async_get_speedtest_state()
+                if res is None:
+                    break
+                if res.friendly_status != prev_res.friendly_status:
+                    click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
+                    prev_res = res
+            res_latest: list[SpeedtestResult] = await mesh.async_get_speedtest_results(
+                only_latest=True, only_completed=True
+            )
+            ret = res_latest[0].as_dict()
+            ret["timestamp"] = str(ret["timestamp"])
+
+        return ret
+
+    @staticmethod
+    async def upnp_state(mesh, enabled: bool) -> None:
+        """Change the state of the UPnP feature.
+
+        :param enabled: `True` to turn the feature on.
+        """
+
+        cur_settings: dict[str, bool] = await mesh.async_get_upnp_state()
+        new_upnp_settings_off: dict[str, bool] = {
+            "enabled": enabled,
+            "allow_change_settings": cur_settings.get("canUsersConfigure", enabled),
+            "allow_disable_internet": cur_settings.get("canUsersDisableWANAccess", enabled),
+        }
+
+        await mesh.async_set_upnp_settings(**new_upnp_settings_off)
 
 
 class StandardCommand(click.Command):
@@ -143,30 +268,30 @@ class StandardCommand(click.Command):
             return await super().invoke(ctx)
 
 
-# CLI workflow names
-MESH_WORKFLOWS: frozenset[str] = frozenset(
+# CLI workflow mappings
+MESH_WORKFLOWS: Mapping[str, Callable[[Mesh], Awaitable[Any]]] = MappingProxyType(
     {
-        "channel_scan_info",
-        "channel_scan_start",
-        "detect_capabilities",
-        "guest_wifi_off",
-        "guest_wifi_on",
-        "homekit_off",
-        "homekit_on",
-        "night_mode_always",
-        "night_mode_off",
-        "night_mode_on",
-        "parental_control_off",
-        "parental_control_on",
-        "speedtest_clear_results",
-        "speedtest_results",
-        "speedtest_status",
-        "speedtest_start",
-        "update_check_start",
-        "upnp_off",
-        "upnp_on",
-        "wps_off",
-        "wps_on",
+        "channel_scan_info": MeshWorkflows.channel_scan_info,
+        "channel_scan_start": MeshWorkflows.channel_scan_start,
+        "detect_capabilities": MeshWorkflows.detect_capabilities,
+        "guest_wifi_off": lambda mesh: MeshWorkflows.guest_wifi_state(mesh, False),
+        "guest_wifi_on": lambda mesh: MeshWorkflows.guest_wifi_state(mesh, True),
+        "homekit_off": lambda mesh: MeshWorkflows.homekit_state(mesh, False),
+        "homekit_on": lambda mesh: MeshWorkflows.homekit_state(mesh, True),
+        "night_mode_always": lambda mesh: MeshWorkflows.night_mode_state(mesh, NightModeState.ALWAYS),
+        "night_mode_off": lambda mesh: MeshWorkflows.night_mode_state(mesh, NightModeState.OFF),
+        "night_mode_on": lambda mesh: MeshWorkflows.night_mode_state(mesh, NightModeState.NIGHT_MODE),
+        "parental_control_off": lambda mesh: MeshWorkflows.parental_control_state(mesh, False),
+        "parental_control_on": lambda mesh: MeshWorkflows.parental_control_state(mesh, True),
+        "speedtest_clear_results": MeshWorkflows.speedtest_clear_results,
+        "speedtest_results": MeshWorkflows.speedtest_get_results,
+        "speedtest_status": MeshWorkflows.speedtest_get_state,
+        "speedtest_start": MeshWorkflows.speedtest_start,
+        "update_check_start": MeshWorkflows.check_for_updates,
+        "upnp_off": lambda mesh: MeshWorkflows.upnp_state(mesh, False),
+        "upnp_on": lambda mesh: MeshWorkflows.upnp_state(mesh, True),
+        "wps_off": lambda mesh: mesh.async_set_wps_state(False),
+        "wps_on": lambda mesh: mesh.async_set_wps_state(True),
     }
 )
 
@@ -298,9 +423,8 @@ async def device_details(
                     ),
                     title="Parental Control",
                 )
-            if num_blocked_sites == 0 and (
-                schedule := found_device.parental_control_schedule.get("blocked_internet_access", {})
-            ):
+            schedule = found_device.parental_control_schedule.get("blocked_internet_access", {})
+            if num_blocked_sites == 0 and schedule:
                 _display(
                     outfile,
                     pd.DataFrame.from_dict(schedule, orient="index"),
@@ -544,81 +668,9 @@ async def mesh_action(
 ) -> None:
     """Carry out a specified action on the mesh."""
 
-    async def _mesh_action(mesh: Mesh) -> Any:
-        if action == "channel_scan_info":
-            ret = await mesh.async_get_channel_scan_info()
-        elif action == "channel_scan_start":
-            await mesh.async_start_channel_scan()
-        elif action == "detect_capabilities":
-            capabilities = mesh.capabilities
-            ret = list(capabilities)
-        elif action == "guest_wifi_off":
-            await mesh.async_set_guest_wifi_state(state=False)
-        elif action == "guest_wifi_on":
-            await mesh.async_set_guest_wifi_state(state=True)
-        elif action == "homekit_off":
-            await mesh.async_set_homekit_state(state=False)
-        elif action == "homekit_on":
-            await mesh.async_set_homekit_state(state=True)
-        elif action == "night_mode_always":
-            await mesh.async_set_night_mode_state(NightModeState.ALWAYS)
-        elif action == "night_mode_off":
-            await mesh.async_set_night_mode_state(NightModeState.OFF)
-        elif action == "night_mode_on":
-            await mesh.async_set_night_mode_state(NightModeState.NIGHT_MODE)
-        elif action == "parental_control_off":
-            await mesh.async_set_parental_control_state(state=False)
-        elif action == "parental_control_on":
-            await mesh.async_set_parental_control_state(state=True)
-        elif action == "speedtest_clear_results":
-            await mesh.async_clear_speedtest_results()
-        elif action == "speedtest_results":
-            ret = await mesh.async_get_speedtest_results()
-        elif action == "speedtest_status":
-            ret = await mesh.async_get_speedtest_state()
-        elif action == "speedtest_start":
-            await mesh.async_start_speedtest()
-            res: SpeedtestResult | None = await mesh.async_get_speedtest_state()
-            if res is not None:
-                click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
-                prev_res: SpeedtestResult = res
-                while res.exit_code == SpeedtestExitCode.UNAVAILABLE:
-                    await asyncio.sleep(1)
-                    res = await mesh.async_get_speedtest_state()
-                    if res is None:
-                        break
-                    if res.friendly_status != prev_res.friendly_status:
-                        click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
-                        prev_res = res
-                ret = await mesh.async_get_speedtest_results(only_latest=True, only_completed=True)
-                ret = ret[0].as_dict()
-                ret["timestamp"] = str(ret["timestamp"])
-        elif action == "update_check_start":
-            await mesh.async_check_for_updates()
-        elif action == "upnp_off":
-            cur_settings = await mesh.async_get_upnp_state()
-            new_upnp_settings_off: dict[str, bool] = {
-                "enabled": False,
-                "allow_change_settings": cur_settings.get("canUsersConfigure", False),
-                "allow_disable_internet": cur_settings.get("canUsersDisableWANAccess", False),
-            }
-            await mesh.async_set_upnp_settings(**new_upnp_settings_off)
-        elif action == "upnp_on":
-            cur_settings = await mesh.async_get_upnp_state()
-            new_upnp_settings_on: dict[str, bool] = {
-                "enabled": True,
-                "allow_change_settings": cur_settings.get("canUsersConfigure", False),
-                "allow_disable_internet": cur_settings.get("canUsersDisableWANAccess", False),
-            }
-            await mesh.async_set_upnp_settings(**new_upnp_settings_on)
-        elif action == "wps_off":
-            await mesh.async_set_wps_state(state=False)
-        elif action == "wps_on":
-            await mesh.async_set_wps_state(state=True)
+    workflow = MESH_WORKFLOWS[action]
 
-        return ret
-
-    ret = await _with_mesh(ctx, _mesh_action)
+    ret = await _with_mesh(ctx, workflow)
     _output(None, json.dumps(ret))
 
 
@@ -1396,7 +1448,9 @@ async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> tu
 
 async def _with_mesh[T](
     ctx: click.Context | None,
-    action: Callable[[Mesh], Awaitable[T]],
+    action: Callable[..., Awaitable[T]],
+    *args: Any,
+    **kwargs: Any,
 ) -> T | None:
     """Connect to the mesh and run the given action."""
     mesh_obj = await _async_mesh_connect(ctx)
@@ -1404,7 +1458,7 @@ async def _with_mesh[T](
         return None
 
     async with mesh_obj:
-        return await action(mesh_obj)
+        return await action(mesh_obj, *args, **kwargs)
 
 
 if __name__ == "__main__":
