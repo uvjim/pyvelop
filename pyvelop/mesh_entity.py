@@ -10,19 +10,19 @@ import datetime as dt
 import logging
 from abc import ABC, abstractmethod
 from collections import namedtuple
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum, auto
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, final, override
 
-from . import jnap as api
-from .action_registry import ActionKey, Actions, ActionScope
+from .action_registry import ActionKey, Actions
 from .exceptions import MeshException, MeshInvalidInput
 from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 
 if TYPE_CHECKING:
-    from .mesh import MeshDetails
+    from .mesh import JnapPayloadSingle, JnapResponseSingle, MeshCapability
 
 # endregion
 
@@ -549,14 +549,14 @@ class MeshEntity(ABC):
     def __init__(
         self,
         data: dict[str, Any],
-        mesh_details: MeshDetails,
+        capabilities: Mapping[ActionKey, MeshCapability] | None = None,
         supplementary_redactions: dict[str, set[str]] | None = None,
     ) -> None:
         """Initialise."""
 
         self._data: dict[str, Any] = data
-        self._mesh_details: MeshDetails = mesh_details
         self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
+        self._capabilities: Mapping[ActionKey, MeshCapability] = capabilities or MappingProxyType({})
 
     def __repr__(self) -> str:
         """Make a pretty string representation of the class.
@@ -566,6 +566,24 @@ class MeshEntity(ABC):
         ret = f"{self.__class__.__name__}: "
         if self.name:
             ret += str(self.name)
+        return ret
+
+    def _get_capability(self, capability: ActionKey) -> MeshCapability:
+        """Retrieve the capability from the identified available capabilities.
+
+        Raises ValueError if the capability isn't found.
+
+        :param capability: the capabality to retrieve.
+        :return: the MeshCapability object.
+        """
+
+        ret: MeshCapability | None = None
+        if cap := self._capabilities.get(capability):
+            ret = cap
+
+        if ret is None:
+            raise ValueError(f"Unknown capability ({capability})")
+
         return ret
 
     def _get_user_property(self, property_name: DeviceProperty) -> str | None:
@@ -611,31 +629,31 @@ class MeshEntity(ABC):
 
         self._data.update({EntityDataProperties.PARENT_ENTITY: new_parent})
 
-    async def _async_api_request(
-        self,
-        action: str,
-        payload: dict[str, Any] = {},
-        *,
-        ip: str | None = None,
-        raise_on_error: bool = True,
-    ) -> api.Response:
-        """Make a request to the API."""
-        req = api.Request(
-            action=action,
-            password=self._mesh_details.password,
-            payload=payload,
-            raise_on_error=raise_on_error,
-            session=self._mesh_details.session,
-            target=ip or self._mesh_details.host,
-            username=self._mesh_details.user,
-            supplementary_redactions=self._supplementary_redactions,
-        )
-        try:
-            resp = await req.execute(timeout=self._mesh_details.request_timeout)
-        except Exception as exc:
-            raise exc from None
+    # async def _async_api_request(
+    #     self,
+    #     action: str,
+    #     payload: dict[str, Any] = {},
+    #     *,
+    #     ip: str | None = None,
+    #     raise_on_error: bool = True,
+    # ) -> api.Response:
+    #     """Make a request to the API."""
+    #     req = api.Request(
+    #         action=action,
+    #         password=self._mesh_details.password,
+    #         payload=payload,
+    #         raise_on_error=raise_on_error,
+    #         session=self._mesh_details.session,
+    #         target=ip or self._mesh_details.host,
+    #         username=self._mesh_details.user,
+    #         supplementary_redactions=self._supplementary_redactions,
+    #     )
+    #     try:
+    #         resp = await req.execute(timeout=self._mesh_details.request_timeout)
+    #     except Exception as exc:
+    #         raise exc from None
 
-        return resp
+    #     return resp
 
     @abstractmethod
     def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
@@ -1177,7 +1195,11 @@ class DeviceEntity(MeshEntity):
         :return: None
         """
 
-        await self._async_api_request(api.Actions.DELETE_DEVICE.action, {"deviceID": self.unique_id.value})
+        payload: JnapPayloadSingle = {
+            "deviceID": self.unique_id.value,
+        }
+        cap: MeshCapability = self._get_capability("DELETE_DEVICE")
+        await cap.async_execute(payload=payload)
 
     async def async_rename(self, name: str) -> None:
         """Set the name of the device.
@@ -1187,7 +1209,7 @@ class DeviceEntity(MeshEntity):
         :return: None
         """
 
-        payload: dict[str, Any] = {
+        payload: JnapPayloadSingle = {
             "deviceID": self.unique_id.value,
             "propertiesToModify": [
                 {
@@ -1196,8 +1218,8 @@ class DeviceEntity(MeshEntity):
                 }
             ],
         }
-
-        await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY.action, payload)
+        cap: MeshCapability = self._get_capability("SET_DEVICE_PROPERTY")
+        await cap.async_execute(payload=payload)
 
     async def async_set_icon(self, icon: UiType | str) -> None:
         """Set the icon for the device.
@@ -1216,7 +1238,7 @@ class DeviceEntity(MeshEntity):
         else:
             _icon = icon
 
-        payload: dict[str, Any] = {
+        payload: JnapPayloadSingle = {
             "deviceID": self.unique_id.value,
             "propertiesToModify": [
                 {
@@ -1226,7 +1248,8 @@ class DeviceEntity(MeshEntity):
             ],
         }
 
-        await self._async_api_request(api.Actions.SET_DEVICE_PROPERTY.action, payload)
+        cap: MeshCapability = self._get_capability("SET_DEVICE_PROPERTY")
+        await cap.async_execute(payload=payload)
 
     async def async_set_parental_control_rules(self, rules: dict[str, Any], force_enable: bool = False) -> None:
         """Set the parental control schedule for the given device.
@@ -1252,25 +1275,22 @@ class DeviceEntity(MeshEntity):
         # endregion
 
         # -- get the current rules as they may have changed --#
-        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO.action)
+        cap: MeshCapability = self._get_capability("GET_PARENTAL_CONTROL_INFO")
+        live_pc_info: JnapResponseSingle = await cap.async_execute()
 
         # region #-- determine the rules --#
-        if live_pc_info and isinstance(live_pc_info.data, dict):
+        if live_pc_info:
             keep_rules = [
-                rule
-                for rule in live_pc_info.data.get("rules", [])
-                if device_mac.upper() not in rule.get("macAddresses", [])
+                rule for rule in live_pc_info.get("rules", []) if device_mac.upper() not in rule.get("macAddresses", [])
             ]
             this_device_rules = [
-                rule
-                for rule in live_pc_info.data.get("rules", [])
-                if device_mac.upper() in rule.get("macAddresses", [])
+                rule for rule in live_pc_info.get("rules", []) if device_mac.upper() in rule.get("macAddresses", [])
             ]
 
         if this_device_rules:  # already has rules
             current_schedule = this_device_rules[0]["wanSchedule"]
 
-        cached_schedule = self._get_user_property(DeviceProperty.ACTUAL_WAN_SCHEDULE)
+        cached_schedule: str | None = self._get_user_property(DeviceProperty.ACTUAL_WAN_SCHEDULE)
         new_rule = ParentalControl.human_readable_to_binary(rules)
         if new_rule != ParentalControl.ALL_ALLOWED_SCHEDULE():
             _LOGGER.debug("adding new rules")
@@ -1299,23 +1319,20 @@ class DeviceEntity(MeshEntity):
                     this_device_rules = []
         # endregion
 
-        requests = [  # build a list of requests to send
-            self._async_api_request(
-                api.Actions.SET_PARENTAL_CONTROL_INFO.action,
-                {
+        cap = self._get_capability("SET_PARENTAL_CONTROL_INFO")
+        requests: list[Awaitable[JnapResponseSingle]] = []
+        requests.append(
+            cap.async_execute(
+                payload={
                     "isParentalControlEnabled": (
                         True
                         if force_enable
-                        else (
-                            live_pc_info.data.get("isParentalControlEnabled", True)
-                            if live_pc_info and isinstance(live_pc_info.data, dict)
-                            else True
-                        )
+                        else (live_pc_info.get("isParentalControlEnabled", True) if live_pc_info else True)
                     ),
                     "rules": keep_rules + this_device_rules,
-                },
+                }
             )
-        ]
+        )
 
         # region #-- calculate the device properties to update --#
         device_properties = self._get_parental_control_device_attributes(
@@ -1337,23 +1354,21 @@ class DeviceEntity(MeshEntity):
 
         if device_properties["modify"]:
             requests.append(
-                self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY.action,
-                    {
+                cap.async_execute(
+                    payload={
                         "deviceID": self.unique_id.value,
                         "propertiesToModify": device_properties["modify"],
-                    },
+                    }
                 )
             )
 
         if device_properties["remove"]:
             requests.append(
-                self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY.action,
-                    {
+                cap.async_execute(
+                    payload={
                         "deviceID": self.unique_id.value,
                         "propertiesToRemove": device_properties["remove"],
-                    },
+                    }
                 )
             )
         # endregion
@@ -1391,19 +1406,16 @@ class DeviceEntity(MeshEntity):
         # endregion
 
         # -- get the current rules as they may have changed --#
-        live_pc_info = await self._async_api_request(api.Actions.GET_PARENTAL_CONTROL_INFO.action)
+        cap: MeshCapability = self._get_capability("GET_PARENTAL_CONTROL_INFO")
+        live_pc_info: JnapResponseSingle = await cap.async_execute()
 
         # region #-- determine the rules --#
-        if live_pc_info and isinstance(live_pc_info.data, dict):
+        if live_pc_info:
             keep_rules = [
-                rule
-                for rule in live_pc_info.data.get("rules", [])
-                if device_mac.upper() not in rule.get("macAddresses", [])
+                rule for rule in live_pc_info.get("rules", []) if device_mac.upper() not in rule.get("macAddresses", [])
             ]
             this_device_rules = [
-                rule
-                for rule in live_pc_info.data.get("rules", [])
-                if device_mac.upper() in rule.get("macAddresses", [])
+                rule for rule in live_pc_info.get("rules", []) if device_mac.upper() in rule.get("macAddresses", [])
             ]
 
         if not this_device_rules:  # no existing rules so create all permissive
@@ -1430,18 +1442,14 @@ class DeviceEntity(MeshEntity):
             urls,
         )
 
-        requests: list[Awaitable[api.Response]] = [
-            self._async_api_request(
-                api.Actions.SET_PARENTAL_CONTROL_INFO.action,
-                {
+        cap = self._get_capability("SET_PARENTAL_CONTROL_INFO")
+        requests: list[Awaitable[JnapResponseSingle]] = [
+            cap.async_execute(
+                payload={
                     "isParentalControlEnabled": (
                         True
                         if force_enable
-                        else (
-                            live_pc_info.data.get("isParentalControlEnabled", True)
-                            if isinstance(live_pc_info.data, dict)
-                            else True
-                        )
+                        else (live_pc_info.get("isParentalControlEnabled", True) if live_pc_info else True)
                     ),
                     "rules": keep_rules
                     + (
@@ -1449,28 +1457,27 @@ class DeviceEntity(MeshEntity):
                         if DeviceProperty.SHOW_IN_PC_LIST.value not in device_properties["remove"]
                         else []
                     ),
-                },
+                }
             )
         ]
 
+        cap = self._get_capability("SET_DEVICE_PROPERTY")
         if device_properties["modify"]:
             requests.append(
-                self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY.action,
-                    {
+                cap.async_execute(
+                    payload={
                         "deviceID": self.unique_id.value,
                         "propertiesToModify": device_properties["modify"],
-                    },
+                    }
                 )
             )
         if device_properties["remove"]:
             requests.append(
-                self._async_api_request(
-                    api.Actions.SET_DEVICE_PROPERTY.action,
-                    {
+                cap.async_execute(
+                    payload={
                         "deviceID": self.unique_id.value,
                         "propertiesToRemove": device_properties["remove"],
-                    },
+                    }
                 )
             )
         # endregion
@@ -1554,12 +1561,12 @@ class DeviceEntity(MeshEntity):
 class NodeEntity(MeshEntity):
     """Represents a node on the mesh."""
 
-    async def async_execute_action(self, action_key: ActionKey) -> api.Response:
+    async def async_execute_action(self, action_key: ActionKey) -> JnapResponseSingle:
         """Execute the given action against the node."""
 
-        if action_key not in api.Actions:
+        if action_key not in Actions:
             raise ValueError(f"Invalid action key passed in ({action_key})")
-        if Actions[action_key].scope != ActionScope.NODE:
+        if action_key not in self._capabilities:
             raise ValueError(f"Not a valid node action ({action_key})")
 
         # region #-- establish the correct IP to use --#
@@ -1571,7 +1578,8 @@ class NodeEntity(MeshEntity):
             raise MeshInvalidInput(f"{self.name}: no valid address found")
         # endregion
 
-        return await self._async_api_request(Actions[action_key].action, Actions[action_key].payload, ip=target_ip)
+        cap: MeshCapability = self._get_capability(action_key)
+        return await cap.async_execute(node_address=target_ip)
 
     async def async_reboot(self, force: bool = False) -> None:
         """Reboot the node.
@@ -1600,7 +1608,8 @@ class NodeEntity(MeshEntity):
         # endregion
 
         # region #-- do the reboot --#
-        await self._async_api_request(api.Actions.REBOOT.action, ip=target_ip)
+        cap: MeshCapability = self._get_capability("REBOOT")
+        await cap.async_execute(node_address=target_ip)
         # endregion
 
         _LOGGER.debug("exited")
