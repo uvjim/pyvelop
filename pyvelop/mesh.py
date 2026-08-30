@@ -852,7 +852,7 @@ class Mesh:
                     if parent_node is not None:
                         audit_history.append(
                             AttributeAuditEntry(
-                                EntityDataProperties.BACKHAUL.value, parent_ip, type=AttributeAction.REPLACE
+                                EntityDataProperties.BACKHAUL.value, parent_ip, kind=AttributeAction.REPLACE
                             )
                         )
             elif isinstance(node_or_device, DeviceEntity) and node_or_device.status:
@@ -874,7 +874,7 @@ class Mesh:
                             AttributeAuditEntry(
                                 EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
                                 parent_node,
-                                type=AttributeAction.REPLACE,
+                                kind=AttributeAction.REPLACE,
                             )
                         )
                     # endregion
@@ -892,7 +892,7 @@ class Mesh:
                                 AttributeAuditEntry(
                                     EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                                     parent_node,
-                                    type=AttributeAction.REPLACE,
+                                    kind=AttributeAction.REPLACE,
                                 )
                             )
                     # endregion
