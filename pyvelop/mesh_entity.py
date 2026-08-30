@@ -1161,6 +1161,7 @@ class DeviceEntity(MeshEntity):
         urls: list[str],
     ) -> dict[str, Any]:
         """Determine what happens with device properties for parental control."""
+
         ret: dict[str, list[Any]] = {
             "remove": [],
             "modify": [],
@@ -1191,8 +1192,6 @@ class DeviceEntity(MeshEntity):
         """Delete the device from the mesh.
 
         The device must be offline to succeddfully be deleted.
-
-        :return: None
         """
 
         payload: JnapPayloadSingle = {
@@ -1205,8 +1204,6 @@ class DeviceEntity(MeshEntity):
         """Set the name of the device.
 
         :param name: The new name for the device.
-
-        :return: None
         """
 
         payload: JnapPayloadSingle = {
@@ -1225,8 +1222,6 @@ class DeviceEntity(MeshEntity):
         """Set the icon for the device.
 
         :param icon: the icon slug to set.
-
-        :return: None
         """
 
         _icon: UiType
@@ -1256,8 +1251,6 @@ class DeviceEntity(MeshEntity):
 
         :param rules: A dictionary of time string pairs in the form: `"monday": "00:00-02:00,17:30:18:00"`
         :param force_enable: True to enable Parental Control, False to leave in current state
-
-        :return: None
         """
         _LOGGER.debug(
             "entered, rules: %s",
@@ -1387,8 +1380,6 @@ class DeviceEntity(MeshEntity):
         :param urls: List of the URLs to add
         :param force_enable: True to enable the rule if it isn't enabled
         :param merge: True to merge with existing URLs, False to replace
-
-        :return: None
         """
         _LOGGER.debug(
             "entered, urls: %s, merge: %s",

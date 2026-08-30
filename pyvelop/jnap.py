@@ -67,6 +67,8 @@ class Request:
         :param raise_on_error: raise an error if one is found
         :param session: an existing session to use
         :param username: the username required to communicate with the target
+        :param redact: `True` to enable redaction
+        :param supplementary_redactions: additional redactions to be applied to the logging
         """
         self._action: str = action
         self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
@@ -170,7 +172,7 @@ class Request:
     def payload(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Return the payload used for the request.
 
-        :return: list[dict] | dict | None containing the payload
+        :return: the payload
         """
         return self._payload
 
@@ -187,6 +189,7 @@ class Response:
 
         :param action: The action that was issued in the request to cause the response
         :param data: The JSON response received in response to the API call
+        :param raise_on_error: `True` to raise an exception if an error was found in he repsonse
         """
         self._action: str = action
         self._data: dict[str, Any] = data
@@ -268,7 +271,7 @@ class Response:
     def data(self) -> list[dict[str, Any]]:
         """Return the response data.
 
-        :return: always returns a list whether or not the action was a transaction.
+        :return: list of responses.
         """
 
         ret: list[dict[str, Any]] = (

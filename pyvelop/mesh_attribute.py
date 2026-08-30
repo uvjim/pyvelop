@@ -18,9 +18,17 @@ from .action_registry import ActionKey
 
 _LOGGER = logging.getLogger(__name__)
 
+JSONPrimitive = str | int | float | bool | None
+JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 
-def to_jsonable(obj: Any, *, include_audit: bool = False) -> Any:
-    """Convert an arbitrary object to a structure json.dumps can handle."""
+
+def to_jsonable(obj: Any, *, include_audit: bool = False) -> JSONValue:
+    """Convert an arbitrary object to a structure json.dumps can handle.
+
+    :param obj: the item to make safe for json encoding
+    :param include_audit: `True` to include the audit information in the return
+    :return:
+    """
 
     # basic JSON types
     if obj is None or isinstance(obj, (str, int, float, bool)):
@@ -71,7 +79,13 @@ class AttributeAction(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class AttributeAuditEntry[PropType]:
-    """Representation of an audit log entry."""
+    """Representation of an audit log entry.
+
+    :param index: item number to set if the audit entry relates to an item in a list.
+    :param source: the source of the entry.
+    :param value: the value of the entry created by the source.
+    :param kind: the type of action relating to the audit entry.
+    """
 
     index: int | None = field(default=None, kw_only=True)
     source: ActionKey
@@ -79,7 +93,10 @@ class AttributeAuditEntry[PropType]:
     kind: AttributeAction = field(default=AttributeAction.INIT, kw_only=True)
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a dictionary representation of the object."""
+        """Return a dictionary representation of the object.
+
+        :return: dictionary representation of the object.
+        """
 
         ret: dict[str, Any] = {
             "index": self.index,
@@ -138,13 +155,18 @@ class MeshAttribute[PropType]:
 
         return f"{self.__class__.__name__}(value={self.value!r})"
 
-    def to_dict(self, *, include_audit: bool = False) -> Any:
-        """Convert the instance to a dictionary."""
+    def to_dict(self, *, include_audit: bool = False) -> JSONValue:
+        """Convert the instance to a dictionary.
+
+        :param include_audit: `True` to include the audit history in the return.
+        :return: a JSON safe dictionary representing the object.
+        """
 
         if include_audit:
-            ret = {"value": to_jsonable(self.value, include_audit=include_audit)}
-            ret.update({"audit": [to_jsonable(entry.to_dict(), include_audit=include_audit) for entry in self.audit]})
-        else:
-            ret = to_jsonable(self.value, include_audit=include_audit)
+            ret: dict[str, JSONValue] = {
+                "value": to_jsonable(self.value, include_audit=include_audit),
+                "audit": [to_jsonable(entry.to_dict(), include_audit=include_audit) for entry in self.audit],
+            }
+            return ret
 
-        return ret
+        return to_jsonable(self.value, include_audit=include_audit)

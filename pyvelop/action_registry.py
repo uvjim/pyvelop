@@ -100,6 +100,7 @@ class ActionDefinition:
     :param service_base: the service URL without the version number.
     :param available_in_bridge_mode: True (default) to allow usage when the mesh is in bridge mode.
     :param features: feature flags pertinent to the definition.
+    :param payload: default payload to be used when sending a request.
     :param purpose: what the purpose is for the action.
     :param redactions: definition of the default redactions that should be applied when logging.
     :param scope: where the action should be targeted.
@@ -127,7 +128,10 @@ class ActionRegistry(Mapping[ActionKey, ActionDefinition]):
     __slots__ = "_storage"
 
     def __init__(self, actions: Iterable[ActionDefinition]) -> None:
-        """Initialise the action registry and mark as read-only."""
+        """Initialise the action registry and mark as read-only.
+
+        :params actions: definitions to be added to he registry.
+        """
 
         store: dict[ActionKey, ActionDefinition] = {}
         for action in actions:
