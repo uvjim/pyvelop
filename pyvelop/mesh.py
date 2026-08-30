@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import datetime as dt
 import functools
 import logging
@@ -12,10 +13,11 @@ import re
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Coroutine, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
-from typing import Any, NamedTuple, cast
+from types import MappingProxyType
+from typing import Any, Final, NamedTuple, cast, overload
 
 import aiohttp
 from aiohttp import ClientSession
@@ -26,18 +28,20 @@ from .action_registry import (
     ActionDefinition,
     ActionFeatures,
     ActionKey,
+    ActionPurpose,
     Actions,
     ActionScope,
+    ActionVersionMap,
 )
 from .exceptions import (
+    MeshActionUnknown,
+    MeshActionVersionNotImplemented,
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
     MeshException,
-    MeshInvalidArguments,
     MeshInvalidCredentials,
-    MeshInvalidCredentialsUnlikely,
-    MeshInvalidInput,
     MeshNeedsInitialise,
+    MeshNodeNotPrimary,
 )
 from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
@@ -50,19 +54,23 @@ from .mesh_entity import (
 
 # endregion
 
-type ApiReqResp = tuple[api.Request, api.Response]
+type JnapResponseSingle = dict[str, Any]
+type JnapResponseTransaction = list[JnapResponseSingle]
+type JnapPayloadSingle = dict[str, Any]
+type JnapPayloadTransaction = list[JnapPayloadSingle]
 
-_ACTION_BY_NAME: dict[str, ActionDefinition] = {action.action: action for action in Actions.values()}
-_ATTR_PROCESSED_DEVICES: str = "processed_devices"
+
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
+
+type ApiReqResp = tuple[api.Request, api.Response]
 
 
 class CapabilityScopedGroups(NamedTuple):
     """Representation of the groups of capabilities."""
 
-    mesh: tuple[ActionDefinition, ...]
-    node: tuple[ActionDefinition, ...]
+    mesh: tuple[MeshCapability, ...]
+    node: tuple[MeshCapability, ...]
 
 
 class FirmwareUpdatePolicy(StrEnum):
@@ -131,15 +139,205 @@ class SpeedtestStatus(StrEnum):
     UNKNOWN = auto()
 
 
+class MeshCapability:
+    """Representation of the capabilities implemented by this module."""
+
+    def __init__(
+        self,
+        action_definition: ActionDefinition,
+        mesh_details: MeshDetails | None = None,
+        *,
+        implemented_versions: tuple[int, ...] = (1,),
+    ) -> None:
+        """Initialise.
+
+        :param action_definition:
+        :param mesh_details:
+        :param implemented_versions:
+        """
+
+        self._action_definition: ActionDefinition = action_definition
+        self._action_unknown_callback: list[Callable[[str], None]] = []
+        self._implemented_versions: tuple[int, ...] = implemented_versions
+        self._mesh_details: MeshDetails | None = mesh_details
+        self._service_versions: list[int] = []
+        self._action_version: int = self._get_action_version()
+
+    def __repr__(self) -> str:
+        """Friendly represenation of the class."""
+
+        return f"{self.__class__.__name__}: {self._action_definition.key}"
+
+    def _get_action_version(self) -> int:
+        """Calculate the action version to use."""
+
+        ret: int = 1
+
+        required_service_version: int = max(self.service_versions) if self.service_versions else 1
+        _LOGGER_VERBOSE.debug(
+            "looking for %s version %s for the %s action",
+            self._action_definition.service_base,
+            required_service_version,
+            self._action_definition.action_base,
+        )
+        latest_service_version: ActionVersionMap = max(
+            (item for item in self._action_definition.version_map if item.service_version <= required_service_version),
+            key=lambda item: item.service_version,
+            default=ActionVersionMap(1, 1),
+        )
+        _LOGGER_VERBOSE.debug(
+            "closest service version for %s and action %s is %s with action version %s",
+            self._action_definition.service_base,
+            self._action_definition.action_base,
+            latest_service_version.service_version,
+            latest_service_version.action_version,
+        )
+
+        actual_version: int = (
+            latest_service_version.action_version
+            if latest_service_version.action_version in self._implemented_versions
+            else max(
+                (item for item in self._implemented_versions if item <= latest_service_version.action_version),
+                default=1,
+            )
+        )
+        if actual_version != latest_service_version.action_version:
+            _LOGGER_VERBOSE.debug(
+                "action version %s has not been implemented, falling back to %s",
+                latest_service_version.action_version,
+                actual_version,
+            )
+
+        ret = actual_version
+        return ret
+
+    @overload
+    async def async_execute(
+        self,
+        *,
+        node_address: str | None = None,
+        payload: JnapPayloadTransaction,
+        raise_on_error: bool = True,
+    ) -> JnapResponseTransaction: ...
+
+    @overload
+    async def async_execute(
+        self,
+        *,
+        node_address: str | None = None,
+        payload: JnapPayloadSingle | None = None,
+        raise_on_error: bool = True,
+    ) -> JnapResponseSingle: ...
+
+    async def async_execute(
+        self,
+        *,
+        node_address: str | None = None,
+        payload: JnapPayloadTransaction | JnapPayloadSingle | None = None,
+        raise_on_error: bool = True,
+    ) -> JnapResponseSingle | JnapResponseTransaction:
+        """Execute the API request against the specified node.
+
+        :param node_address: The node to send the request to will default to the primary node if not supplied
+        :param payload: The relevant payload for the action
+        :param raise_on_error: Raise an error if one is found
+
+        :return:
+        """
+
+        ret: JnapResponseTransaction | JnapResponseSingle = {}
+        if self._mesh_details is None:
+            raise ValueError("mesh has not been set")
+
+        req: api.Request = api.Request(
+            action=self.action_uri,
+            password=self._mesh_details.password,
+            payload=payload or {},
+            raise_on_error=raise_on_error,
+            session=self._mesh_details.session,
+            target=node_address or self._mesh_details.host,
+            username=self._mesh_details.user,
+            redact=self._mesh_details.redact,
+            supplementary_redactions=self._mesh_details.supplementary_redactions,
+        )
+        try:
+            resp: api.Response = await req.execute(timeout=self._mesh_details.request_timeout)
+            if isinstance(req.payload, dict):
+                _data: dict[str, Any] | None = next(iter(resp.data), None)
+                if _data is not None:
+                    ret = _data
+            else:
+                ret = [r.get(api.Response.DATA_KEY_SINGLE, {}) for r in resp.data]
+        except MeshActionUnknown as exc:
+            _LOGGER_VERBOSE.debug("unknown action found: %s", exc.action)
+            for func in self._action_unknown_callback:
+                if callable(func):
+                    func(exc.action)
+            raise
+
+        return ret
+
+    def add_action_unknown_callback(self, func: Callable[[str], None]) -> None:
+        """Add a function that should be called when an unknown action is encountered."""
+
+        self._action_unknown_callback.append(func)
+
+    def set_mesh_details(self, mesh_details: MeshDetails) -> None:
+        """Update the details of the mesh."""
+
+        self._mesh_details = mesh_details
+
+    @property
+    def action_definition(self) -> ActionDefinition:
+        """Return the action definition."""
+
+        return self._action_definition
+
+    @property
+    def action_version(self) -> int:
+        """Retrieve the action version that will be used for the capability."""
+
+        return self._action_version
+
+    @property
+    def action_uri(self) -> str:
+        """Return a string representing the best action URI to use."""
+
+        action_version: int = self.action_version
+        ret: str = (
+            f"{self._action_definition.action_base}{action_version}"
+            if action_version != 1
+            else self._action_definition.action_base
+        )
+
+        return ret
+
+    @property
+    def service_versions(self) -> Iterable[int]:
+        """Retrieve the available service versions for the capability."""
+
+        return self._service_versions
+
+    @service_versions.setter
+    def service_versions(self, value: Iterable[int]) -> None:
+        """Update the services versions for the capability."""
+
+        _LOGGER_VERBOSE.debug("updating service versions, %s", value)
+        self._service_versions = list(value)
+        self._action_version = self._get_action_version()
+
+
 @dataclass(slots=True)
 class MeshDetails:
     """Details of the mesh being connected to."""
 
     host: str
-    password: str
     request_timeout: float
     session: ClientSession
     user: str
+    password: str = ""
+    redact: bool = True
+    supplementary_redactions: dict[str, set[str]] | None = None
 
     def __repr__(self) -> str:
         """Friendly string representation of the class.
@@ -186,17 +384,25 @@ class SpeedtestResult:
         return ret
 
 
-def needs_initialise(func: Any) -> Any:
+def needs_initialise[F: Callable[..., Any]](func: F) -> F:
     """Ensure that async_initialise has been executed."""
 
+    @functools.wraps(func)
     def wrapper(self: Mesh, *args: Any, **kwargs: Any) -> Any:
         """Wrap the required function."""
         if not self.has_initialised:
             raise MeshNeedsInitialise from None
         return func(self, *args, **kwargs)
 
-    wrapped = functools.wraps(func)(wrapper)
-    return wrapped
+    return cast(F, wrapper)
+
+
+_ACTION_BY_SERVICE: Final[Mapping[str, tuple[ActionDefinition, ...]]] = MappingProxyType(
+    {
+        name: tuple(obj for obj in Actions.values() if obj.service_base == name)
+        for name in {obj.service_base for obj in Actions.values()}
+    }
+)
 
 
 class Mesh:
@@ -206,6 +412,48 @@ class Mesh:
 
     If you need live information then call the corresponding method.
     """
+
+    # set the default capabilities, these should be set for capabilities that are used early (typically without auth requirements)
+    # and for those capabilities where multiple implemented versions exist.
+    _DEF_MESH_CAPABILITIES: dict[ActionKey, MeshCapability] = {
+        "CHECK_PASSWORD": MeshCapability(
+            Actions.CHECK_PASSWORD,
+        ),
+        "GET_DEVICE_INFO": MeshCapability(
+            action_definition=Actions.GET_DEVICE_INFO,
+        ),
+        "GET_DEVICE_MODE": MeshCapability(
+            Actions.GET_DEVICE_MODE,
+        ),
+        "GET_DEVICES": MeshCapability(
+            Actions.GET_DEVICES,
+            implemented_versions=(3,),
+        ),
+        "GET_GUEST_NETWORK_INFO": MeshCapability(
+            Actions.GET_GUEST_NETWORK_INFO,
+            implemented_versions=(2,),
+        ),
+        "GET_NETWORK_CONNECTIONS": MeshCapability(
+            Actions.GET_NETWORK_CONNECTIONS,
+            implemented_versions=(2,),
+        ),
+        "GET_TOPOLOGY_OPTIMISATION_SETTINGS": MeshCapability(
+            Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS,
+            implemented_versions=(1, 2),
+        ),
+        "GET_WAN_INFO": MeshCapability(
+            Actions.GET_WAN_INFO,
+            implemented_versions=(1, 3),
+        ),
+        "SET_GUEST_NETWORK": MeshCapability(
+            Actions.SET_GUEST_NETWORK,
+            implemented_versions=(2,),
+        ),
+        "SET_LED_NIGHT_MODE": MeshCapability(
+            Actions.SET_LED_NIGHT_MODE,
+            implemented_versions=(2,),
+        ),
+    }
 
     def __init__(
         self,
@@ -231,16 +479,23 @@ class Mesh:
         # flag used to denote that initialise has been executed
         self._initialise_executed: bool = False
         self._last_gather_details: dict[str, float] = {}
-        self._mesh_attributes: dict[str, Any] = {}
+        self._mesh_attributes: dict[ActionKey, Any] = {}
+        self._mesh_entities: list[DeviceEntity | NodeEntity] = []
+        self._password: str = password
         _session: ClientSession = session if session is not None else self.__create_session()
         self._mesh_details: MeshDetails = MeshDetails(
             host=node,
-            password=password,
+            redact=not disable_redaction,
             request_timeout=request_timeout,
             session=_session,
+            supplementary_redactions=supplementary_redactions,
             user=username,
         )
-        self._mesh_capabilities: set[ActionKey] = set()
+
+        self._mesh_capabilities: dict[ActionKey, MeshCapability] = copy.deepcopy(type(self)._DEF_MESH_CAPABILITIES)
+        for cap in self._mesh_capabilities.values():
+            cap.set_mesh_details(self._mesh_details)
+
         self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
         self.__passed_session: bool = isinstance(session, ClientSession)
 
@@ -288,7 +543,7 @@ class Mesh:
         session = ClientSession(raise_for_status=True)
         return session
 
-    def _build_mesh_entities(self, track_time, mesh_details: dict[str, Any]) -> list[DeviceEntity | NodeEntity]:
+    def _build_mesh_entities(self, track_time, mesh_details: dict[ActionKey, Any]) -> list[DeviceEntity | NodeEntity]:
         """Build a list of mesh entities with the given information."""
 
         ret: list[DeviceEntity | NodeEntity] = []
@@ -297,19 +552,17 @@ class Mesh:
         # region #-- pre-index device ID based info --#
         backhaul_by_device_id: dict[str, Any] = {
             bi.get("deviceUUID"): bi
-            for bi in mesh_details.get(Actions.GET_BACKHAUL.key, {}).get("backhaulDevices", [])
+            for bi in mesh_details.get("GET_BACKHAUL", {}).get("backhaulDevices", [])
             if bi.get("deviceUUID")
         }
         firmware_by_device_id: dict[str, Any] = {
             fds.get("deviceUUID"): fds
-            for fds in mesh_details.get(Actions.GET_UPDATE_FIRMWARE_STATE.key, {}).get("firmwareUpdateStatus", [])
+            for fds in mesh_details.get("GET_UPDATE_FIRMWARE_STATE", {}).get("firmwareUpdateStatus", [])
             if fds.get("deviceUUID")
         }
         wifi_connections_by_id: dict[str, Any] = {
             nwc.get("deviceID"): nwc
-            for nwc in mesh_details.get(Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get(
-                "nodeWirelessConnections", []
-            )
+            for nwc in mesh_details.get("GET_NODE_WIRELESS_CONNECTIONS", {}).get("nodeWirelessConnections", [])
             if nwc.get("deviceID")
         }
         # endregion
@@ -323,7 +576,7 @@ class Mesh:
             if reservation.get("macAddress")
         }
         network_connections_by_mac: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for connection in mesh_details.get(Actions.GET_NETWORK_CONNECTIONS.key, []):
+        for connection in mesh_details.get("GET_NETWORK_CONNECTIONS", []):
             mac = connection.get("macAddress")
             if mac:
                 network_connections_by_mac[mac.lower()].append(connection)
@@ -334,13 +587,13 @@ class Mesh:
         }
         parental_control_by_mac: dict[str, Any] = {
             mac.lower(): rule
-            for rule in mesh_details.get(Actions.GET_PARENTAL_CONTROL_INFO.key, {}).get("rules", [])
+            for rule in mesh_details.get("GET_PARENTAL_CONTROL_INFO", {}).get("rules", [])
             for mac in rule.get("macAddresses", [])
         }
         # endregion
 
         # we'll treat the information from GET_DEVICES as our starting point.
-        for entity in mesh_details.get(Actions.GET_DEVICES.key, {}).get("devices", []):
+        for entity in mesh_details.get("GET_DEVICES", {}).get("devices", []):
             # prepare variables for holding processed data
             entity_dhcp_reservations: list[dict[str, Any]] = []
             entity_network_connections: list[dict[str, Any]] = []
@@ -403,15 +656,84 @@ class Mesh:
 
             # region #-- build the MeshEntity objects --#
             if "nodeType" not in entity:
-                ret.append(DeviceEntity(entity_data, self._mesh_details, self._supplementary_redactions))
+                cap_device: Mapping[ActionKey, MeshCapability] = MappingProxyType(
+                    {
+                        key: cap
+                        for key, cap in self._mesh_capabilities.items()
+                        if ActionScope.DEVICE in cap.action_definition.scope
+                    }
+                )
+                ret.append(DeviceEntity(entity_data, cap_device, self._supplementary_redactions))
             else:
-                ret.append(NodeEntity(entity_data, self._mesh_details, self._supplementary_redactions))
+                cap_node: Mapping[ActionKey, MeshCapability] = MappingProxyType(
+                    {
+                        key: cap
+                        for key, cap in self._mesh_capabilities.items()
+                        if ActionScope.NODE in cap.action_definition.scope
+                    }
+                )
+                ret.append(NodeEntity(entity_data, cap_node, self._supplementary_redactions))
             # endregion
         self._mark_time(track_time, ProcessTimerLabels.ENTITIES_PROCESS_END)
 
         return ret
 
-    def _get_nodes_from_raw(self, raw_details: dict[str, Any]) -> list[dict[str, str]]:
+    def _build_transaction_payload(
+        self, required_capabilities: Iterable[MeshCapability], action_payloads: dict[ActionKey, Any] | None = None
+    ) -> tuple[list[dict[str, Any]], ...]:
+        """Build the payload for a transaction based on the given information.
+
+        Up to two payloads are returned. Later versions of firmware seem to fail a transaction if there is a mixture
+        of actions that require auth and those that don't.
+
+        :param required_capabilities: the capabailities that should be included in the transaction request.
+        :param action_payloads: dictionary containing the payloads for each action. If the action does not have
+        a payload specified it defaults to an empty dictionary.
+        """
+
+        if action_payloads is None:
+            action_payloads = {}
+
+        payload_auth: list[dict[str, Any]] = []
+        payload_no_auth: list[dict[str, Any]] = []
+        ret: list[list[dict[str, Any]]] = []
+
+        for cap in required_capabilities:
+            entry: dict[str, Any] = {
+                "action": cap.action_uri,
+                "request": action_payloads.get(cap.action_definition.key, cap.action_definition.payload or {}),
+            }
+            if cap.action_definition.requires_auth:
+                payload_auth.append(entry)
+            else:
+                payload_no_auth.append(entry)
+
+        if payload_auth:
+            ret.append(payload_auth)
+        if payload_no_auth:
+            ret.append(payload_no_auth)
+
+        return tuple(ret)
+
+    def _get_mesh_capability(self, capability: ActionKey) -> MeshCapability:
+        """Retrieve the capability from the identified mesh capabilities.
+
+        Raises ValueError if the capability isn't found.
+
+        :param capability: the capabality to retrieve.
+        :return: the MeshCapability object.
+        """
+
+        ret: MeshCapability | None = None
+        if cap := self._mesh_capabilities.get(capability):
+            ret = cap
+
+        if ret is None:
+            raise ValueError(f"Unknown capability ({capability})")
+
+        return ret
+
+    def _get_nodes_from_raw(self, raw_details: dict[ActionKey, Any]) -> list[dict[str, str]]:
         """Retrieve the nodes from raw details.
 
         :return: list of dictionaries containing the IP and unique_id
@@ -419,7 +741,7 @@ class Mesh:
 
         ret: list[dict[str, str]] = []
 
-        for device in raw_details.get(Actions.GET_DEVICES.key, {}).get("devices", []):
+        for device in raw_details.get("GET_DEVICES", {}).get("devices", []):
             if "nodeType" not in device:
                 continue
 
@@ -437,66 +759,33 @@ class Mesh:
 
         return ret
 
+    def _group_sort_services(self, service_list: Iterable[str]) -> dict[str, list[int]]:
+
+        groups = defaultdict(list)
+        for value in service_list:
+            match = re.match(r"^(.*?)(\d*)$", value)
+            if match is not None:
+                prefix = match.group(1)
+                number = int(match.group(2)) if match.group(2) else 1
+
+                groups[prefix].append((number, value))
+
+        # Sort each group by the trailing number
+        for prefix in groups:
+            groups[prefix].sort(key=lambda item: item[0])
+
+        # Get the grouped strings
+        grouped_values: dict[str, list[int]] = {
+            prefix: [number for number, value in items] for prefix, items in groups.items()
+        }
+
+        return grouped_values
+
     def _mark_time(self, enabled: bool, name: ProcessTimerLabels) -> None:
         """Stamp the time into the tracking object."""
 
         if enabled:
             self._last_gather_details[name.value] = time.time()
-
-    def _parse_raw_value(self, action: str, data: dict[str, Any]) -> tuple[str, Any] | None:
-        """Parse the data returned by the API ready for storing."""
-
-        try:
-            response = api.Response(action, data)
-        except MeshException as exc:
-            _LOGGER.debug("%s", exc)
-            return None
-
-        action_definition = _ACTION_BY_NAME.get(action)
-
-        if action_definition is None or not response.data:
-            return None
-
-        return action_definition.key, response.data[0]
-
-    def _process_node_response(
-        self, node: dict[str, str], actions: Iterable[ActionDefinition], response: ApiReqResp
-    ) -> dict[str, Any]:
-        """Process the node scoped results."""
-
-        _, api_response = response
-        result: dict[str, Any] = {}
-
-        for idx, action in enumerate(actions):
-            if idx >= len(api_response.data):
-                break
-
-            try:
-                parsed = api.Response(
-                    action.action,
-                    api_response.data[idx],
-                )
-            except MeshException as exc:
-                _LOGGER.debug("%s", exc)
-                continue
-
-            if not parsed.data:
-                continue
-
-            data = parsed.data[0]
-
-            if action.key == Actions.GET_NETWORK_CONNECTIONS.key:
-                result[action.key] = [
-                    {
-                        **connection,
-                        "parent_id": node["id"],
-                    }
-                    for connection in data.get("connections", [])
-                ]
-            else:
-                result[action.key] = data
-
-        return result
 
     def _process_speedtest_results(self, results: dict[str, Any]) -> SpeedtestResult | None:
         """Build a SpeedtestResult object from the provisded results."""
@@ -534,7 +823,7 @@ class Mesh:
         for node_or_device in entity_details:
             # region #-- establish the parent/child relationship for entities
             audit_history: list[AttributeAuditEntry] = []
-            # check if the parent is known in GetDevices3 - assumes the first connection that has a parent is correct
+            # check if the parent is known in GET_DEVICES - assumes the first connection that has a parent is correct
             parent_node: str | NodeEntity | None = next(
                 (
                     conn.get("parentDeviceID")
@@ -623,219 +912,92 @@ class Mesh:
 
         return ret
 
-    def _split_capability_into_scopes(self, capabilities: Iterable[ActionKey]) -> CapabilityScopedGroups:
+    def _remove_mesh_capability(self, action_uri: str) -> None:
+        """Remove the given action key from the available capabilities.
+
+        :param action_uri: the action uri of the capability that should be removed.
+        """
+
+        cap_remove: ActionKey | None = next(
+            (cap_key for cap_key, cap in self._mesh_capabilities.items() if cap.action_uri == action_uri), None
+        )
+        if cap_remove is not None:
+            _LOGGER_VERBOSE.debug("removing capability: %s", cap_remove)
+            self._mesh_capabilities.pop(cap_remove, None)
+
+    def _split_capability_into_scopes(self, capabilities: Iterable[MeshCapability]) -> CapabilityScopedGroups:
         """Group the given capabilities into scopes."""
 
-        mesh: list[ActionDefinition] = []
-        node: list[ActionDefinition] = []
+        mesh: list[MeshCapability] = []
+        node: list[MeshCapability] = []
 
-        for capability in capabilities:
-            action = Actions[capability]
-
-            if action.scope == ActionScope.MESH:
-                mesh.append(action)
-            elif action.scope == ActionScope.NODE:
-                node.append(action)
+        for cap in capabilities:
+            if ActionScope.MESH in cap.action_definition.scope:
+                mesh.append(cap)
+            elif ActionScope.NODE in cap.action_definition.scope:
+                node.append(cap)
 
         return CapabilityScopedGroups(tuple(mesh), tuple(node))
 
-    async def _async_make_request(
-        self,
-        action: str,
-        *,
-        node_address: str | None = None,
-        payload: list[dict[str, Any]] | dict[str, Any] | None = None,
-        raise_on_error: bool = True,
-    ) -> ApiReqResp:
-        """Execute the API request against the connected node.
-
-        :param action: The JNAP action to execute
-        :param node_address: The node to send the request to
-        :param payload: The relevant payload for the action
-        :param raise_on_error: Raise an error if one is found
-
-        :return: tuple containing the request and response objects or raises an error if need be
-        """
-
-        if payload is None:
-            payload = []
-
-        if not self.__passed_session and self._mesh_details.session.closed:  # session closed so recreate it
-            self._mesh_details.session = self.__create_session()
-
-        req: api.Request = api.Request(
-            action=action,
-            password=self._mesh_details.password,
-            payload=payload,
-            raise_on_error=raise_on_error,
-            session=self._mesh_details.session,
-            target=node_address or self._mesh_details.host,
-            username=self._mesh_details.user,
-            redact=self._disable_redaction is False,
-            supplementary_redactions=self._supplementary_redactions,
-        )
-        try:
-            req_resp: api.Response = await req.execute(timeout=self._mesh_details.request_timeout)
-        except MeshInvalidCredentialsUnlikely as exc:
-            _LOGGER.debug("!!!")
-            _LOGGER.debug("!!! %s !!!", exc)
-            _LOGGER.debug("!!!")
-            # only seen this exception happen with a transaction so re-raise
-            if req.action != Actions.TRANSACTION.action:
-                raise MeshInvalidCredentials() from exc
-
-            # region #-- split the transaction and retry --#
-            # When this exception is seen we need to do the following: -
-            # - test whether the credentials are valid or not
-            # - if they're not raise the MeshInvalidCredentials exception
-            # - if they're valid still then (because resending the transaction doesn't solve it): -
-            #   - split the transaction up into individual requests
-            #   - send all requests and wair for responses
-            #   - reconstruct the response as a transaction request (the caller is likely expecting that type of response)
-            _LOGGER.debug("testing creds because they may have been invalid")
-            valid_creds: bool = await self.async_test_credentials()
-
-            if not valid_creds:
-                _LOGGER.debug("tested creds and they are invalid")
-                raise MeshInvalidCredentials()
-
-            _LOGGER.debug("tested creds and they are valid, retrying as separate requests")
-            req_ind = [
-                api.Request(
-                    action=cast(dict[str, Any], pi).get("action", ""),
-                    password=self._mesh_details.password,
-                    payload=cast(dict[str, Any], pi).get("request", {}),
-                    raise_on_error=raise_on_error,
-                    session=self._mesh_details.session,
-                    target=node_address or self._mesh_details.host,
-                    username=self._mesh_details.user,
-                    redact=self._disable_redaction is False,
-                    supplementary_redactions=self._supplementary_redactions,
-                ).execute()
-                for pi in req.payload
-            ]
-            req_ind_resp: list[api.Response] = await asyncio.gather(*req_ind)
-            _LOGGER.debug("rebuilding output")
-            req_resp = api.Response(
-                action=Actions.TRANSACTION.action,
-                data={
-                    api.Response.RESULT_KEY: "OK",
-                    api.Response.DATA_KEY_TRANSACTION: [
-                        {api.Response.RESULT_KEY: "OK", api.Response.DATA_KEY_SINGLE: r.data[0]} for r in req_ind_resp
-                    ],
-                },
-            )
-            _LOGGER.debug("rebuilt output")
-            # endregion
-        except Exception as exc:
-            raise exc from None
-
-        return (req, req_resp)
-
-    async def _async_gather_details(
-        self,
-        capabilities: Iterable[ActionKey],
-        *,
-        track_time: bool = False,
-    ) -> dict[str, Any]:
-        """Work is done here to gather the necessary details from the mesh.
-
-        :return: A dictionary containing the relevant details.
-        """
-
-        ret: dict[str, Any] = {}
-
-        capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(capabilities)
-
-        # region #-- gather the details for the mesh scoped capabilities --#
-        ret.update(await self._async_gather_mesh_details(track_time, capability_scope_groups.mesh))
-        # endregion
-
-        # region #-- action per node requests --#
-        nodes: list[dict[str, str]] = self._get_nodes_from_raw(ret)
-        ret.update(await self._async_gather_node_details(track_time, nodes, capability_scope_groups.node))
-        # endregion
-
-        # region #-- prepare the mesh entities --#
-        mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(track_time, ret)
-        # endregion
-
-        # region #-- remedial work for the entities --#
-        mesh_entities = self._remediate_mesh_entities(track_time, mesh_entities)
-        # endregion
-
-        ret[_ATTR_PROCESSED_DEVICES] = mesh_entities or []
-        # endregion
-
-        return ret
-
     async def _async_gather_mesh_details(
-        self, track_time: bool, capabilities: Iterable[ActionDefinition]
-    ) -> dict[str, Any]:
-        """Build the instructions needed to gather details from the mesh, execute and return."""
+        self, track_time: bool, capabilities: Iterable[MeshCapability]
+    ) -> dict[ActionKey, Any]:
+        """Gather details from the mesh."""
 
-        # region #-- build and make the request --#
+        ret: dict[ActionKey, Any] = {}
+
         self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_START)
-        actions = tuple(capabilities)
-        payload = [{"action": action.action, "request": action.payload} for action in actions]
+        _required_capabilities: list[MeshCapability] = list(capabilities)
+        txn_payload: tuple[list[dict[str, Any]], ...] = self._build_transaction_payload(_required_capabilities)
+        requests: list[Awaitable[JnapResponseTransaction]] = []
+        for txn in txn_payload:
+            cap: MeshCapability = self._get_mesh_capability("TRANSACTION")
+            requests.append(cap.async_execute(payload=txn))
 
-        if not payload:
-            return {}
+        try:
+            responses = await asyncio.gather(*requests)
+            capabilities_by_action_uri: dict[str, MeshCapability] = {
+                cap.action_uri: cap for cap in _required_capabilities
+            }
+            for txn_idx, txn_response in enumerate(responses):
+                for txn_payload_idx, resp in enumerate(txn_response):
+                    action_uri: str = txn_payload[txn_idx][txn_payload_idx].get("action", "")
+                    if cap_from_uri := capabilities_by_action_uri.get(action_uri):
+                        ret.update({cap_from_uri.action_definition.key: resp})
+        except MeshActionUnknown as exc:
+            _LOGGER_VERBOSE.debug("retrying request")
+            _required_capabilities = [cap for cap in _required_capabilities if cap.action_uri != exc.action]
+            ret = await self._async_gather_mesh_details(track_time, _required_capabilities)
 
-        response: ApiReqResp = await self._async_make_request(
-            Actions.TRANSACTION.action,
-            payload=payload,
-        )
         self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_END)
-        # endregion
-
-        # region #-- process the responses --#
-        self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_PROCESS_DETAILS_START)
-        ret: dict[str, Any] = {}
-        _, api_response = response
-
-        for requested, data in zip(payload, api_response.data):
-            parsed_data: tuple[str, Any] | None = self._parse_raw_value(requested["action"], data)
-            if parsed_data is not None:
-                key, value = parsed_data
-                ret[key] = value
-        self._mark_time(track_time, ProcessTimerLabels.MESH_SCOPED_PROCESS_DETAILS_END)
-        # endregion
-
         return ret
 
     async def _async_gather_node_details(
-        self, track_time: bool, nodes: Iterable[dict[str, Any]], capabilities: Iterable[ActionDefinition]
-    ) -> dict[str, Any]:
+        self, track_time: bool, nodes: Iterable[dict[str, Any]], capabilities: Iterable[MeshCapability]
+    ) -> dict[ActionKey, Any]:
         """Retrieve the details for node scoped requests."""
 
-        def _combine_node_results(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
-            combined: dict[str, Any] = {}
+        ret: dict[ActionKey, Any] = {}
 
-            for result in results:
-                for key, value in result.items():
-                    if key == Actions.GET_NETWORK_CONNECTIONS.key:
-                        combined.setdefault(key, []).extend(value)
-                    else:
-                        combined.setdefault(key, value)
+        _required_capabilities = tuple(capabilities)
+        nodes = tuple(nodes)
+        requests: list[Awaitable[JnapResponseTransaction]] = []
+        txn_payload: tuple[list[dict[str, Any]], ...] = self._build_transaction_payload(_required_capabilities)
 
-            return combined
+        if not _required_capabilities or not nodes or not txn_payload:
+            return {}
 
         # region #-- build and make the requests --#
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_START)
-        actions = tuple(capabilities)
-        nodes = tuple(nodes)
-        if not actions or not nodes:
-            return {}
-
-        requests = [
-            self._async_make_request(
-                Actions.TRANSACTION.action,
-                payload=[{"action": action.action, "request": action.payload} for action in actions],
-                node_address=node["ip"],
-            )
-            for node in nodes
-        ]
+        for node in nodes:
+            cap: MeshCapability = self._get_mesh_capability("TRANSACTION")
+            for txn in txn_payload:
+                requests.append(
+                    cap.async_execute(
+                        node_address=node["ip"],
+                        payload=txn,
+                    )
+                )
 
         responses = await asyncio.gather(*requests)
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_END)
@@ -843,10 +1005,48 @@ class Mesh:
 
         # region #-- process the responses --#
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_PROCESS_DETAILS_START)
-        per_node_results = [
-            self._process_node_response(node, actions, response) for node, response in zip(nodes, responses)
-        ]
-        ret = _combine_node_results(per_node_results)
+        capabilities_by_action_uri: dict[str, MeshCapability] = {cap.action_uri: cap for cap in _required_capabilities}
+
+        for node_index, node in enumerate(nodes):  # loop through the nodes
+            # region #-- extract responses for the node --#
+            start = node_index * len(txn_payload)
+            node_responses = responses[start : start + len(txn_payload)]
+            # endregion
+
+            # region #-- pair the payload with node response for subsequent processing --#
+            # the node response will have multiple responses in it corresponding to the actions in the payload.
+            # these need combining and tagging with the node id they came from.
+            for payload, transaction_responses in zip(txn_payload, node_responses, strict=True):
+                for request, transaction_response in zip(payload, transaction_responses, strict=True):
+                    # region #-- retrieve the capability so that we can get its key --#
+                    action_uri = request.get("action", "")
+                    capability = capabilities_by_action_uri.get(action_uri)
+
+                    # unlikely to have a missing capability because this should be handled by the discovery process and
+                    # main gathering method however, check here in case something becomes stale or external factors change this.
+                    if capability is None:
+                        _LOGGER_VERBOSE.warning("unknown action URI: %s", action_uri)
+                        continue
+                    # endregion
+
+                    # region #-- update the return value accordingly --#
+                    if capability.action_definition.key == "GET_NETWORK_CONNECTIONS":
+                        val = [
+                            {
+                                **connection,
+                                "parent_id": node["id"],
+                            }
+                            for connection in transaction_response.get("connections", [])
+                        ]
+                        ret.setdefault(capability.action_definition.key, []).extend(val)
+                    else:
+                        val = {
+                            **transaction_response,
+                            "device_id": node["id"],
+                        }
+                        ret.setdefault(capability.action_definition.key, []).append(val)
+                    # endregion
+            # endregion
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_PROCESS_DETAILS_END)
         # endregion
 
@@ -856,11 +1056,13 @@ class Mesh:
         """Ask the mesh to look for new versions of firmware for the nodes.
 
         Only a check is done.  The firmware isn't actually updated.
-
-        :return: None
         """
 
-        await self._async_make_request(action=Actions.UPDATE_FIRMWARE.action, payload={"onlyCheck": True})
+        cap: MeshCapability = self._get_mesh_capability("UPDATE_FIRMWARE")
+        payload: JnapPayloadSingle = {
+            "onlyCheck": True,
+        }
+        await cap.async_execute(payload=payload)
 
     async def async_close(self) -> None:
         """Close the session to the mesh.
@@ -873,109 +1075,140 @@ class Mesh:
     async def async_clear_speedtest_results(self) -> None:
         """Clear the speedtest results."""
 
-        await self._async_make_request(Actions.CLEAR_SPEEDTEST_RESULTS.action)
+        cap: MeshCapability = self._get_mesh_capability("CLEAR_SPEEDTEST_RESULTS")
+        await cap.async_execute()
 
-    async def async_detect_capabilities(self) -> set[ActionKey]:
+    async def async_detect_capabilities(self) -> tuple[ActionKey, ...]:
         """Attempt to detect the capabilities of the Mesh.
 
-        :return: list of capabilities for the mesh.
+        This will read the services from the mesh and then build up the available capabilities.
+
+        :return: capability keys for the mesh.
         """
-        _is_bridge_mode: bool = False
-        ret: set[ActionKey] = set()
-        requests: list[Coroutine[Any, Any, ApiReqResp]] = []
-        # Scoping is ignored here - all requests are sent to the primary node.
-        # This assumes the secondary nodes will have the same capability or send an error response accordingly at a later date.
-        possible_capabilities: list[ActionDefinition] = [a for a in Actions.values() if a.is_capability]
-        for qry in possible_capabilities:
-            requests.append(
-                self._async_make_request(
-                    action=qry.action,
-                    payload=qry.payload,
-                    raise_on_error=False,
-                )
-            )
 
-        responses: list[ApiReqResp] = await asyncio.gather(*requests)
-        for idx, resp in enumerate(responses):
-            _, jnap_response = resp
-            data: dict[str, Any] | None = next(iter(jnap_response.data), None)
-            if data is not None:
-                if "result" in data:
-                    _LOGGER.debug(
-                        "capability not found: %s, response: %s",
-                        possible_capabilities[idx].key,
-                        jnap_response.data,
-                    )
-                    continue
+        cap: MeshCapability
+        cap_to_remove: set[ActionKey] = set()
+        resp: dict[str, Any]
+        ret: list[ActionKey] = []
 
-                if jnap_response.action == Actions.GET_WAN_INFO.action:
-                    _is_bridge_mode = data.get("detectedWANType", "").lower() == "bridge"
-                ret.add(possible_capabilities[idx].key)
-
-        # region #-- tidy up capabilities --#
-        # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
-        capabilities_to_remove: set[ActionKey] = set()
-        for _, resp in responses:
-            data: dict[str, Any] | None = next(iter(resp.data), None)
-            if data is not None:
-                if resp.action == Actions.GET_SPEEDTEST_TYPES.action:
-                    # region #-- remove speedtest related capabilities if they aren't really available --#
-                    # Some seem to provide access to the underlying APIs still but the app/web UI only shows options for 3rd party testing.
-                    _LOGGER.debug("establishing if speedtest is actually available")
-                    healthcheck_modules: set[str] = set(data.get("supportedHealthCheckModules", []))
-
-                    valid_onboard_speedtest: set[str] = {"SpeedTest"}
-                    if valid_onboard_speedtest.isdisjoint(healthcheck_modules):
-                        _LOGGER.debug("speedtest isn't really available, %s", healthcheck_modules)
-                        speedtest_capabilities: set[ActionKey] = {
-                            act.key
-                            for act in Actions.values()
-                            if act.features is not None and ActionFeatures.SPEEDTEST in act.features
-                        }
-                        capabilities_to_remove = capabilities_to_remove.union(speedtest_capabilities)
-                    else:  # add SPEEDTEST_STATUS to the capabilities
-                        ret.add(Actions.GET_SPEEDTEST_STATUS.key)
-                    # endregion
-                elif resp.action == Actions.GET_PARENTAL_CONTROL_INFO:
-                    # region #-- tidy up for bridge mode --#
-                    if _is_bridge_mode:
-                        _LOGGER.debug("in bridge mode so removing parental control capability")
-                        pc_capabilities: set[ActionKey] = {
-                            act.key
-                            for act in Actions.values()
-                            if act.features is not None and ActionFeatures.PARENTAL_CONTROL in act.features
-                        }
-                        capabilities_to_remove = capabilities_to_remove.union(pc_capabilities)
-                    # endregion
-        for capability in capabilities_to_remove:
-            if capability in ret:
-                ret.remove(capability)
+        # region #-- query the node for capabilities --#
+        # Credentials are not required for this and are currently not set in the MeshDetails object.
+        # Check the capabilities first so action versions can be determined.
+        cap = self._get_mesh_capability("GET_DEVICE_INFO")
+        resp = await cap.async_execute()
         # endregion
 
-        self._mesh_capabilities = set(ret)
-        return self._mesh_capabilities
+        # region #-- populate available capabilities --#
+        services: list[str] = resp.get("services", [])
+        for service_base, service_versions in self._group_sort_services(services).items():
+            actions: tuple[ActionDefinition, ...] = _ACTION_BY_SERVICE.get(service_base, ())
+            for action in actions:
+                if action.key not in self._mesh_capabilities:
+                    self._mesh_capabilities[action.key] = MeshCapability(
+                        action,
+                        self._mesh_details,
+                    )
+                self._mesh_capabilities[action.key].add_action_unknown_callback(self._remove_mesh_capability)
+                self._mesh_capabilities[action.key].service_versions = service_versions
+        # endregion
+
+        # region #-- test the credentials --#
+        self._mesh_details.password = self._password
+        valid_credentials: bool = await self.async_test_credentials()
+        if not valid_credentials:
+            raise MeshInvalidCredentials()
+        # endregion
+
+        # region #-- query for speedtest availablility --#
+        cap = self._get_mesh_capability("GET_SPEEDTEST_TYPES")
+        resp = await cap.async_execute()
+        _LOGGER_VERBOSE.debug("establishing if SpeedTest is really available")
+        valid_speedtest: set[str] = {"SpeedTest"}
+        healthcheck_modules: set[str] = set(resp.get("supportedHealthCheckModules", []))
+        if valid_speedtest.isdisjoint(healthcheck_modules):
+            _LOGGER_VERBOSE.debug("speedtest isn't really available, %s", healthcheck_modules)
+            cap_speedtest: set[ActionKey] = {
+                act.key
+                for act in Actions.values()
+                if act.features is not None and ActionFeatures.SPEEDTEST in act.features
+            }
+            cap_to_remove = cap_to_remove.union(cap_speedtest)
+        else:
+            _LOGGER_VERBOSE.debug("speedtest is available, %s", healthcheck_modules)
+        # endregion
+
+        # region #-- query for bridge mode --#
+        # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
+        cap = self._get_mesh_capability("GET_WAN_INFO")
+        resp = await cap.async_execute()
+        is_bridge_mode: bool = resp.get("detectedWANType", "").lower() == "bridge"
+        if is_bridge_mode:
+            cap_bridge_remove: set[ActionKey] = {
+                act.key
+                for act in Actions.values()
+                if act.features is not None
+                and any(feature in act.features for feature in (ActionFeatures.PARENTAL_CONTROL,))
+            }
+            cap_to_remove = cap_to_remove.union(cap_bridge_remove)
+        # endregion
+
+        # region #-- cleanup the capabilities --#
+        for cap_key in cap_to_remove:
+            self._mesh_capabilities.pop(cap_key, None)
+        # endregion
+
+        ret = sorted(
+            cap_key
+            for cap_key, cap in self._mesh_capabilities.items()
+            if cap.action_definition.purpose == ActionPurpose.GET
+        )
+        return tuple(ret)
 
     @needs_initialise
-    async def async_gather_details(self) -> None:
-        """Gather all the details and initialise what the mesh looks like.
+    async def async_gather_details(
+        self, required_capabilities: Iterable[MeshCapability] | None = None
+    ) -> dict[ActionKey, Any]:
+        """Retrieve all the details for the specified capabilities."""
 
-        Sets the instance variables as necessary.
+        ret_mesh_details: dict[ActionKey, Any] = {}
+        track_time: bool = False
+        if required_capabilities:
+            required_capabilities = tuple(required_capabilities)
+        else:
+            track_time = True
+            required_capabilities = (
+                cap for cap in self._mesh_capabilities.values() if cap.action_definition.purpose == ActionPurpose.GET
+            )
 
-        :return: None
-        """
+        capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(required_capabilities)
 
-        self._mesh_attributes = await self._async_gather_details(
-            self._mesh_capabilities,
-            track_time=True,
+        # region #-- gather the details for the mesh scoped capabilities --#
+        mesh_details: dict[ActionKey, Any] = await self._async_gather_mesh_details(
+            track_time, capability_scope_groups.mesh
         )
+        ret_mesh_details.update(mesh_details)
+        # endregion
 
-    async def async_get_channel_scan_info(self) -> dict[str, Any] | None:
+        # region #-- action per node requests --#
+        nodes: list[dict[str, str]] = self._get_nodes_from_raw(ret_mesh_details)
+        node_details: dict[ActionKey, Any] = await self._async_gather_node_details(
+            track_time, nodes, capability_scope_groups.node
+        )
+        ret_mesh_details.update(node_details)
+        # endregion
+
+        return ret_mesh_details
+
+    async def async_get_channel_scan_info(self) -> dict[str, Any]:
         """Get the current state of the channel scan.
 
         :return: dictionary containing the channel scan results
         """
-        resp = await self._async_gather_details([Actions.GET_CHANNEL_SCAN_STATUS.key])
-        return resp.get(Actions.GET_CHANNEL_SCAN_STATUS.key)
+
+        cap: MeshCapability = self._get_mesh_capability("GET_CHANNEL_SCAN_STATUS")
+        ret: JnapResponseSingle = await cap.async_execute()
+
+        return ret
 
     @needs_initialise
     async def async_get_devices(
@@ -984,7 +1217,7 @@ class Mesh:
         *,
         force_refresh: bool = False,
         raise_for_missing: bool = True,
-    ) -> list[DeviceEntity]:
+    ) -> tuple[DeviceEntity, ...]:
         """Get matching devices if identity is specified, or all devices.
 
         To be used only if needing to query devices and get the details returned.
@@ -997,17 +1230,17 @@ class Mesh:
         ret: list[DeviceEntity] = []
 
         if force_refresh:
-            device_capabilities: set[ActionKey] = {
-                act.key
-                for act in Actions.values()
-                if act.features is not None and ActionFeatures.DEVICE_INFO in act.features
+            device_capabilities: set[MeshCapability] = {
+                cap
+                for cap in self._mesh_capabilities.values()
+                if cap.action_definition.features is not None
+                and ActionFeatures.DEVICE_INFO in cap.action_definition.features
             }
-            gathered_devices = await self._async_gather_details(device_capabilities)
-            all_devices = [
-                dev for dev in gathered_devices.get(_ATTR_PROCESSED_DEVICES, []) if type(dev) is DeviceEntity
-            ]
+            device_details: dict[ActionKey, Any] = await self.async_gather_details(device_capabilities)
+            device_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(False, device_details)
+            all_devices = [dev for dev in device_entities if isinstance(dev, DeviceEntity)]
         else:
-            all_devices = self.devices
+            all_devices = list(self.devices)
 
         if identity is None:
             ret = all_devices
@@ -1070,7 +1303,7 @@ class Mesh:
 
         ret = sorted(ret, key=lambda device: str(device.name))
 
-        return ret
+        return tuple(ret)
 
     @needs_initialise
     async def async_get_speedtest_results(
@@ -1085,24 +1318,17 @@ class Mesh:
         :return: List of dictionaries containing the result details
         """
 
-        healthcheck_modules: set[str] | None = set(
-            self._mesh_attributes.get(Actions.GET_SPEEDTEST_TYPES.key, {}).get("supportedHealthCheckModules", [])
-        )
-
-        if "SpeedTest" not in healthcheck_modules:
-            raise MeshInvalidArguments
-
-        payload = {
+        payload: JnapPayloadSingle = {
             **Actions.GET_SPEEDTEST_RESULTS.payload,
             "healthCheckModule": "SpeedTest",
             "lastNumberOfResults": count,
         }
-        _, resp = await self._async_make_request(action=Actions.GET_SPEEDTEST_RESULTS.action, payload=payload)
-        data: dict[str, Any] | None = next(iter(resp.data), None)
+        cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_RESULTS")
+        resp: JnapResponseSingle = await cap.async_execute(payload=payload)
 
         ret: list[SpeedtestResult] = []
-        if data is not None:
-            speedtest_results = data.get("healthCheckResults", [])
+        if resp is not None:
+            speedtest_results = resp.get("healthCheckResults", [])
             for res in speedtest_results:
                 sres: SpeedtestResult | None = self._process_speedtest_results(res)
                 if sres is not None:
@@ -1122,10 +1348,9 @@ class Mesh:
         """
 
         ret: SpeedtestResult | None = None
-        resp = await self._async_gather_details([Actions.GET_SPEEDTEST_STATUS.key])
-        result: dict[str, Any] = resp.get(Actions.GET_SPEEDTEST_STATUS.key, {})
-        if result:
-            ret = self._process_speedtest_results(resp.get(Actions.GET_SPEEDTEST_STATUS.key, {}))
+        cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_STATUS")
+        result: JnapResponseSingle = await cap.async_execute()
+        ret = self._process_speedtest_results(result)
 
         return ret
 
@@ -1135,9 +1360,9 @@ class Mesh:
         :return: True if still running, False if not
         """
 
-        resp = await self._async_gather_details([Actions.GET_UPDATE_FIRMWARE_STATE.key])
-
-        node_results = resp.get(Actions.GET_UPDATE_FIRMWARE_STATE.key, {}).get("firmwareUpdateStatus", [])
+        cap: MeshCapability = self._get_mesh_capability("GET_UPDATE_FIRMWARE_STATE")
+        resp: JnapResponseSingle = await cap.async_execute()
+        node_results = resp.get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
 
         ret: bool = any(all_states)
@@ -1150,9 +1375,8 @@ class Mesh:
         :return: dictionary containing information about the state of UPnP functionality
         """
 
-        resp = await self._async_gather_details([Actions.GET_UPNP_SETTINGS.key])
-
-        ret = cast(dict[str, bool], resp.get(Actions.GET_UPNP_SETTINGS.key, {}))
+        cap: MeshCapability = self._get_mesh_capability("GET_UPNP_SETTINGS")
+        ret: JnapResponseSingle = await cap.async_execute()
 
         return ret
 
@@ -1164,9 +1388,26 @@ class Mesh:
         :return: None
         """
 
+        # region #-- check that we're pointing to the primary node --#
+        cap = self._get_mesh_capability("GET_DEVICE_MODE")
+        resp: dict[str, Any] = await cap.async_execute()
+        if resp.get("mode", "").lower() != "master":
+            raise MeshNodeNotPrimary
+        # endregion
+
+        # region #-- detect available capabilities --#
         await self.async_detect_capabilities()
-        self._initialise_executed = True  # flag here so that async_gather_details will run
-        await self.async_gather_details()
+        # endregion
+
+        # flag here so that async_gather_details will run
+        self._initialise_executed = True
+
+        # region #-- retrieve mesh data and prepare the mesh entities --#
+        self._mesh_attributes = await self.async_gather_details()
+        ret_mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, self._mesh_attributes)
+        _remediated_devices: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(True, ret_mesh_entities)
+        self._mesh_entities = _remediated_devices
+        # endregion
 
     async def async_ping(self) -> str | None:
         """Test to see if the mesh is reachable.
@@ -1183,7 +1424,9 @@ class Mesh:
                 raise_for_status=False,
                 timeout=2,  # pyright:ignore[reportArgumentType] if float is passed it's classed as total
             )
-            if resp.status == 404:  # the mesh will respond with an invalid URL as it hasn't been formatted properly
+
+            # the mesh will respond with an invalid URL as it hasn't been formatted properly
+            if resp.status == 404:
                 ret = "pong"
 
         return ret
@@ -1214,8 +1457,9 @@ class Mesh:
         """
 
         # get the current radio settings from the API; they may have changed
-        resp = await self._async_gather_details([Actions.GET_GUEST_NETWORK_INFO.key])
-        radios = resp.get(Actions.GET_GUEST_NETWORK_INFO.key, {}).get("radios", [])
+        cap: MeshCapability = self._get_mesh_capability("GET_GUEST_NETWORK_INFO")
+        resp: JnapResponseSingle = await cap.async_execute()
+        radios = resp.get("radios", [])
 
         for radio_details in radios:
             radio_details["isEnabled"] = state
@@ -1225,7 +1469,8 @@ class Mesh:
             "isGuestNetworkEnabled": state,
             "radios": radios,
         }
-        await self._async_make_request(action=Actions.SET_GUEST_NETWORK.action, payload=payload)
+        cap = self._get_mesh_capability("SET_GUEST_NETWORK")
+        await cap.async_execute(payload=payload)
 
     async def async_set_homekit_state(self, state: bool) -> None:
         """Set the state of the HomeKit feature.
@@ -1234,7 +1479,9 @@ class Mesh:
 
         :return: None
         """
-        await self._async_make_request(action=Actions.SET_HOMEKIT_SETTINGS.action, payload={"isEnabled": state})
+
+        cap: MeshCapability = self._get_mesh_capability("SET_HOMEKIT_SETTINGS")
+        await cap.async_execute(payload={"isEnabled": state})
 
     async def async_set_night_mode_state(self, state: NightModeState) -> None:
         """Set the state of the the night mode functionality.
@@ -1244,18 +1491,19 @@ class Mesh:
         :return: None
         """
 
-        payload: dict[str, Any] = {
+        payload: JnapPayloadSingle = {
             "Enabled": True if state != NightModeState.OFF else False,
         }
         if state != NightModeState.OFF:
-            if NightModeState.ALWAYS:
+            if state == NightModeState.ALWAYS:
                 payload["StartingTime"] = 0
                 payload["EndingTime"] = 24
-            elif NightModeState.NIGHT_MODE:
+            elif state == NightModeState.NIGHT_MODE:
                 payload["StartingTime"] = 20
                 payload["EndingTime"] = 8
 
-        await self._async_make_request(action=Actions.SET_LED_NIGHT_MODE.action, payload=payload)
+        cap: MeshCapability = self._get_mesh_capability("SET_LED_NIGHT_MODE")
+        await cap.async_execute(payload=payload)
 
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature. Rules are left intact.
@@ -1265,14 +1513,16 @@ class Mesh:
         :return: None
         """
         # get the current rules from the API because they may be different
-        resp = await self._async_gather_details([Actions.GET_PARENTAL_CONTROL_INFO.key])
+        cap: MeshCapability = self._get_mesh_capability("GET_PARENTAL_CONTROL_INFO")
+        resp: JnapResponseSingle = await cap.async_execute()
         rules = resp.get("rules", [])
 
         payload = {
             "isParentalControlEnabled": state,
             "rules": rules,
         }
-        await self._async_make_request(action=Actions.SET_PARENTAL_CONTROL_INFO.action, payload=payload)
+        cap = self._get_mesh_capability("SET_PARENTAL_CONTROL_INFO")
+        await cap.async_execute(payload=payload)
 
     async def async_set_scheduled_reboot_interval(self, interval: ScheduledRebootInterval) -> None:
         """Set the reboot interval for the Scheduled Reboot feature and enable it.
@@ -1282,14 +1532,12 @@ class Mesh:
         :return: None
         """
 
-        payload = {
+        payload: JnapPayloadSingle = {
             "isScheduledRebootEnabled": True,
             "rebootInterval": interval.value,
         }
-        await self._async_make_request(
-            action=Actions.SET_SCHEDULED_REBOOT_SETTINGS.action,
-            payload=payload,
-        )
+        cap: MeshCapability = self._get_mesh_capability("SET_SCHEDULED_REBOOT_SETTINGS")
+        await cap.async_execute(payload=payload)
 
     async def async_set_scheduled_reboot_state(self, state: bool) -> None:
         """Set the state of the Scheduled Reboot feature. Interval is left intact.
@@ -1300,9 +1548,10 @@ class Mesh:
         """
 
         # get the current interval from the API because they may be different
-        resp = await self._async_gather_details([Actions.GET_SCHEDULED_REBOOT_SETTINGS.key])
+        cap: MeshCapability = self._get_mesh_capability("GET_SCHEDULED_REBOOT_SETTINGS")
+        resp: JnapResponseSingle = await cap.async_execute()
 
-        interval: str | None = resp.get(Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {}).get("rebootInterval")
+        interval: str | None = resp.get("rebootInterval")
 
         if interval is None:
             raise MeshException("Interval setting not found")
@@ -1311,10 +1560,9 @@ class Mesh:
             "isScheduledRebootEnabled": state,
             "rebootInterval": interval,
         }
-        await self._async_make_request(
-            action=Actions.SET_SCHEDULED_REBOOT_SETTINGS.action,
-            payload=payload,
-        )
+
+        cap = self._get_mesh_capability("SET_SCHEDULED_REBOOT_SETTINGS")
+        await cap.async_execute(payload=payload)
 
     async def async_set_upnp_settings(
         self, enabled: bool, allow_change_settings: bool, allow_disable_internet: bool
@@ -1328,38 +1576,32 @@ class Mesh:
         :return: None
         """
 
-        payload = {
+        payload: JnapPayloadSingle = {
             "isUPnPEnabled": enabled,
             "canUsersConfigure": allow_change_settings,
             "canUsersDisableWANAccess": allow_disable_internet,
         }
-        await self._async_make_request(action=Actions.SET_UPNP_SETTINGS.action, payload=payload)
+        cap: MeshCapability = self._get_mesh_capability("SET_UPNP_SETTINGS")
+        await cap.async_execute(payload=payload)
 
     async def async_set_wps_state(self, state: bool) -> None:
         """Set the state of the WPS feature.
 
         :param state: True to enable, False to disable
-
-        :return: None
         """
 
-        await self._async_make_request(action=Actions.SET_WPS_SERVER_SETTINGS.action, payload={"enabled": state})
+        payload: JnapPayloadSingle = {"enabled": state}
+        cap: MeshCapability = self._get_mesh_capability("SET_WPS_SERVER_SETTINGS")
+        await cap.async_execute(payload=payload)
 
     async def async_start_channel_scan(self) -> None:
-        """Start a channel scan on the mesh.
-
-        :return: None
-        """
+        """Start a channel scan on the mesh."""
 
         try:
-            await self._async_make_request(action=Actions.START_CHANNEL_SCAN.action)
+            cap: MeshCapability = self._get_mesh_capability("START_CHANNEL_SCAN")
+            await cap.async_execute()
         except MeshAlreadyInProgress as err:
             _LOGGER.debug("%s", err)
-        except MeshInvalidInput as err:
-            _LOGGER.warning(
-                "%s - are you sure the functionality is available",
-                err,
-            )
 
     @needs_initialise
     async def async_start_speedtest(self) -> None:
@@ -1367,20 +1609,13 @@ class Mesh:
 
         A Speedtest is a long-running task.  You should use the async_get_speedtest_state method to understand
         the progress of the task.
-
-        :return: None
         """
 
-        healthcheck_modules: set[str] | None = set(
-            self._mesh_attributes.get(Actions.GET_SPEEDTEST_TYPES.key, {}).get("supportedHealthCheckModules", [])
-        )
-
-        if "SpeedTest" not in healthcheck_modules:
-            raise MeshInvalidArguments
-
-        payload: dict[str, Any] = {"runHealthCheckModule": "SpeedTest"}
-
-        await self._async_make_request(action=Actions.START_SPEEDTEST.action, payload=payload)
+        cap: MeshCapability = self._get_mesh_capability("START_SPEEDTEST")
+        payload: JnapPayloadSingle = {
+            "runHealthCheckModule": "SpeedTest",
+        }
+        await cap.async_execute(payload=payload)
 
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid.
@@ -1389,14 +1624,19 @@ class Mesh:
         """
 
         ret: bool = False
+        payload: JnapPayloadSingle
         try:
-            await self._async_make_request(action=Actions.CHECK_PASSWORD.action)
+            cap: MeshCapability = self._get_mesh_capability("CHECK_PASSWORD")
+            if cap.action_version == 1:
+                payload = {}
+            else:
+                raise MeshActionVersionNotImplemented(
+                    f"{cap.action_definition.key} version {cap.action_version} has not been implemented"
+                )
+            await cap.async_execute(payload=payload)
             ret = True
         except MeshInvalidCredentials:
             pass
-        except MeshException as err:
-            _LOGGER.error(err)
-            raise
         except Exception as err:
             _LOGGER.error(err)
             raise
@@ -1405,12 +1645,21 @@ class Mesh:
 
     @property
     @needs_initialise
-    def capabilities(self) -> set[ActionKey]:
+    def capabilities(self) -> tuple[ActionKey, ...]:
         """Get the list of capabilities that the Mesh supports.
 
-        :return: list of mesh capabilities
+        :return: mesh capabilities
         """
-        return self._mesh_capabilities
+
+        ret: tuple[ActionKey, ...] = tuple(
+            sorted(
+                cap_key
+                for cap_key, cap in self._mesh_capabilities.items()
+                if cap.action_definition.purpose == ActionPurpose.GET
+            )
+        )
+
+        return ret
 
     @property
     @needs_initialise
@@ -1422,7 +1671,7 @@ class Mesh:
         :return: True if checking
         """
 
-        node_results: list[dict[str, Any]] = self._mesh_attributes.get(Actions.GET_UPDATE_FIRMWARE_STATE.key, {}).get(
+        node_results: list[dict[str, Any]] = self._mesh_attributes.get("GET_UPDATE_FIRMWARE_STATE", {}).get(
             "firmwareUpdateStatus", []
         )
 
@@ -1439,7 +1688,7 @@ class Mesh:
         :return: True if enabled, False otherwise.
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {}).get(
+        attr: bool | None = self._mesh_attributes.get("GET_TOPOLOGY_OPTIMISATION_SETTINGS", {}).get(
             "isClientSteeringEnabled"
         )
 
@@ -1465,11 +1714,7 @@ class Mesh:
 
         :return: A list containing Device objects
         """
-        ret: list[DeviceEntity] = [
-            device
-            for device in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, [])
-            if isinstance(device, DeviceEntity)
-        ]
+        ret: list[DeviceEntity] = [device for device in self._mesh_entities if isinstance(device, DeviceEntity)]
         ret = sorted(ret, key=lambda device: str(device.name))
         return tuple(ret)
 
@@ -1481,9 +1726,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_LAN_SETTINGS.key, {}).get("isDHCPEnabled")
+        attr: bool | None = self._mesh_attributes.get("GET_LAN_SETTINGS", {}).get("isDHCPEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_LAN_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_LAN_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1496,7 +1741,7 @@ class Mesh:
         temp_dict: dict[str, str] = {}
 
         all_reservations: list[dict[str, Any]] = (
-            self._mesh_attributes.get(Actions.GET_LAN_SETTINGS.key, {}).get("dhcpSettings", {}).get("reservations", [])
+            self._mesh_attributes.get("GET_LAN_SETTINGS", {}).get("dhcpSettings", {}).get("reservations", [])
         )
 
         for reservation in all_reservations:
@@ -1505,7 +1750,7 @@ class Mesh:
                 temp_dict[camel_to_snake(key)] = details
             ret.append(temp_dict)
 
-        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(Actions.GET_LAN_SETTINGS.key, ret),))
+        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry("GET_LAN_SETTINGS", ret),))
 
     @property
     @needs_initialise
@@ -1515,11 +1760,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_EXPRESS_FORWARDING.key, {}).get(
-            "isExpressForwardingEnabled"
-        )
+        attr: bool | None = self._mesh_attributes.get("GET_EXPRESS_FORWARDING", {}).get("isExpressForwardingEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_EXPRESS_FORWARDING.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_EXPRESS_FORWARDING", attr),))
 
     @property
     @needs_initialise
@@ -1529,11 +1772,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_EXPRESS_FORWARDING.key, {}).get(
-            "isExpressForwardingSupported"
-        )
+        attr: bool | None = self._mesh_attributes.get("GET_EXPRESS_FORWARDING", {}).get("isExpressForwardingSupported")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_EXPRESS_FORWARDING.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_EXPRESS_FORWARDING", attr),))
 
     @property
     @needs_initialise
@@ -1544,13 +1785,11 @@ class Mesh:
         """
 
         ret: FirmwareUpdatePolicy | None = None
-        attr: str | None = self._mesh_attributes.get(Actions.GET_UPDATE_SETTINGS.key, {}).get("updatePolicy")
+        attr: str | None = self._mesh_attributes.get("GET_UPDATE_SETTINGS", {}).get("updatePolicy")
         if attr is not None:
             ret = FirmwareUpdatePolicy(attr)
 
-        return MeshAttribute[FirmwareUpdatePolicy | None](
-            ret, (AttributeAuditEntry(Actions.GET_UPDATE_SETTINGS.key, ret),)
-        )
+        return MeshAttribute[FirmwareUpdatePolicy | None](ret, (AttributeAuditEntry("GET_UPDATE_SETTINGS", ret),))
 
     @property
     @needs_initialise
@@ -1560,11 +1799,9 @@ class Mesh:
         :return: True if enabled
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_GUEST_NETWORK_INFO.key, {}).get(
-            "isGuestNetworkEnabled"
-        )
+        attr: bool | None = self._mesh_attributes.get("GET_GUEST_NETWORK_INFO", {}).get("isGuestNetworkEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_GUEST_NETWORK_INFO.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_GUEST_NETWORK_INFO", attr),))
 
     @property
     @needs_initialise
@@ -1574,9 +1811,7 @@ class Mesh:
         :return: A list of dictionaries containing the SSID and band for the networks
         """
 
-        radios: list[dict[str, str | bool]] = self._mesh_attributes.get(Actions.GET_GUEST_NETWORK_INFO.key, {}).get(
-            "radios", []
-        )
+        radios: list[dict[str, str | bool]] = self._mesh_attributes.get("GET_GUEST_NETWORK_INFO", {}).get("radios", [])
 
         ret: list[dict[str, str]] = [
             {
@@ -1585,7 +1820,7 @@ class Mesh:
             }
             for radio in radios
         ]
-        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(Actions.GET_GUEST_NETWORK_INFO.key, ret),))
+        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry("GET_GUEST_NETWORK_INFO", ret),))
 
     @property
     def has_initialised(self) -> bool:
@@ -1607,9 +1842,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_HOMEKIT_SETTINGS.key, {}).get("isEnabled")
+        attr: bool | None = self._mesh_attributes.get("GET_HOMEKIT_SETTINGS", {}).get("isEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_HOMEKIT_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_HOMEKIT_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1619,9 +1854,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_HOMEKIT_SETTINGS.key, {}).get("isPaired")
+        attr: bool | None = self._mesh_attributes.get("GET_HOMEKIT_SETTINGS", {}).get("isPaired")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_HOMEKIT_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_HOMEKIT_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1631,20 +1866,18 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_CHANNEL_SCAN_STATUS.key, {}).get("isRunning")
+        attr: bool | None = self._mesh_attributes.get("GET_CHANNEL_SCAN_STATUS", {}).get("isRunning")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_CHANNEL_SCAN_STATUS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_CHANNEL_SCAN_STATUS", attr),))
 
     @property
     @needs_initialise
     def is_in_bridge_mode(self) -> MeshAttribute[bool | None]:
         """Return whether the mesh is in bridge mode or not."""
 
-        attr: bool = (
-            self._mesh_attributes.get(Actions.GET_WAN_INFO.key, {}).get("detectedWANType", "").lower() == "bridge"
-        )
+        attr: bool = self._mesh_attributes.get("GET_WAN_INFO", {}).get("detectedWANType", "").lower() == "bridge"
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_WAN_INFO.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
 
     @property
     def last_gather_details(self) -> list[tuple[str, float]]:
@@ -1665,9 +1898,9 @@ class Mesh:
         :return: list of MAC addresses
         """
 
-        attr: list[str] = self._mesh_attributes.get(Actions.GET_MAC_FILTERING_SETTINGS.key, {}).get("macAddresses", [])
+        attr: list[str] = self._mesh_attributes.get("GET_MAC_FILTERING_SETTINGS", {}).get("macAddresses", [])
 
-        return MeshAttribute[list[str]](attr, (AttributeAuditEntry(Actions.GET_MAC_FILTERING_SETTINGS.key, attr),))
+        return MeshAttribute[list[str]](attr, (AttributeAuditEntry("GET_MAC_FILTERING_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1678,11 +1911,10 @@ class Mesh:
         """
 
         attr: bool = (
-            self._mesh_attributes.get(Actions.GET_MAC_FILTERING_SETTINGS.key, {}).get("macFilterMode", "").lower()
-            != "disabled"
+            self._mesh_attributes.get("GET_MAC_FILTERING_SETTINGS", {}).get("macFilterMode", "").lower() != "disabled"
         )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_MAC_FILTERING_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_MAC_FILTERING_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1693,13 +1925,11 @@ class Mesh:
         """
 
         ret: MacFilteringMode | None = None
-        _mode: str | None = self._mesh_attributes.get(Actions.GET_MAC_FILTERING_SETTINGS.key, {}).get("macFilterMode")
+        _mode: str | None = self._mesh_attributes.get("GET_MAC_FILTERING_SETTINGS", {}).get("macFilterMode")
         if _mode is not None:
             ret = MacFilteringMode(_mode)
 
-        return MeshAttribute[MacFilteringMode | None](
-            ret, (AttributeAuditEntry(Actions.GET_MAC_FILTERING_SETTINGS.key, ret),)
-        )
+        return MeshAttribute[MacFilteringMode | None](ret, (AttributeAuditEntry("GET_MAC_FILTERING_SETTINGS", ret),))
 
     @property
     @needs_initialise
@@ -1710,11 +1940,11 @@ class Mesh:
         """
 
         ret: bool | None = None
-        attr: dict[str, bool] | None = self._mesh_attributes.get(Actions.GET_MLO_SETTINGS.key)
+        attr: dict[str, bool] | None = self._mesh_attributes.get("GET_MLO_SETTINGS")
         if attr is not None:
             ret = attr.get("isMLOEnabled")
 
-        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(Actions.GET_MLO_SETTINGS.key, ret),))
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry("GET_MLO_SETTINGS", ret),))
 
     @property
     @needs_initialise
@@ -1725,7 +1955,7 @@ class Mesh:
         """
 
         ret: NightModeState | None = None
-        attr: dict[str, bool | int] | None = self._mesh_attributes.get(Actions.GET_LED_NIGHT_MODE.key)
+        attr: dict[str, bool | int] | None = self._mesh_attributes.get("GET_LED_NIGHT_MODE")
 
         if attr is not None:
             if not attr.get("Enable", False):
@@ -1736,7 +1966,7 @@ class Mesh:
                 elif attr.get("StartingTime") == 20 and attr.get("EndingTime") == 8:
                     ret = NightModeState.NIGHT_MODE
 
-        return MeshAttribute[NightModeState | None](ret, (AttributeAuditEntry(Actions.GET_LED_NIGHT_MODE.key, ret),))
+        return MeshAttribute[NightModeState | None](ret, (AttributeAuditEntry("GET_LED_NIGHT_MODE", ret),))
 
     @property
     @needs_initialise
@@ -1746,13 +1976,11 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, {}).get(
+        attr: bool | None = self._mesh_attributes.get("GET_TOPOLOGY_OPTIMISATION_SETTINGS", {}).get(
             "isNodeSteeringEnabled"
         )
 
-        return MeshAttribute[bool | None](
-            attr, (AttributeAuditEntry(Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, attr),)
-        )
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_TOPOLOGY_OPTIMISATION_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1763,9 +1991,7 @@ class Mesh:
 
         :return: A tuple of NodeEntity objects
         """
-        ret: list[NodeEntity] = [
-            node for node in self._mesh_attributes.get(_ATTR_PROCESSED_DEVICES, []) if isinstance(node, NodeEntity)
-        ]
+        ret: list[NodeEntity] = [node for node in self._mesh_entities if isinstance(node, NodeEntity)]
 
         ret = sorted(ret, key=lambda node: str(node.name))
         return tuple(ret)
@@ -1778,11 +2004,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_PARENTAL_CONTROL_INFO.key, {}).get(
-            "isParentalControlEnabled"
-        )
+        attr: bool | None = self._mesh_attributes.get("GET_PARENTAL_CONTROL_INFO", {}).get("isParentalControlEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_PARENTAL_CONTROL_INFO.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_PARENTAL_CONTROL_INFO", attr),))
 
     @property
     @needs_initialise
@@ -1792,11 +2016,11 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {}).get(
+        attr: bool | None = self._mesh_attributes.get("GET_SCHEDULED_REBOOT_SETTINGS", {}).get(
             "isScheduledRebootEnabled"
         )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_SCHEDULED_REBOOT_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1807,14 +2031,12 @@ class Mesh:
         """
 
         ret: ScheduledRebootInterval | None = None
-        attr: dict[str, Any] = self._mesh_attributes.get(Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, {}).get(
-            "rebootInterval"
-        )
+        attr: dict[str, Any] = self._mesh_attributes.get("GET_SCHEDULED_REBOOT_SETTINGS", {}).get("rebootInterval")
         if attr is not None:
             ret = ScheduledRebootInterval(attr)
 
         return MeshAttribute[ScheduledRebootInterval | None](
-            ret, (AttributeAuditEntry(Actions.GET_SCHEDULED_REBOOT_SETTINGS.key, attr),)
+            ret, (AttributeAuditEntry("GET_SCHEDULED_REBOOT_SETTINGS", attr),)
         )
 
     @property
@@ -1825,9 +2047,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_ALG_SETTINGS.key, {}).get("isSIPEnabled")
+        attr: bool | None = self._mesh_attributes.get("GET_ALG_SETTINGS", {}).get("isSIPEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_ALG_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_ALG_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1836,7 +2058,7 @@ class Mesh:
 
         ret: list[SpeedtestResult] = []
 
-        speedtest_results: list[dict[str, Any]] = self._mesh_attributes.get(Actions.GET_SPEEDTEST_RESULTS.key, {}).get(
+        speedtest_results: list[dict[str, Any]] = self._mesh_attributes.get("GET_SPEEDTEST_RESULTS", {}).get(
             "healthCheckResults", []
         )
         for res in speedtest_results:
@@ -1844,7 +2066,7 @@ class Mesh:
             if sres is not None:
                 ret.append(sres)
 
-        return MeshAttribute[list[SpeedtestResult]](ret, (AttributeAuditEntry(Actions.GET_SPEEDTEST_RESULTS.key, ret),))
+        return MeshAttribute[list[SpeedtestResult]](ret, (AttributeAuditEntry("GET_SPEEDTEST_RESULTS", ret),))
 
     @property
     @needs_initialise
@@ -1856,7 +2078,7 @@ class Mesh:
         ret: list[dict[str, Any]] = []
         node: NodeEntity | None
         device: dict[str, Any]
-        storage_available = self._mesh_attributes.get(Actions.GET_STORAGE_PARTITIONS.key, {})
+        storage_available = self._mesh_attributes.get("GET_STORAGE_PARTITIONS", {})
 
         for storage_node in storage_available.get("storageNodes", []):
             for device in storage_node.get("storageDevices", []):
@@ -1887,7 +2109,7 @@ class Mesh:
                             }
                         )
 
-        return MeshAttribute[list[dict[str, Any]]](ret, (AttributeAuditEntry(Actions.GET_STORAGE_PARTITIONS.key, ret),))
+        return MeshAttribute[list[dict[str, Any]]](ret, (AttributeAuditEntry("GET_STORAGE_PARTITIONS", ret),))
 
     @property
     @needs_initialise
@@ -1897,14 +2119,11 @@ class Mesh:
         :return: dictionary of the storage settings
         """
 
-        attr: dict[str, Any] = self._mesh_attributes.get(
-            Actions.GET_STORAGE_SMB_SERVER.key,
-            {},
-        )
+        attr: dict[str, Any] = self._mesh_attributes.get("GET_STORAGE_SMB_SERVER", {})
 
         return MeshAttribute[dict[str, Any]](
             {"anonymous_access": attr.get("isAnonymousAccessEnabled")},
-            (AttributeAuditEntry(Actions.GET_STORAGE_SMB_SERVER.key, attr),),
+            (AttributeAuditEntry("GET_STORAGE_SMB_SERVER", attr),),
         )
 
     @property
@@ -1935,9 +2154,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_UPNP_SETTINGS.key, {}).get("isUPnPEnabled")
+        attr: bool | None = self._mesh_attributes.get("GET_UPNP_SETTINGS", {}).get("isUPnPEnabled")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_UPNP_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_UPNP_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1947,9 +2166,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_UPNP_SETTINGS.key, {}).get("canUsersConfigure")
+        attr: bool | None = self._mesh_attributes.get("GET_UPNP_SETTINGS", {}).get("canUsersConfigure")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_UPNP_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_UPNP_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1959,9 +2178,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_UPNP_SETTINGS.key, {}).get("canUsersDisableWANAccess")
+        attr: bool | None = self._mesh_attributes.get("GET_UPNP_SETTINGS", {}).get("canUsersDisableWANAccess")
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_UPNP_SETTINGS.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_UPNP_SETTINGS", attr),))
 
     @property
     @needs_initialise
@@ -1971,10 +2190,10 @@ class Mesh:
         :return: A list containing the IP addresses of the WAN DNS servers
         """
 
-        attr: dict[str, Any] = self._mesh_attributes.get(Actions.GET_WAN_INFO.key, {})
+        attr: dict[str, Any] = self._mesh_attributes.get("GET_WAN_INFO", {})
         ret = [val for key, val in attr.get("wanConnection", {}).items() if key.startswith("dnsServer")]
 
-        return MeshAttribute[list[str]](ret, (AttributeAuditEntry(Actions.GET_WAN_INFO.key, ret),))
+        return MeshAttribute[list[str]](ret, (AttributeAuditEntry("GET_WAN_INFO", ret),))
 
     @property
     @needs_initialise
@@ -1984,9 +2203,9 @@ class Mesh:
         :return: A string containing the IP address for the WAN
         """
 
-        attr = self._mesh_attributes.get(Actions.GET_WAN_INFO.key, {}).get("wanConnection", {}).get("ipAddress")
+        attr = self._mesh_attributes.get("GET_WAN_INFO", {}).get("wanConnection", {}).get("ipAddress")
 
-        return MeshAttribute[str | None](attr, (AttributeAuditEntry(Actions.GET_WAN_INFO.key, attr),))
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
 
     @property
     @needs_initialise
@@ -1996,9 +2215,9 @@ class Mesh:
         :return: A string containing the MAC address for the WAN adapter
         """
 
-        attr = self._mesh_attributes.get(Actions.GET_WAN_INFO.key, {}).get("macAddress")
+        attr = self._mesh_attributes.get("GET_WAN_INFO", {}).get("macAddress")
 
-        return MeshAttribute[str | None](attr, (AttributeAuditEntry(Actions.GET_WAN_INFO.key, attr),))
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
 
     @property
     @needs_initialise
@@ -2008,9 +2227,9 @@ class Mesh:
         :return: True if connected, False if not
         """
 
-        attr = self._mesh_attributes.get(Actions.GET_WAN_INFO.key, {}).get("wanStatus", "").lower() == "connected"
+        attr = self._mesh_attributes.get("GET_WAN_INFO", {}).get("wanStatus", "").lower() == "connected"
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(Actions.GET_WAN_INFO.key, attr),))
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
 
     @property
     @needs_initialise
@@ -2020,9 +2239,9 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get(Actions.GET_WPS_SERVER_SETTINGS.key, {}).get("enabled")
+        attr: bool | None = self._mesh_attributes.get("GET_WPS_SERVER_SETTINGS", {}).get("enabled")
         ret: MeshAttribute[bool | None] = MeshAttribute[bool | None](
-            attr, (AttributeAuditEntry(Actions.GET_WPS_SERVER_SETTINGS.key, attr),)
+            attr, (AttributeAuditEntry("GET_WPS_SERVER_SETTINGS", attr),)
         )
 
         return ret

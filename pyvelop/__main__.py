@@ -16,7 +16,7 @@ import aiohttp
 import asyncclick as click
 import pandas as pd
 
-from .action_registry import ActionDefinition, ActionKey, ActionScope
+from .action_registry import ActionDefinition, ActionKey, Actions, ActionScope
 from .exceptions import (
     MeshConnectionError,
     MeshDeviceNotFoundResponse,
@@ -25,7 +25,6 @@ from .exceptions import (
     MeshNodeNotPrimary,
     MeshTimeoutError,
 )
-from .jnap import Actions, Response
 from .logger import Logger
 from .mesh import (
     Mesh,
@@ -73,6 +72,7 @@ class StandardCommand(click.Command):
                                 logging.getLogger(f"{__package__}.jnap").setLevel(logging.DEBUG)
                                 if value > 4:
                                     logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.DEBUG)
+                                    logging.getLogger(f"{__package__}.action_registry.verbose").setLevel(logging.DEBUG)
 
         standard_options: list[click.Option] = [
             click.Option(
@@ -214,7 +214,7 @@ async def device_attr(
 ) -> None:
     """Retrieve details about a specific mesh attribute."""
 
-    devices: list[DeviceEntity] | None = await _get_device_details(ctx=ctx, device=(device,))
+    devices: tuple[DeviceEntity, ...] | None = await _get_device_details(ctx=ctx, device=(device,))
     if devices is not None:
         for found_device in devices:
             attr: Any = getattr(found_device, attribute, None)
@@ -237,10 +237,7 @@ async def device_delete(
 
     if devices is not None:
         for found_device in devices:
-            try:
-                await found_device.async_delete()
-            except Exception as exc:
-                _write_error(exc)
+            await found_device.async_delete()
 
 
 @device_group.command(cls=StandardCommand, name="details")
@@ -260,60 +257,57 @@ async def device_details(
     if devices is not None:
         _output(outfile, "# Device Details\n")
         for found_device in devices:
-            try:
-                data: dict[str, Any] = {
-                    "Queried at": (
-                        dt.datetime.fromtimestamp(found_device.results_time).replace(tzinfo=dt.UTC)
-                        if found_device.results_time is not None
-                        else None
+            data: dict[str, Any] = {
+                "Queried at": (
+                    dt.datetime.fromtimestamp(found_device.results_time).replace(tzinfo=dt.UTC)
+                    if found_device.results_time is not None
+                    else None
+                ),
+                "Device ID": found_device.unique_id.value,
+                "Online": found_device.status.value,
+                "Parent": found_device.parent_name.value,
+                "Manufacturer": found_device.manufacturer.value,
+                "Model": found_device.model.value,
+                "Description": found_device.description.value,
+                "Operating system": found_device.operating_system.value,
+                "Serial #": found_device.serial.value,
+                "Icon type": found_device.ui_type.value,
+            }
+            _display(
+                outfile,
+                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                index=True,
+                title=found_device.name.value,
+            )
+            _display(
+                outfile,
+                pd.DataFrame(found_device.adapter_info.value),
+                title="# Connections",
+            )
+            if num_blocked_sites := len(found_device.parental_control_schedule.value.get("blocked_sites", [])) > 0:
+                _display(
+                    outfile,
+                    pd.DataFrame(
+                        found_device.parental_control_schedule.get("blocked_sites"),
+                        columns=["site"],
                     ),
-                    "Device ID": found_device.unique_id.value,
-                    "Online": found_device.status.value,
-                    "Parent": found_device.parent_name.value,
-                    "Manufacturer": found_device.manufacturer.value,
-                    "Model": found_device.model.value,
-                    "Description": found_device.description.value,
-                    "Operating system": found_device.operating_system.value,
-                    "Serial #": found_device.serial.value,
-                    "Icon type": found_device.ui_type.value,
-                }
+                    title="Parental Control",
+                )
+            if num_blocked_sites == 0 and (
+                schedule := found_device.parental_control_schedule.get("blocked_internet_access", {})
+            ):
                 _display(
                     outfile,
-                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    pd.DataFrame.from_dict(schedule, orient="index"),
                     index=True,
-                    title=found_device.name.value,
+                    title="Parental Control",
                 )
+            else:
                 _display(
                     outfile,
-                    pd.DataFrame(found_device.adapter_info.value),
-                    title="# Connections",
+                    pd.DataFrame.from_dict(schedule, orient="index"),
+                    index=True,
                 )
-                if num_blocked_sites := len(found_device.parental_control_schedule.value.get("blocked_sites", [])) > 0:
-                    _display(
-                        outfile,
-                        pd.DataFrame(
-                            found_device.parental_control_schedule.get("blocked_sites"),
-                            columns=["site"],
-                        ),
-                        title="Parental Control",
-                    )
-                if num_blocked_sites == 0 and (
-                    schedule := found_device.parental_control_schedule.get("blocked_internet_access", {})
-                ):
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(schedule, orient="index"),
-                        index=True,
-                        title="Parental Control",
-                    )
-                else:
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(schedule, orient="index"),
-                        index=True,
-                    )
-            except Exception as exc:
-                _write_error(exc)
 
 
 @device_group.command(cls=StandardCommand, name="internet_access")
@@ -365,10 +359,7 @@ async def device_rename(ctx: click.Context, /, device_id: str, new_name: str, **
 
     if devices is not None:
         for found_device in devices:
-            try:
-                await found_device.async_rename(new_name)
-            except Exception as exc:
-                _write_error(exc)
+            await found_device.async_rename(new_name)
 
 
 @device_group.command(cls=StandardCommand, name="set_icon")
@@ -378,18 +369,11 @@ async def device_rename(ctx: click.Context, /, device_id: str, new_name: str, **
 async def device_set_icon(ctx: click.Context, /, device_id: str, icon: str, **_: Any) -> None:
     """Set the icon for the given device."""
 
-    try:
-        dev_id = (device_id,)
-        devices = await _get_device_details(ctx, dev_id)
-        if devices is not None:
-            for found_device in devices:
-                try:
-                    await found_device.async_set_icon(icon.lower())
-                except Exception as exc:
-                    _write_error(exc)
-    except Exception as exc:
-        _LOGGER.error(exc)
-        _write_error(exc)
+    dev_id = (device_id,)
+    devices = await _get_device_details(ctx, dev_id)
+    if devices is not None:
+        for found_device in devices:
+            await found_device.async_set_icon(icon.lower())
 
 
 @device_group.command(cls=StandardCommand, name="set_rules")
@@ -417,23 +401,20 @@ async def device_pc_set_rules(
 ) -> None:
     """Set the parental control rules."""
 
-    try:
-        rules_to_apply: dict[str, Any] = {
-            day.name.lower(): (locals().get(day.name.lower()) if locals().get(day.name.lower()) else None)
-            for day in Weekdays
-        }
+    rules_to_apply: dict[str, Any] = {
+        day.name.lower(): (locals().get(day.name.lower()) if locals().get(day.name.lower()) else None)
+        for day in Weekdays
+    }
 
-        dev_id = (device_id,)
-        devices = await _get_device_details(ctx, dev_id)
+    dev_id = (device_id,)
+    devices = await _get_device_details(ctx, dev_id)
 
-        if devices is not None:
-            for found_device in devices:
-                await found_device.async_set_parental_control_rules(
-                    rules_to_apply,
-                    force_enable=True,
-                )
-    except Exception as exc:
-        _write_error(exc)
+    if devices is not None:
+        for found_device in devices:
+            await found_device.async_set_parental_control_rules(
+                rules_to_apply,
+                force_enable=True,
+            )
 
 
 @device_group.command(cls=StandardCommand, name="set_urls")
@@ -451,14 +432,11 @@ async def device_pc_set_urls(
 
     if devices is not None:
         for found_device in devices:
-            try:
-                await found_device.async_set_parental_control_urls(
-                    list(urls),
-                    force_enable=True,
-                    merge=merge,
-                )
-            except Exception as exc:
-                _write_error(exc)
+            await found_device.async_set_parental_control_urls(
+                list(urls),
+                force_enable=True,
+                merge=merge,
+            )
 
 
 @cli.group(name="diagnostics")
@@ -478,39 +456,31 @@ async def diagnostics(
 ) -> None:
     """Execute some diagnostics tests on the mesh results."""
 
-    # data: dict[str, Any] = {}
-    try:
-        if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
-            async with mesh_obj:
-                await mesh_obj.async_initialise()
-                await mesh_obj.async_gather_details()
+    if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
+        async with mesh_obj:
+            devices: tuple[DeviceEntity, ...] = mesh_obj.devices
 
-                devices: list[DeviceEntity] = mesh_obj.devices
-
-                if check == AllowedChecks.NETWORK_DETAILS:
-                    ret_devices: set[DeviceEntity] = {d for d in devices if d.status}
-                    ret: list[dict[str, Any]] = [
-                        {
-                            "id": d.unique_id,
-                            "name": d.name,
-                            "parent": d.parent_name,
-                            "parent_id": next(adi.parent_id for adi in d.adapter_info.value),
-                            "connection_type": next(adi.type for adi in d.adapter_info.value),
-                            "mac": next(adi.mac for adi in d.adapter_info.value),
-                            "ip": next(adi.ip for adi in d.adapter_info.value),
-                            "ipv6": next(adi.ipv6 for adi in d.adapter_info.value),
-                        }
-                        for d in ret_devices
-                    ]
-                    _display(
-                        None,
-                        pd.DataFrame(ret, index=pd.RangeIndex(start=1, stop=len(ret) + 1)),
-                        index=True,
-                        title="Devices Without a Parent",
-                    )
-
-    except Exception as exc:
-        _write_error(exc)
+            if check == AllowedChecks.NETWORK_DETAILS:
+                ret_devices: set[DeviceEntity] = {d for d in devices if d.status}
+                ret: list[dict[str, Any]] = [
+                    {
+                        "id": d.unique_id,
+                        "name": d.name,
+                        "parent": d.parent_name,
+                        "parent_id": next(adi.parent_id for adi in d.adapter_info.value),
+                        "connection_type": next(adi.type for adi in d.adapter_info.value),
+                        "mac": next(adi.mac for adi in d.adapter_info.value),
+                        "ip": next(adi.ip for adi in d.adapter_info.value),
+                        "ipv6": next(adi.ipv6 for adi in d.adapter_info.value),
+                    }
+                    for d in ret_devices
+                ]
+                _display(
+                    None,
+                    pd.DataFrame(ret, index=pd.RangeIndex(start=1, stop=len(ret) + 1)),
+                    index=True,
+                    title="Devices Without a Parent",
+                )
 
 
 @cli.group(name="example")
@@ -543,8 +513,8 @@ def create(example: str, path: str) -> None:
                 "The defaults have been detailed in this file.",
             ]
         }
-        possible_capabilities: list[ActionDefinition] = [a for a in Actions.values() if a.is_capability]
-        output.update({capability.key: list(capability.redactions) for capability in possible_capabilities})
+        possible_actions: list[ActionDefinition] = list(Actions.values())
+        output.update({action.key: list(action.redactions) for action in possible_actions})
 
     with open(path, "w") as fp:
         fp.write(json.dumps(output, indent=4))
@@ -569,82 +539,79 @@ async def mesh_action(
     """Carry out a specified action on the mesh."""
 
     ret: Any = None
-    try:
-        if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
-            async with mesh_obj:
-                if action == "channel_scan_info":
-                    ret = await mesh_obj.async_get_channel_scan_info()
-                elif action == "channel_scan_start":
-                    await mesh_obj.async_start_channel_scan()
-                elif action == "detect_capabilities":
-                    ret = list(await mesh_obj.async_detect_capabilities())
-                elif action == "guest_wifi_off":
-                    await mesh_obj.async_set_guest_wifi_state(state=False)
-                elif action == "guest_wifi_on":
-                    await mesh_obj.async_set_guest_wifi_state(state=True)
-                elif action == "homekit_off":
-                    await mesh_obj.async_set_homekit_state(state=False)
-                elif action == "homekit_on":
-                    await mesh_obj.async_set_homekit_state(state=True)
-                elif action == "night_mode_always":
-                    await mesh_obj.async_set_night_mode_state(NightModeState.ALWAYS)
-                elif action == "night_mode_off":
-                    await mesh_obj.async_set_night_mode_state(NightModeState.OFF)
-                elif action == "night_mode_on":
-                    await mesh_obj.async_set_night_mode_state(NightModeState.NIGHT_MODE)
-                elif action == "parental_control_off":
-                    await mesh_obj.async_set_parental_control_state(state=False)
-                elif action == "parental_control_on":
-                    await mesh_obj.async_set_parental_control_state(state=True)
-                elif action == "speedtest_clear_results":
-                    await mesh_obj.async_clear_speedtest_results()
-                elif action == "speedtest_results":
-                    await mesh_obj.async_initialise()
-                    ret = await mesh_obj.async_get_speedtest_results()
-                elif action == "speedtest_status":
-                    await mesh_obj.async_initialise()
-                    ret = await mesh_obj.async_get_speedtest_state()
-                elif action == "speedtest_start":
-                    await mesh_obj.async_initialise()
-                    await mesh_obj.async_start_speedtest()
-                    res: SpeedtestResult = await mesh_obj.async_get_speedtest_state()
+    if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
+        async with mesh_obj:
+            if action == "channel_scan_info":
+                ret = await mesh_obj.async_get_channel_scan_info()
+            elif action == "channel_scan_start":
+                await mesh_obj.async_start_channel_scan()
+            elif action == "detect_capabilities":
+                capabilities = mesh_obj.capabilities
+                ret = list(capabilities)
+            elif action == "guest_wifi_off":
+                await mesh_obj.async_set_guest_wifi_state(state=False)
+            elif action == "guest_wifi_on":
+                await mesh_obj.async_set_guest_wifi_state(state=True)
+            elif action == "homekit_off":
+                await mesh_obj.async_set_homekit_state(state=False)
+            elif action == "homekit_on":
+                await mesh_obj.async_set_homekit_state(state=True)
+            elif action == "night_mode_always":
+                await mesh_obj.async_set_night_mode_state(NightModeState.ALWAYS)
+            elif action == "night_mode_off":
+                await mesh_obj.async_set_night_mode_state(NightModeState.OFF)
+            elif action == "night_mode_on":
+                await mesh_obj.async_set_night_mode_state(NightModeState.NIGHT_MODE)
+            elif action == "parental_control_off":
+                await mesh_obj.async_set_parental_control_state(state=False)
+            elif action == "parental_control_on":
+                await mesh_obj.async_set_parental_control_state(state=True)
+            elif action == "speedtest_clear_results":
+                await mesh_obj.async_clear_speedtest_results()
+            elif action == "speedtest_results":
+                ret = await mesh_obj.async_get_speedtest_results()
+            elif action == "speedtest_status":
+                ret = await mesh_obj.async_get_speedtest_state()
+            elif action == "speedtest_start":
+                await mesh_obj.async_start_speedtest()
+                res: SpeedtestResult | None = await mesh_obj.async_get_speedtest_state()
+                if res is not None:
                     click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
                     prev_res: SpeedtestResult = res
                     while res.exit_code == SpeedtestExitCode.UNAVAILABLE:
                         await asyncio.sleep(1)
                         res = await mesh_obj.async_get_speedtest_state()
+                        if res is None:
+                            break
                         if res.friendly_status != prev_res.friendly_status:
                             click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
                             prev_res = res
                     ret = await mesh_obj.async_get_speedtest_results(only_latest=True, only_completed=True)
                     ret = ret[0].as_dict()
                     ret["timestamp"] = str(ret["timestamp"])
-                elif action == "update_check_start":
-                    await mesh_obj.async_check_for_updates()
-                elif action == "upnp_off":
-                    cur_settings = await mesh_obj.async_get_upnp_state()
-                    new_upnp_settings_off: dict[str, bool] = {
-                        "enabled": False,
-                        "allow_change_settings": cur_settings.get("canUsersConfigure", False),
-                        "allow_disable_internet": cur_settings.get("canUsersDisableWANAccess", False),
-                    }
-                    await mesh_obj.async_set_upnp_settings(**new_upnp_settings_off)
-                elif action == "upnp_on":
-                    cur_settings = await mesh_obj.async_get_upnp_state()
-                    new_upnp_settings_on: dict[str, bool] = {
-                        "enabled": True,
-                        "allow_change_settings": cur_settings.get("canUsersConfigure", False),
-                        "allow_disable_internet": cur_settings.get("canUsersDisableWANAccess", False),
-                    }
-                    await mesh_obj.async_set_upnp_settings(**new_upnp_settings_on)
-                elif action == "wps_off":
-                    await mesh_obj.async_set_wps_state(state=False)
-                elif action == "wps_on":
-                    await mesh_obj.async_set_wps_state(state=True)
-    except Exception as exc:
-        raise exc
-        _write_error(exc)
-    else:
+            elif action == "update_check_start":
+                await mesh_obj.async_check_for_updates()
+            elif action == "upnp_off":
+                cur_settings = await mesh_obj.async_get_upnp_state()
+                new_upnp_settings_off: dict[str, bool] = {
+                    "enabled": False,
+                    "allow_change_settings": cur_settings.get("canUsersConfigure", False),
+                    "allow_disable_internet": cur_settings.get("canUsersDisableWANAccess", False),
+                }
+                await mesh_obj.async_set_upnp_settings(**new_upnp_settings_off)
+            elif action == "upnp_on":
+                cur_settings = await mesh_obj.async_get_upnp_state()
+                new_upnp_settings_on: dict[str, bool] = {
+                    "enabled": True,
+                    "allow_change_settings": cur_settings.get("canUsersConfigure", False),
+                    "allow_disable_internet": cur_settings.get("canUsersDisableWANAccess", False),
+                }
+                await mesh_obj.async_set_upnp_settings(**new_upnp_settings_on)
+            elif action == "wps_off":
+                await mesh_obj.async_set_wps_state(state=False)
+            elif action == "wps_on":
+                await mesh_obj.async_set_wps_state(state=True)
+
         _output(None, json.dumps(ret))
 
 
@@ -661,7 +628,6 @@ async def mesh_attr(
 
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_initialise()
             attr: Any = getattr(mesh_obj, attribute, None)
             _display_attribute(attribute, attr)
 
@@ -679,265 +645,251 @@ async def mesh_details(
 
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            try:
-                await mesh_obj.async_initialise()
-            except Exception as exc:
-                _write_error(exc)
-                return None
-
-            try:
-                data: dict[str, Any] = {}
-                _output(outfile, "# Mesh Details\n")
-                data = {k: dt.datetime.fromtimestamp(v).replace(tzinfo=dt.UTC) for k, v in mesh_obj.last_gather_details}
-                data.update(
-                    {
-                        "duration": dt.timedelta(
-                            seconds=(
-                                mesh_obj.last_gather_details[len(mesh_obj.last_gather_details) - 1][1]
-                                - mesh_obj.last_gather_details[0][1]
-                            )
-                        ).total_seconds()
-                    }
+            data: dict[str, Any] = {}
+            _output(outfile, "# Mesh Details\n")
+            data = {k: dt.datetime.fromtimestamp(v).replace(tzinfo=dt.UTC) for k, v in mesh_obj.last_gather_details}
+            data.update(
+                {
+                    "duration": dt.timedelta(
+                        seconds=(mesh_obj.last_gather_details[-1][1] - mesh_obj.last_gather_details[0][1])
+                    ).total_seconds()
+                }
+            )
+            _display(
+                outfile,
+                pd.DataFrame.from_dict(
+                    data,
+                    orient="index",
+                    columns=[""],
+                ),
+                index=True,
+            )
+            _display(
+                outfile,
+                pd.DataFrame(mesh_obj.capabilities, columns=[""]),
+                title="Capabilities",
+            )
+            if Actions.GET_LED_NIGHT_MODE.key in mesh_obj.capabilities:
+                data = {"Night mode": str(mesh_obj.night_mode)}
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="Night mode",
+                )
+            if Actions.GET_SCHEDULED_REBOOT_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.scheduled_reboot_enabled.value,
+                    "Interval": (
+                        str(mesh_obj.scheduled_reboot_interval) if mesh_obj.scheduled_reboot_interval else None
+                    ),
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="Scheduled Reboot Settings",
+                )
+            if Actions.GET_WAN_INFO.key in mesh_obj.capabilities:
+                data = {
+                    "Internet connected": mesh_obj.wan_status.value,
+                    "Bridge mode": mesh_obj.is_in_bridge_mode.value,
+                    "Public IP": mesh_obj.wan_ip.value,
+                    "WAN MAC": mesh_obj.wan_mac.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="WAN Info",
+                )
+            if Actions.GET_LAN_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "DHCP enabled": mesh_obj.dhcp_enabled.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="LAN Settings",
                 )
                 _display(
                     outfile,
-                    pd.DataFrame.from_dict(
-                        data,
-                        orient="index",
-                        columns=[""],
+                    pd.DataFrame(
+                        mesh_obj.dhcp_reservations.value,
+                        index=pd.RangeIndex(start=1, stop=(len(mesh_obj.dhcp_reservations) + 1)),
                     ),
                     index=True,
+                    title="DHCP Reservations",
+                )
+            if Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Client steering enabled": mesh_obj.client_steering_enabled.value,
+                    "Node steering enabled": mesh_obj.node_steering_enabled.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="Topology Optimisation Settings",
+                )
+            if Actions.GET_MLO_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": (mesh_obj.mlo_state.value if mesh_obj.mlo_state.value is not None else "Unsupported")
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="Multi-Link Operation (MLO)",
+                )
+            if Actions.GET_EXPRESS_FORWARDING.key in mesh_obj.capabilities:
+                data = {
+                    "Supported": mesh_obj.express_forwarding_supported.value,
+                    "Enabled": mesh_obj.express_forwarding_enabled.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="Express Forwarding",
+                )
+            if Actions.GET_PARENTAL_CONTROL_INFO.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.parental_control_enabled.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="Parental Control",
+                )
+            if Actions.GET_MAC_FILTERING_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.mac_filtering_enabled.value,
+                    "Mode": str(mesh_obj.mac_filtering_mode),
+                    "Filters": (
+                        mesh_obj.mac_filtering_addresses.value if len(mesh_obj.mac_filtering_addresses) > 0 else None
+                    ),
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="MAC Filtering",
+                )
+            if Actions.GET_WPS_SERVER_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.wps_state.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="WPS Settings",
+                )
+            if Actions.GET_ALG_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.sip_enabled.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="SIP Settings",
+                )
+            if Actions.GET_HOMEKIT_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.homekit_enabled.value,
+                    "Paired": mesh_obj.homekit_paired.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="HomeKit Settings",
+                )
+            if Actions.GET_UPNP_SETTINGS.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.upnp_enabled.value,
+                    "allow_change_settings": mesh_obj.upnp_allow_change_settings.value,
+                    "allow_disable_internet": mesh_obj.upnp_allow_disable_internet.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="UPnP Settings",
+                )
+            if Actions.GET_DEVICES.key in mesh_obj.capabilities:
+                data_list: list[str | dict[str, Any]] = [n.name.value for n in mesh_obj.nodes]
+                _display(
+                    outfile,
+                    pd.DataFrame(
+                        data_list,
+                        columns=["name"],
+                        index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
+                    ),
+                    index=True,
+                    title="Nodes",
+                )
+            if Actions.GET_SPEEDTEST_RESULTS.key in mesh_obj.capabilities:
+                _display(
+                    outfile,
+                    pd.DataFrame(
+                        mesh_obj.speedtest_results.value,
+                        index=pd.RangeIndex(start=1, stop=len(mesh_obj.speedtest_results) + 1),
+                    ),
+                    index=True,
+                    title="Speedtest Results",
+                )
+            if Actions.GET_GUEST_NETWORK_INFO.key in mesh_obj.capabilities:
+                data = {
+                    "Enabled": mesh_obj.guest_wifi_enabled.value,
+                }
+                _display(
+                    outfile,
+                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
+                    index=True,
+                    title="Guest Network Settings",
                 )
                 _display(
                     outfile,
-                    pd.DataFrame(mesh_obj.capabilities, columns=[""]),
-                    title="Capabilities",
+                    pd.DataFrame.from_dict(cast(dict[str, Any], mesh_obj.guest_wifi_details.value)),
+                    title="# Networks",
                 )
-                if Actions.GET_LED_NIGHT_MODE.key in mesh_obj.capabilities:
-                    data = {"Night mode": str(mesh_obj.night_mode)}
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Night mode",
-                    )
-                if Actions.GET_SCHEDULED_REBOOT_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.scheduled_reboot_enabled.value,
-                        "Interval": (
-                            str(mesh_obj.scheduled_reboot_interval) if mesh_obj.scheduled_reboot_interval else None
-                        ),
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Scheduled Reboot Settings",
-                    )
-                if Actions.GET_WAN_INFO.key in mesh_obj.capabilities:
-                    data = {
-                        "Internet connected": mesh_obj.wan_status.value,
-                        "Bridge mode": mesh_obj.is_in_bridge_mode.value,
-                        "Public IP": mesh_obj.wan_ip.value,
-                        "WAN MAC": mesh_obj.wan_mac.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="WAN Info",
-                    )
-                if Actions.GET_LAN_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "DHCP enabled": mesh_obj.dhcp_enabled.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="LAN Settings",
-                    )
-                    _display(
-                        outfile,
-                        pd.DataFrame(
-                            mesh_obj.dhcp_reservations.value,
-                            index=pd.RangeIndex(start=1, stop=(len(mesh_obj.dhcp_reservations) + 1)),
-                        ),
-                        index=True,
-                        title="DHCP Reservations",
-                    )
-                if Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Client steering enabled": mesh_obj.client_steering_enabled.value,
-                        "Node steering enabled": mesh_obj.node_steering_enabled.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Topology Optimisation Settings",
-                    )
-                if Actions.GET_MLO_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": (mesh_obj.mlo_state.value if mesh_obj.mlo_state.value is not None else "Unsupported")
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Multi-Link Operation (MLO)",
-                    )
-                if Actions.GET_EXPRESS_FORWARDING.key in mesh_obj.capabilities:
-                    data = {
-                        "Supported": mesh_obj.express_forwarding_supported.value,
-                        "Enabled": mesh_obj.express_forwarding_enabled.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Express Forwarding",
-                    )
-                if Actions.GET_PARENTAL_CONTROL_INFO.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.parental_control_enabled.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Parental Control",
-                    )
-                if Actions.GET_MAC_FILTERING_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.mac_filtering_enabled.value,
-                        "Mode": str(mesh_obj.mac_filtering_mode),
-                        "Filters": (
-                            mesh_obj.mac_filtering_addresses.value
-                            if len(mesh_obj.mac_filtering_addresses) > 0
-                            else None
-                        ),
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="MAC Filtering",
-                    )
-                if Actions.GET_WPS_SERVER_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.wps_state.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="WPS Settings",
-                    )
-                if Actions.GET_ALG_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.sip_enabled.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="SIP Settings",
-                    )
-                if Actions.GET_HOMEKIT_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.homekit_enabled.value,
-                        "Paired": mesh_obj.homekit_paired.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="HomeKit Settings",
-                    )
-                if Actions.GET_UPNP_SETTINGS.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.upnp_enabled.value,
-                        "allow_change_settings": mesh_obj.upnp_allow_change_settings.value,
-                        "allow_disable_internet": mesh_obj.upnp_allow_disable_internet.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="UPnP Settings",
-                    )
-                if Actions.GET_DEVICES.key in mesh_obj.capabilities:
-                    data_list: list[str | dict[str, Any]] = [n.name.value for n in mesh_obj.nodes]
-                    _display(
-                        outfile,
-                        pd.DataFrame(
-                            data_list,
-                            columns=["name"],
-                            index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
-                        ),
-                        index=True,
-                        title="Nodes",
-                    )
-                if Actions.GET_SPEEDTEST_RESULTS.key in mesh_obj.capabilities:
-                    _display(
-                        outfile,
-                        pd.DataFrame(
-                            mesh_obj.speedtest_results.value,
-                            index=pd.RangeIndex(start=1, stop=len(mesh_obj.speedtest_results) + 1),
-                        ),
-                        index=True,
-                        title="Speedtest Results",
-                    )
-                if Actions.GET_GUEST_NETWORK_INFO.key in mesh_obj.capabilities:
-                    data = {
-                        "Enabled": mesh_obj.guest_wifi_enabled.value,
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Guest Network Settings",
-                    )
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(cast(dict[str, Any], mesh_obj.guest_wifi_details.value)),
-                        title="# Networks",
-                    )
-                if Actions.GET_STORAGE_PARTITIONS.key in mesh_obj.capabilities:
-                    _display(
-                        outfile,
-                        pd.DataFrame(mesh_obj.storage_available.value),
-                        title="File Shares",
-                    )
-                if Actions.GET_DEVICES.key in mesh_obj.capabilities:
-                    data_list = [
-                        {"name": d.name.value, "ip": d.adapter_info.value[0].ip if d.adapter_info else None}
-                        for d in mesh_obj.devices
-                        if d.status.value
-                    ]
-                    _display(
-                        outfile,
-                        pd.DataFrame(
-                            data_list,
-                            index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
-                        ),
-                        index=True,
-                        title="Online Devices",
-                    )
-                    data_list = [d.name.value for d in mesh_obj.devices if not d.status.value]
-                    _display(
-                        outfile,
-                        pd.DataFrame(
-                            data_list,
-                            columns=["name"],
-                            index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
-                        ),
-                        index=True,
-                        title="Offline Devices",
-                    )
-            except Exception as exc:
-                _write_error(exc)
+            if Actions.GET_STORAGE_PARTITIONS.key in mesh_obj.capabilities:
+                _display(
+                    outfile,
+                    pd.DataFrame(mesh_obj.storage_available.value),
+                    title="File Shares",
+                )
+            if Actions.GET_DEVICES.key in mesh_obj.capabilities:
+                data_list = [
+                    {"name": d.name.value, "ip": d.adapter_info.value[0].ip if d.adapter_info else None}
+                    for d in mesh_obj.devices
+                    if d.status.value
+                ]
+                _display(
+                    outfile,
+                    pd.DataFrame(
+                        data_list,
+                        index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
+                    ),
+                    index=True,
+                    title="Online Devices",
+                )
+                data_list = [d.name.value for d in mesh_obj.devices if not d.status.value]
+                _display(
+                    outfile,
+                    pd.DataFrame(
+                        data_list,
+                        columns=["name"],
+                        index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
+                    ),
+                    index=True,
+                    title="Offline Devices",
+                )
 
 
 @mesh_group.command(cls=StandardCommand, name="ping")
@@ -970,19 +922,14 @@ async def mesh_scheduled_reboot(
 ) -> None:
     """Change state of the Scheduled Reboot feature."""
 
-    try:
-        if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
-            async with mesh_obj:
-                if interval is None:
-                    _LOGGER.debug("disabling scheduled reboots")
-                    await mesh_obj.async_set_scheduled_reboot_state(state=False)
-                else:
-                    _LOGGER.debug("setting scheduled reboot interval to %s", interval.title())
-                    await mesh_obj.async_set_scheduled_reboot_interval(
-                        interval=ScheduledRebootInterval(interval.title())
-                    )
-    except Exception as exc:
-        _write_error(exc)
+    if (mesh_obj := await _async_mesh_connect(ctx)) is not None:
+        async with mesh_obj:
+            if interval is None:
+                _LOGGER.debug("disabling scheduled reboots")
+                await mesh_obj.async_set_scheduled_reboot_state(state=False)
+            else:
+                _LOGGER.debug("setting scheduled reboot interval to %s", interval.title())
+                await mesh_obj.async_set_scheduled_reboot_interval(interval=ScheduledRebootInterval(interval.title()))
 
 
 @cli.group(name="node")
@@ -1006,7 +953,6 @@ async def node_attr(
 
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_initialise()
             nodes: tuple[NodeEntity, ...] = mesh_obj.nodes
             if not nodes:
                 click.echo("No nodes found")
@@ -1033,7 +979,6 @@ async def node_details(
     """Get details about a node on the Mesh."""
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_initialise()
             nodes: tuple[NodeEntity, ...] = mesh_obj.nodes
             if not nodes:
                 click.echo("No nodes found")
@@ -1133,8 +1078,7 @@ async def node_execute(
 
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_initialise()
-            nodes: list[NodeEntity] = mesh_obj.nodes
+            nodes: tuple[NodeEntity, ...] = mesh_obj.nodes
             if not nodes:
                 click.echo("No nodes found")
             else:
@@ -1142,11 +1086,8 @@ async def node_execute(
                 if found_node is None:
                     click.echo("Node not found")
                 else:
-                    try:
-                        resp: Response = await found_node.async_execute_action(cast(ActionKey, action))
-                        _output(None, json.dumps(resp.data))
-                    except Exception as exc:
-                        _write_error(exc)
+                    resp: dict[str, Any] = await found_node.async_execute_action(cast(ActionKey, action.upper()))
+                    _output(None, json.dumps(resp))
 
 
 @node_group.command(cls=StandardCommand, name="restart")
@@ -1162,7 +1103,6 @@ async def node_restart(
 
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_initialise()
             nodes = mesh_obj.nodes
             if not nodes:
                 click.echo("No nodes found")
@@ -1335,8 +1275,7 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
         )
         try:
             async with mesh_object:
-                if not await mesh_object.async_test_credentials():
-                    raise MeshInvalidCredentials
+                await mesh_object.async_initialise()
         except MeshConnectionError:
             msg = f"Unable to connect to {ctx.params.get('primary_node')}"
         except MeshInvalidCredentials:
@@ -1439,25 +1378,17 @@ def _write_error(msg: Any) -> None:
     click.echo(click.style(msg, fg="red"), err=True)
 
 
-async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> list[DeviceEntity] | None:
+async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> tuple[DeviceEntity, ...] | None:
     """Retreive device details from the mesh."""
 
     ret = None
     if mesh_obj := await _async_mesh_connect(ctx):
         async with mesh_obj:
-            await mesh_obj.async_initialise()
-            try:
-                device_qry: tuple[str, ...] | None = None
-                refresh: bool = True
-                if device:
-                    device_qry = tuple(filter(lambda d: not d.startswith("${input:"), device))
-                ret = await mesh_obj.async_get_devices(device_qry, force_refresh=refresh)
-            except MeshDeviceNotFoundResponse as exc:
-                _write_error(f"{exc}: {exc.devices}")
-                return None
-            except Exception as exc:
-                _write_error(exc)
-                return None
+            device_qry: tuple[str, ...] | None = None
+            refresh: bool = True
+            if device:
+                device_qry = tuple(filter(lambda d: not d.startswith("${input:"), device))
+            ret = await mesh_obj.async_get_devices(device_qry, force_refresh=refresh)
 
     return ret
 

@@ -7,19 +7,20 @@ import base64
 import copy
 import json
 import logging
+import re
 from typing import Any, cast
 
 import aiohttp
 
 from .action_registry import ActionDefinition, Actions
 from .exceptions import (
+    MeshActionUnknown,
     MeshAlreadyInProgress,
     MeshCannotDeleteDevice,
     MeshConnectionError,
     MeshDeviceDbFailure,
     MeshException,
     MeshInvalidCredentials,
-    MeshInvalidCredentialsUnlikely,
     MeshInvalidInput,
     MeshInvalidOutput,
     MeshNodeNotPrimary,
@@ -90,7 +91,7 @@ class Request:
 
             ret: set[str] = set()
             default_redactions: set[str]
-            action: ActionDefinition | None = next((a for a in Actions.values() if a.action == key), None)
+            action: ActionDefinition | None = next((a for a in Actions.values() if a.key == key), None)
 
             if action is not None:
                 default_redactions = action.redactions
@@ -99,9 +100,10 @@ class Request:
             return ret
 
         headers: dict[str, str] = {
-            "X-JNAP-Authorization": f"Basic {self._creds}",
-            "Content-Type": "application/json; charset=UTF-8",
+            "Accept": "*/*",
+            "Content-Type": "application/json",
             "X-JNAP-Action": self._action,
+            "X-JNAP-Authorization": f"Basic {self._creds}",
         }
 
         resp: aiohttp.ClientResponse | None = None
@@ -132,7 +134,7 @@ class Request:
             "payload": self._payload,
             "response": copy.deepcopy(resp_json),
         }
-        if self._action != Actions.TRANSACTION.action:
+        if self._action != Actions.TRANSACTION.action_base:
             if self._redact and to_log["response"].get("result") == "OK":
                 to_log["response"].update(
                     {
@@ -204,7 +206,7 @@ class Response:
             # build a list of the responses - transactions will already be a list
             responses = (
                 self._data.get(self.DATA_KEY_TRANSACTION, [])
-                if self.action == Actions.TRANSACTION.action
+                if self.action == Actions.TRANSACTION.action_base
                 else [self._data]
             )
 
@@ -221,12 +223,14 @@ class Response:
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnauthorized":
                     err = MeshInvalidCredentials()
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
-                    action = (
-                        resp.get("error")
-                        if self.action == Actions.TRANSACTION.action
-                        else f"Unknown action URI '{self.action}'"
-                    )
-                    err = MeshInvalidInput(action)
+                    action: str = ""
+                    if self.action != Actions.TRANSACTION.action_base:
+                        action = self.action
+                    else:
+                        match = re.search(r"'(https?://[^']+)'", resp.get("error", ""))
+                        uri = match.group(1) if match else ""
+                        action = uri
+                    err = MeshActionUnknown(action)
                 elif resp.get(self.RESULT_KEY) == "ErrorAutoChannelSelectionAlreadyInProgress":
                     err = MeshAlreadyInProgress()
                 elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
@@ -246,13 +250,6 @@ class Response:
                 else:  # don't know the error, log and raise exception
                     _LOGGER.error("unknown error received: %s", self._data)
                     err = MeshException(json.dumps(resp.get(self.RESULT_KEY)))
-
-                # occasionaly see an error stating that credentials are invalid even though
-                # an action in the transaction has already been processed, so they can't be invalid
-                # we'll raise a different exception to cover that so the caller can respond accordingly.
-                if isinstance(err, MeshInvalidCredentials) and len(err_responses) != len(responses):
-                    err = MeshInvalidCredentialsUnlikely()
-
                 if err:  # break out of the for loop if we have an error
                     break
 
@@ -276,7 +273,7 @@ class Response:
 
         ret: list[dict[str, Any]] = (
             self._data.get(self.DATA_KEY_TRANSACTION, {})
-            if self.action == Actions.TRANSACTION.action
+            if self.action == Actions.TRANSACTION.action_base
             else [self._data.get(self.DATA_KEY_SINGLE, self._data)]
         )
 

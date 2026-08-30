@@ -10,20 +10,25 @@ class MeshException(Exception):
     """Base Exception for the Mesh."""
 
 
+class MeshActionUnknown(MeshException):
+    """Action not known by the mesh."""
+
+    def __init__(self, action: str) -> None:
+        """Initialise with optional info."""
+        self.action: str = action
+        super().__init__(f"Unknown action URI, {self.action}")
+
+
+class MeshActionVersionNotImplemented(MeshException):
+    """Action with the specified version has not been implemented."""
+
+
 class MeshAlreadyInProgress(MeshException):
     """API returns an already in progress response."""
 
     def __init__(self) -> None:
         """Initialise and default message."""
         super().__init__("Specified action already in progress")
-
-
-class MeshBadResponse(MeshException):
-    """API returns a bad response."""
-
-    def __init__(self) -> None:
-        """Initialise and default message."""
-        super().__init__("Bad Response")
 
 
 class MeshCannotDeleteDevice(MeshException):
@@ -46,14 +51,6 @@ class MeshDeviceDbFailure(MeshException):
     """DeviceDBFailure reported by the API."""
 
 
-class MeshDeviceHasPCRules(MeshException):
-    """Device already has Parental Control rules."""
-
-    def __init__(self) -> None:
-        """Initialise and default message."""
-        super().__init__("Device already has Parental Control rules")
-
-
 class MeshDeviceNotFoundResponse(MeshException):
     """Device is not found in the mesh."""
 
@@ -63,28 +60,12 @@ class MeshDeviceNotFoundResponse(MeshException):
         super().__init__("Device(s) not found")
 
 
-class MeshInvalidArguments(MeshException):
-    """Invalid arguments have been passed to a function."""
-
-    def __init__(self) -> None:
-        """Initialise and default message."""
-        super().__init__("Invalid Arguments")
-
-
 class MeshInvalidCredentials(MeshException):
     """Credentials are invalid."""
 
     def __init__(self) -> None:
         """Initialise and default message."""
         super().__init__("Invalid Credentials")
-
-
-class MeshInvalidCredentialsUnlikely(MeshException):
-    """Credentials are invalid."""
-
-    def __init__(self) -> None:
-        """Initialise and default message."""
-        super().__init__("An unlikely invalid credentials exception found")
 
 
 class MeshInvalidInput(MeshException):
@@ -125,11 +106,3 @@ class MeshTimeoutError(MeshException):
     def __init__(self) -> None:
         """Initialise and default message."""
         super().__init__("Timeout Error")
-
-
-class MeshTooManyMatches(MeshException):
-    """Too many matching devices when only one should be found."""
-
-    def __init__(self) -> None:
-        """Initialise and default message."""
-        super().__init__("Too Many Matches")
