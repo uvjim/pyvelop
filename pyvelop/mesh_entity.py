@@ -751,7 +751,7 @@ class MeshEntity(ABC):
                 }
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.DEVICE_DETAILS.value, props_ci, type=AttributeAction.MERGE, index=idx
+                        EntityDataProperties.DEVICE_DETAILS.value, props_ci, kind=AttributeAction.MERGE, index=idx
                     )
                 )
                 props.update(props_ci)
@@ -770,7 +770,7 @@ class MeshEntity(ABC):
                 AttributeAuditEntry(
                     EntityDataProperties.RESERVATION_DETAILS.value,
                     props_reservation,
-                    type=AttributeAction.MERGE,
+                    kind=AttributeAction.MERGE,
                     index=idx,
                 )
             )
@@ -794,7 +794,7 @@ class MeshEntity(ABC):
                     AttributeAuditEntry(
                         EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
                         props_wifi,
-                        type=AttributeAction.MERGE,
+                        kind=AttributeAction.MERGE,
                         index=idx,
                     )
                 )
@@ -810,7 +810,7 @@ class MeshEntity(ABC):
                 AttributeAuditEntry(
                     EntityDataProperties.DEVICE_DETAILS.value,
                     props_device_type,
-                    type=AttributeAction.MERGE,
+                    kind=AttributeAction.MERGE,
                     index=idx,
                 )
             )
@@ -828,7 +828,7 @@ class MeshEntity(ABC):
                     AttributeAuditEntry(
                         EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
                         props_wifi_type,
-                        type=AttributeAction.MERGE,
+                        kind=AttributeAction.MERGE,
                         index=idx,
                     )
                 )
@@ -848,7 +848,7 @@ class MeshEntity(ABC):
                     AttributeAuditEntry(
                         EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                         props_nnc_type,
-                        type=AttributeAction.MERGE,
+                        kind=AttributeAction.MERGE,
                         index=idx,
                     )
                 )
@@ -883,7 +883,7 @@ class MeshEntity(ABC):
                     AttributeAuditEntry(
                         EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                         props_nnc,
-                        type=AttributeAction.MERGE,
+                        kind=AttributeAction.MERGE,
                         index=idx,
                     )
                 )
@@ -899,7 +899,7 @@ class MeshEntity(ABC):
                 AttributeAuditEntry(
                     EntityDataProperties.DEVICE_DETAILS.value,
                     props_adapter_conn_state,
-                    type=AttributeAction.MERGE,
+                    kind=AttributeAction.MERGE,
                     index=idx,
                 )
             )
@@ -912,7 +912,7 @@ class MeshEntity(ABC):
                     AttributeAuditEntry(
                         EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
                         props_wifi_state,
-                        type=AttributeAction.MERGE,
+                        kind=AttributeAction.MERGE,
                         index=idx,
                     )
                 )
@@ -928,7 +928,7 @@ class MeshEntity(ABC):
                         AttributeAuditEntry(
                             EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                             props_nnc_state,
-                            type=AttributeAction.MERGE,
+                            kind=AttributeAction.MERGE,
                             index=idx,
                         )
                     )
@@ -948,7 +948,7 @@ class MeshEntity(ABC):
                         AttributeAuditEntry(
                             EntityDataProperties.DEVICE_DETAILS.value,
                             props_parent,
-                            type=AttributeAction.MERGE,
+                            kind=AttributeAction.MERGE,
                             index=idx,
                         )
                     )
@@ -1007,14 +1007,14 @@ class MeshEntity(ABC):
         name_user: str | None = self._get_user_property(DeviceProperty.DEVICE_NAME)
         if name_user:
             audit.append(
-                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, name_user, type=AttributeAction.REPLACE)
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, name_user, kind=AttributeAction.REPLACE)
             )
 
         ret = name_user or name_discovered or EMPTY_NAME
 
         if ret == EMPTY_NAME:
             audit.append(
-                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, EMPTY_NAME, type=AttributeAction.REPLACE)
+                AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, EMPTY_NAME, kind=AttributeAction.REPLACE)
             )
 
         return MeshAttribute[str](ret, tuple(audit))
@@ -1549,7 +1549,7 @@ class DeviceEntity(MeshEntity):
                     AttributeAuditEntry(
                         audit_history[0].source,
                         audit_history[0].value,
-                        type=AttributeAction.INIT,
+                        kind=AttributeAction.INIT,
                         index=audit_history[0].index,
                     ),
                 )
@@ -1651,14 +1651,14 @@ class NodeEntity(MeshEntity):
                 props_primary["primary"] = True
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.BACKHAUL.value, props_primary, type=AttributeAction.MERGE, index=idx
+                        EntityDataProperties.BACKHAUL.value, props_primary, kind=AttributeAction.MERGE, index=idx
                     )
                 )
             elif self.type == NodeType.PRIMARY:
                 props_primary["primary"] = True
                 audit_history.append(
                     AttributeAuditEntry(
-                        EntityDataProperties.DEVICE_DETAILS.value, props_primary, type=AttributeAction.MERGE, index=idx
+                        EntityDataProperties.DEVICE_DETAILS.value, props_primary, kind=AttributeAction.MERGE, index=idx
                     )
                 )
             props.update(props_primary)
@@ -1741,7 +1741,7 @@ class NodeEntity(MeshEntity):
             }
             audit_history.append(
                 AttributeAuditEntry(
-                    EntityDataProperties.FIRMWARE_DETAILS.value, props_available, type=AttributeAction.MERGE
+                    EntityDataProperties.FIRMWARE_DETAILS.value, props_available, kind=AttributeAction.MERGE
                 )
             )
         else:
@@ -1751,7 +1751,7 @@ class NodeEntity(MeshEntity):
             }
             audit_history.append(
                 AttributeAuditEntry(
-                    EntityDataProperties.DEVICE_DETAILS.value, props_available, type=AttributeAction.MERGE
+                    EntityDataProperties.DEVICE_DETAILS.value, props_available, kind=AttributeAction.MERGE
                 )
             )
         ret.update(props_available)
@@ -1803,7 +1803,7 @@ class NodeEntity(MeshEntity):
             # do this otherwise it could show as merge which makes no sense in this context.
             if audit_history:
                 audit_history.insert(
-                    0, AttributeAuditEntry(audit_history[0].source, audit_history[0].value, type=AttributeAction.INIT)
+                    0, AttributeAuditEntry(audit_history[0].source, audit_history[0].value, kind=AttributeAction.INIT)
                 )
                 audit_history.pop(1)
 
