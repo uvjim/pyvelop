@@ -8,6 +8,7 @@ import contextlib
 import copy
 import datetime as dt
 import functools
+import json
 import logging
 import re
 import time
@@ -62,7 +63,7 @@ from .mesh_entity import (
 
 
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
-_LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
+_LOGGER_VERBOSE = Logger(logging.getLogger(f"{__name__}.verbose"))
 
 
 class CapabilityScopedGroups(NamedTuple):
@@ -173,23 +174,10 @@ class MeshCapability:
         ret: int = 1
 
         required_service_version: int = max(self.service_versions) if self.service_versions else 1
-        _LOGGER_VERBOSE.debug(
-            "looking for %s version %s for the %s action",
-            self._action_definition.service_base,
-            required_service_version,
-            self._action_definition.action_base,
-        )
         latest_service_version: ActionVersionMap = max(
             (item for item in self._action_definition.version_map if item.service_version <= required_service_version),
             key=lambda item: item.service_version,
             default=ActionVersionMap(1, 1),
-        )
-        _LOGGER_VERBOSE.debug(
-            "closest service version for %s and action %s is %s with action version %s",
-            self._action_definition.service_base,
-            self._action_definition.action_base,
-            latest_service_version.service_version,
-            latest_service_version.action_version,
         )
 
         actual_version: int = (
@@ -200,12 +188,6 @@ class MeshCapability:
                 default=1,
             )
         )
-        if actual_version != latest_service_version.action_version:
-            _LOGGER_VERBOSE.debug(
-                "action version %s has not been implemented, falling back to %s",
-                latest_service_version.action_version,
-                actual_version,
-            )
 
         ret = actual_version
         return ret
@@ -334,7 +316,6 @@ class MeshCapability:
     def service_versions(self, value: Iterable[int]) -> None:
         """Update the services versions for the capability."""
 
-        _LOGGER_VERBOSE.debug("updating service versions, %s", value)
         self._service_versions = list(value)
         self._action_version = self._get_action_version()
 
@@ -1138,6 +1119,16 @@ class Mesh:
                     )
                 self._mesh_capabilities[action.key].add_action_unknown_callback(self._remove_mesh_capability)
                 self._mesh_capabilities[action.key].service_versions = service_versions
+        _display_versions: tuple[tuple[str, str, int, int], ...] = tuple(
+            (
+                action_name,
+                cap.action_uri,
+                cap.action_version,
+                max(cap.service_versions, default=1),
+            )
+            for action_name, cap in self._mesh_capabilities.items()
+        )
+        _LOGGER_VERBOSE.debug("%s", json.dumps(_display_versions))
         # endregion
 
         # region #-- test the credentials --#
