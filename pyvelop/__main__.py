@@ -1056,6 +1056,7 @@ async def node_details(
                     "Device ID": found_node.unique_id.value,
                     "Online": found_node.status.value,
                     "Uptime": found_node.uptime.value,
+                    "Last reboot": found_node.last_reboot,
                     "Node type": found_node.type.value.title(),
                     "Manufacturer": found_node.manufacturer.value,
                     "Model": found_node.model.value,

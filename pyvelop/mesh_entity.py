@@ -1782,6 +1782,19 @@ class NodeEntity(MeshEntity):
         return MeshAttribute[str | None](ret, (AttributeAuditEntry(EntityDataProperties.DEVICE_DETAILS.value, ret),))
 
     @property
+    def last_reboot(self) -> MeshAttribute[dt.datetime | None]:
+        """Return the number of seconds the node has been running."""
+
+        ret: dt.datetime | None = None
+        attr: int | None = self._data.get(EntityDataProperties.SYSTEM_STATS, {}).get("uptimeSeconds")
+        if attr is not None:
+            ret = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=attr)
+
+        return MeshAttribute[dt.datetime | None](
+            ret, (AttributeAuditEntry(EntityDataProperties.SYSTEM_STATS.value, ret),)
+        )
+
+    @property
     def last_update_check(self) -> MeshAttribute[dt.datetime | None]:
         """Get the last time an update was checked for.
 
