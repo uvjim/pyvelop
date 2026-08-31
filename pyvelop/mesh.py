@@ -261,12 +261,23 @@ class MeshCapability:
         )
         try:
             resp: api.Response = await req.execute(timeout=self._mesh_details.request_timeout)
+            items = resp.items
             if isinstance(req.payload, dict):
-                _data: dict[str, Any] | None = next(iter(resp.data), None)
+                _data = items[0] if items else None
                 if _data is not None:
                     ret = _data
             else:
-                ret = [r.get(api.Response.DATA_KEY_SINGLE, {}) for r in resp.data]
+                ret_list: list[dict[str, Any]] = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+
+                    result: dict[str, Any] = {}
+                    for key, value in item.items():
+                        result[str(key)] = value
+
+                    ret_list.append(result)
+                ret = cast(JnapResponseTransaction, ret_list)
         except MeshActionUnknown as exc:
             _LOGGER_VERBOSE.debug("unknown action found: %s", exc.action)
             for func in self._action_unknown_callback:
@@ -1016,7 +1027,13 @@ class Mesh:
             # the node response will have multiple responses in it corresponding to the actions in the payload.
             # these need combining and tagging with the node id they came from.
             for payload, transaction_responses in zip(txn_payload, node_responses, strict=True):
+                if not isinstance(transaction_responses, list):
+                    continue
+
                 for request, transaction_response in zip(payload, transaction_responses, strict=True):
+                    if not isinstance(transaction_response, dict):
+                        continue
+
                     # region #-- retrieve the capability so that we can get its key --#
                     action_uri = request.get("action", "")
                     capability = capabilities_by_action_uri.get(action_uri)
@@ -1389,7 +1406,7 @@ class Mesh:
 
         # region #-- check that we're pointing to the primary node --#
         cap = self._get_mesh_capability("GET_DEVICE_MODE")
-        resp: dict[str, Any] = await cap.async_execute()
+        resp: JnapResponseSingle = await cap.async_execute()
         if resp.get("mode", "").lower() != "master":
             raise MeshNodeNotPrimary
         # endregion

@@ -8,7 +8,7 @@ import copy
 import json
 import logging
 import re
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 import aiohttp
 
@@ -35,9 +35,34 @@ _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
 type JnapResponseSingle = dict[str, Any]
-type JnapResponseTransaction = list[JnapResponseSingle]
+type JnapResponseTransaction = dict[str, list[JnapResponseSingle]]
 type JnapPayloadSingle = dict[str, Any]
 type JnapPayloadTransaction = list[JnapPayloadSingle]
+
+
+def _is_transaction_response(
+    payload: JnapResponseSingle | JnapResponseTransaction,
+) -> TypeGuard[JnapResponseTransaction]:
+    """Return True if the payload represents a transaction response."""
+    return isinstance(payload, dict) and isinstance(payload.get("responses"), list)
+
+
+def _iter_response_entries(response: dict[str, Any]) -> list[tuple[int, JnapResponseSingle]]:
+    """Yield (index, response entry) for a single or transaction response."""
+    if _is_transaction_response(response):
+        return list(enumerate(response["responses"]))
+    return [(0, response)]
+
+
+def as_items(payload: JnapResponseSingle | JnapResponseTransaction) -> list[JnapResponseSingle]:
+    """Return the promoted output entries for either a single or transaction response."""
+    if _is_transaction_response(payload):
+        return [item.get("output", item) for item in payload["responses"] if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        return [cast(JnapResponseSingle, payload.get("output", payload))]
+
+    return list[JnapResponseSingle]()
 
 
 def jnap_url(target: str) -> str:
@@ -57,7 +82,7 @@ class Request:
         action: str,
         password: str,
         target: str,
-        payload: JnapResponseSingle | JnapResponseTransaction = {},
+        payload: JnapPayloadSingle | JnapPayloadTransaction | None = None,
         raise_on_error: bool = True,
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
@@ -78,7 +103,7 @@ class Request:
         """
         self._action: str = action
         self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
-        self._payload: JnapResponseSingle | JnapResponseTransaction = payload
+        self._payload: JnapPayloadSingle | JnapPayloadTransaction = payload if payload is not None else {}
         self._raise_on_error: bool = raise_on_error
         self._redact: bool = redact
         self._session: aiohttp.ClientSession = (
@@ -131,10 +156,10 @@ class Request:
             aiohttp.ContentTypeError,
         ) as err:
             _LOGGER.error("%s", err)
-            raise MeshConnectionError from None
+            raise MeshConnectionError from err
         except json.JSONDecodeError as err:
             _LOGGER.error("%s", err)
-            raise err from None
+            raise
 
         # region #-- log the response --#
         to_log: dict[str, Any] = {
@@ -142,22 +167,23 @@ class Request:
             "payload": self._payload,
             "response": copy.deepcopy(resp_json),
         }
-        if self._action != Actions.TRANSACTION.action_base:
-            if self._redact and to_log["response"].get("result") == "OK":
-                to_log["response"].update(
-                    {
-                        "output": _LOGGER.redact(
-                            to_log["response"].get("output", {}),
-                            _build_redactions(self._action),
-                        )
-                    }
+        if self._redact:
+            if _is_transaction_response(resp_json):
+                for idx, r_json in _iter_response_entries(resp_json):
+                    action: str = (
+                        self._payload[idx].get("action", "")
+                        if isinstance(self._payload, list) and idx < len(self._payload)
+                        else self._action
+                    )
+                    redactions = _build_redactions(action)
+                    if r_json.get("result") == "OK":
+                        r_json["output"] = _LOGGER.redact(r_json.get("output", {}), redactions)
+            elif resp_json.get("result") == "OK":
+                redactions = _build_redactions(self._action)
+                to_log["response"]["output"] = _LOGGER.redact(
+                    to_log["response"].get("output", {}),
+                    redactions,
                 )
-        else:
-            for idx, r_json in enumerate(to_log["response"].get("responses", [])):
-                action: str = cast(list, self._payload)[idx].get("action", "") if self._payload is not None else ""
-                redactions = _build_redactions(action)
-                if self._redact and r_json.get("result") == "OK":
-                    r_json.update({"output": _LOGGER.redact(r_json.get("output", {}), redactions)})
 
         _LOGGER_VERBOSE.debug(json.dumps(to_log))
         # endregion
@@ -175,7 +201,7 @@ class Request:
         return self._action
 
     @property
-    def payload(self) -> JnapResponseSingle | JnapResponseTransaction:
+    def payload(self) -> JnapPayloadSingle | JnapPayloadTransaction:
         """Return the payload used for the request.
 
         :return: the payload
@@ -214,9 +240,7 @@ class Response:
         if self._data.get(self.RESULT_KEY) != "OK":  # seemingly there is an error
             # build a list of the responses - transactions will already be a list
             responses = (
-                self._data.get(self.DATA_KEY_TRANSACTION, [])
-                if self.action == Actions.TRANSACTION.action_base
-                else [self._data]
+                self._data.get(self.DATA_KEY_TRANSACTION, []) if _is_transaction_response(self._data) else [self._data]
             )
 
             # establish errors and work through them
@@ -233,12 +257,12 @@ class Response:
                     err = MeshInvalidCredentials()
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
                     action: str = ""
-                    if self.action != Actions.TRANSACTION.action_base:
-                        action = self.action
-                    else:
+                    if "error" in resp:
                         match = re.search(r"'(https?://[^']+)'", resp.get("error", ""))
                         uri = match.group(1) if match else ""
                         action = uri
+                    else:
+                        action = self.action
                     err = MeshActionUnknown(action)
                 elif resp.get(self.RESULT_KEY) == "ErrorAutoChannelSelectionAlreadyInProgress":
                     err = MeshAlreadyInProgress()
@@ -275,15 +299,10 @@ class Response:
 
     @property
     def data(self) -> list[dict[str, Any]]:
-        """Return the response data.
+        """Compatibility property: always list-like."""
+        return self.items
 
-        :return: list of responses.
-        """
-
-        ret: list[dict[str, Any]] = (
-            self._data.get(self.DATA_KEY_TRANSACTION, {})
-            if self.action == Actions.TRANSACTION.action_base
-            else [self._data.get(self.DATA_KEY_SINGLE, self._data)]
-        )
-
-        return ret
+    @property
+    def items(self) -> list[JnapResponseSingle]:
+        """Return the response entries in list form."""
+        return as_items(self._data)
