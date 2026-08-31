@@ -1451,8 +1451,11 @@ class Mesh:
 
         return ret
 
-    async def async_reboot_mesh(self) -> None:
-        """Reboot the mesh."""
+    async def async_reboot_mesh(self, wait: bool = False) -> None:
+        """Reboot the mesh.
+
+        :param wait: `True` to wait for the reboot process to complete.
+        """
 
         found_node: NodeEntity | None = next(
             (node for node in self.nodes if node.type == NodeType.PRIMARY),
@@ -1462,7 +1465,7 @@ class Mesh:
         if found_node is None:
             raise MeshDeviceNotFoundResponse
 
-        await found_node.async_reboot(force=True)
+        await found_node.async_reboot(force=True, wait=wait)
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
