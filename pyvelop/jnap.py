@@ -155,11 +155,7 @@ class Request:
             aiohttp.ClientConnectorError,
             aiohttp.ContentTypeError,
         ) as err:
-            _LOGGER.error("%s", err)
             raise MeshConnectionError from err
-        except json.JSONDecodeError as err:
-            _LOGGER.error("%s", err)
-            raise
 
         # region #-- log the response --#
         to_log: dict[str, Any] = {
