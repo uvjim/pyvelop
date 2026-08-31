@@ -17,9 +17,10 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, final, override
 
 from .action_registry import ActionKey, Actions
-from .exceptions import MeshException, MeshInvalidInput
+from .exceptions import MeshException, MeshInvalidInput, MeshTimeoutError
 from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
+from .timeouts import wait_for_predicate
 
 if TYPE_CHECKING:
     from .jnap import JnapPayloadSingle, JnapResponseSingle
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 # endregion
 
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
+_LOGGER_VERBOSE: Logger = Logger(logging.getLogger(f"{__name__}.verbose"))
 
 EMPTY_NAME: str = "Network Device"
 
@@ -65,6 +67,7 @@ class EntityDataProperties(StrEnum):
     PARENTAL_CONTROLS = Actions.GET_PARENTAL_CONTROL_INFO.key
     RESERVATION_DETAILS = Actions.GET_LAN_SETTINGS.key
     RESULTS_TIME = "results_time"
+    SYSTEM_STATS = Actions.GET_SYSTEM_STATS.key
     WIRELESS_CONNECTION_DETAILS = Actions.GET_NODE_WIRELESS_CONNECTIONS.key
 
 
@@ -629,32 +632,6 @@ class MeshEntity(ABC):
         """Set the parent entity for this entity."""
 
         self._data.update({EntityDataProperties.PARENT_ENTITY: new_parent})
-
-    # async def _async_api_request(
-    #     self,
-    #     action: str,
-    #     payload: dict[str, Any] = {},
-    #     *,
-    #     ip: str | None = None,
-    #     raise_on_error: bool = True,
-    # ) -> api.Response:
-    #     """Make a request to the API."""
-    #     req = api.Request(
-    #         action=action,
-    #         password=self._mesh_details.password,
-    #         payload=payload,
-    #         raise_on_error=raise_on_error,
-    #         session=self._mesh_details.session,
-    #         target=ip or self._mesh_details.host,
-    #         username=self._mesh_details.user,
-    #         supplementary_redactions=self._supplementary_redactions,
-    #     )
-    #     try:
-    #         resp = await req.execute(timeout=self._mesh_details.request_timeout)
-    #     except Exception as exc:
-    #         raise exc from None
-
-    #     return resp
 
     @abstractmethod
     def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
@@ -1553,7 +1530,15 @@ class DeviceEntity(MeshEntity):
 class NodeEntity(MeshEntity):
     """Represents a node on the mesh."""
 
-    async def async_execute_action(self, action_key: ActionKey) -> JnapResponseSingle:
+    async def _is_node_reachable(self) -> bool:
+        """Determine if the node is reachable."""
+        try:
+            await self.async_execute_action("GET_SYSTEM_STATS", timeout=2)
+            return True
+        except Exception:
+            return False
+
+    async def async_execute_action(self, action_key: ActionKey, *, timeout: float | None = None) -> JnapResponseSingle:
         """Execute the given action against the node."""
 
         if action_key not in Actions:
@@ -1573,38 +1558,71 @@ class NodeEntity(MeshEntity):
         cap: MeshCapability = self._get_capability(action_key)
         return await cap.async_execute(node_address=target_ip)
 
-    async def async_reboot(self, force: bool = False) -> None:
+    async def async_reboot(
+        self,
+        *,
+        force: bool = False,
+        wait: bool = False,
+        wait_for: Callable[[], Awaitable[bool]] | None = None,
+        timeout: float = 300.0,
+    ) -> bool:
         """Reboot the node.
+
+        If `wait` is True, the caller may provide a readiness probe via `wait_for`, which will be
+        polled until it returns True or the timeout expires.
 
         Rebooting the primary node will cause all nodes to reboot. If you're sure you want to
         reboot the primary node, set the `force` parameter to `True`
 
-        :param force: True to acknowledge the primary node, ignored for everything else
-
-        :return: None
+        :param force: `True` to acknowledge the primary node, ignored for everything else
+        :param wait: `True` to wait for the reboot to complete before returning
+        :param wait_for: Probe function that returns `True` when the node is reachable again.
+        Defaults to an internal check of reachability.
+        :param timeout: Maximum time in seconds to wait for the readiness probe.
         """
-        _LOGGER.debug("entered, force: %s", force)
+        _LOGGER_VERBOSE.debug("entered, force: %s", force)
+
+        ret: bool = False
 
         # region #-- check for primary node --#
         if self.type == NodeType.PRIMARY and not force:
-            raise MeshInvalidInput(f"{self.name} is a primary node. Use the force.")
-        # endregion
-
-        # region #-- establish the correct IP to use --#
-        target_ip: str | None = next(
-            (adapter.ip for adapter in self.adapter_info.value if adapter.ip and adapter.primary),
-            None,
-        )
-        if not target_ip:
-            raise MeshInvalidInput(f"{self.name}: no valid address found")
+            raise MeshInvalidInput(f"{self.name} is a primary node, use the force.")
         # endregion
 
         # region #-- do the reboot --#
-        cap: MeshCapability = self._get_capability("REBOOT")
-        await cap.async_execute(node_address=target_ip)
+        prev_uptime: int = self.uptime.value or -1
+        await self.async_execute_action("REBOOT")
         # endregion
 
-        _LOGGER.debug("exited")
+        # region #-- wait if it was requested --#
+        if wait:
+            # make sure the reboot has started
+            _LOGGER_VERBOSE.debug(f"waiting for {self.name} to reboot")
+            _LOGGER_VERBOSE.debug(f"backing off for reboot process to start on {self.name}")
+            await asyncio.sleep(20)
+            probe = wait_for or self._is_node_reachable
+            interval: float = 10.0
+            # wait (or timeout waiting) for the node to be reachable again
+            await wait_for_predicate(
+                probe=probe,
+                timeout=timeout,
+                interval=interval,
+                exc_cls=MeshTimeoutError,
+            )
+            _LOGGER_VERBOSE.debug(f"{self.name} is reachable, checking if it rebooted")
+            resp: JnapResponseSingle = await self.async_execute_action("GET_SYSTEM_STATS")
+            cur_uptime: int = resp.get("uptimeSeconds", -1)
+            if cur_uptime > prev_uptime:
+                _LOGGER_VERBOSE.debug(
+                    f"it doesn't look like {self.name} actually rebooted, uptime is too high, {cur_uptime}"
+                )
+            else:
+                _LOGGER_VERBOSE.debug(f"{self.name} has rebooted, uptime {cur_uptime}")
+                ret = True
+        # endregion
+
+        _LOGGER_VERBOSE.debug("exited")
+        return ret
 
     @override
     def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
@@ -1800,6 +1818,14 @@ class NodeEntity(MeshEntity):
                 audit_history.pop(1)
 
         return MeshAttribute[bool | None](ret, tuple(audit_history))
+
+    @property
+    def uptime(self) -> MeshAttribute[int | None]:
+        """Return the number of seconds the node has been running."""
+
+        ret: int | None = self._data.get(EntityDataProperties.SYSTEM_STATS, {}).get("uptimeSeconds")
+
+        return MeshAttribute[int | None](ret, (AttributeAuditEntry(EntityDataProperties.SYSTEM_STATS.value, ret),))
 
     @property
     def type(self) -> MeshAttribute[NodeType]:
