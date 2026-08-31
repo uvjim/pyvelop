@@ -43,6 +43,12 @@ from .exceptions import (
     MeshNeedsInitialise,
     MeshNodeNotPrimary,
 )
+from .jnap import (
+    JnapPayloadSingle,
+    JnapPayloadTransaction,
+    JnapResponseSingle,
+    JnapResponseTransaction,
+)
 from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 from .mesh_entity import (
@@ -54,16 +60,9 @@ from .mesh_entity import (
 
 # endregion
 
-type JnapResponseSingle = dict[str, Any]
-type JnapResponseTransaction = list[JnapResponseSingle]
-type JnapPayloadSingle = dict[str, Any]
-type JnapPayloadTransaction = list[JnapPayloadSingle]
-
 
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
-
-type ApiReqResp = tuple[api.Request, api.Response]
 
 
 class CapabilityScopedGroups(NamedTuple):
