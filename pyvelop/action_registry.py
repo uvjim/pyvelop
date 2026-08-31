@@ -38,6 +38,7 @@ ActionKey = Literal[
     "GET_SPEEDTEST_STATUS",
     "GET_STORAGE_PARTITIONS",
     "GET_STORAGE_SMB_SERVER",
+    "GET_SYSTEM_STATS",
     "GET_TOPOLOGY_OPTIMISATION_SETTINGS",
     "GET_UPDATE_FIRMWARE_STATE",
     "GET_UPDATE_SETTINGS",
@@ -380,6 +381,17 @@ Actions: ActionRegistry = ActionRegistry(
             "http://linksys.com/jnap/nodes/storage/SMBServer",
         ),
         ActionDefinition(
+            "GET_SYSTEM_STATS",
+            "http://linksys.com/jnap/diagnostics/GetSystemStats",
+            "http://linksys.com/jnap/diagnostics/Diagnostics",
+            scope=ActionScope.NODE,
+            version_map=(
+                ActionVersionMap(action_version=1, service_version=1),
+                # adds: CPULoad, MemoryLoad
+                ActionVersionMap(action_version=2, service_version=10),
+            ),
+        ),
+        ActionDefinition(
             "GET_TOPOLOGY_OPTIMISATION_SETTINGS",
             "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings",
             "http://linksys.com/jnap/nodes/topologyoptimization/TopologyOptimization",
@@ -434,8 +446,9 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "REBOOT",
             "http://linksys.com/jnap/core/Reboot",
-            "http://linksys.com/jnap/core",
+            "http://linksys.com/jnap/core/Core",
             purpose=ActionPurpose.INVOKE,
+            scope=ActionScope.NODE,
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
                 ActionVersionMap(action_version=1, service_version=8),
