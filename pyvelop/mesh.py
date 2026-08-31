@@ -226,6 +226,7 @@ class MeshCapability:
         node_address: str | None = None,
         payload: JnapPayloadSingle | None = None,
         raise_on_error: bool = True,
+        timeout: float | None = None,
     ) -> JnapResponseSingle: ...
 
     async def async_execute(
@@ -234,14 +235,14 @@ class MeshCapability:
         node_address: str | None = None,
         payload: JnapPayloadTransaction | JnapPayloadSingle | None = None,
         raise_on_error: bool = True,
+        timeout: float | None = None,
     ) -> JnapResponseSingle | JnapResponseTransaction:
         """Execute the API request against the specified node.
 
         :param node_address: The node to send the request to will default to the primary node if not supplied
         :param payload: The relevant payload for the action
         :param raise_on_error: Raise an error if one is found
-
-        :return:
+        :param timeout: timeout to apply to the request
         """
 
         ret: JnapResponseTransaction | JnapResponseSingle = {}
@@ -260,7 +261,8 @@ class MeshCapability:
             supplementary_redactions=self._mesh_details.supplementary_redactions,
         )
         try:
-            resp: api.Response = await req.execute(timeout=self._mesh_details.request_timeout)
+            req_timeout: float = self._mesh_details.request_timeout if timeout is None else timeout
+            resp: api.Response = await req.execute(timeout=req_timeout)
             items = resp.items
             if isinstance(req.payload, dict):
                 _data = items[0] if items else None
@@ -570,6 +572,11 @@ class Mesh:
             for fds in mesh_details.get("GET_UPDATE_FIRMWARE_STATE", {}).get("firmwareUpdateStatus", [])
             if fds.get("deviceUUID")
         }
+        system_stats_by_device_id: dict[str, Any] = {
+            stats.get("device_id"): stats
+            for stats in mesh_details.get("GET_SYSTEM_STATS", [])
+            if stats.get("device_id")
+        }
         wifi_connections_by_id: dict[str, Any] = {
             nwc.get("deviceID"): nwc
             for nwc in mesh_details.get("GET_NODE_WIRELESS_CONNECTIONS", {}).get("nodeWirelessConnections", [])
@@ -661,6 +668,11 @@ class Mesh:
                 # region #-- wifi connection details --#
                 if wifi_conn := wifi_connections_by_id.get(entity.get("deviceID")):
                     entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = wifi_conn.get("connections", [])
+                # endregion
+
+                # region #-- system stats --#
+                if system_stats := system_stats_by_device_id.get(entity.get("deviceID")):
+                    entity_data[EntityDataProperties.SYSTEM_STATS] = system_stats
                 # endregion
             # endregion
 
@@ -1420,6 +1432,7 @@ class Mesh:
 
         # region #-- retrieve mesh data and prepare the mesh entities --#
         self._mesh_attributes = await self.async_gather_details()
+
         ret_mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, self._mesh_attributes)
         _remediated_devices: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(True, ret_mesh_entities)
         self._mesh_entities = _remediated_devices
@@ -1458,7 +1471,7 @@ class Mesh:
         if found_node is None:
             raise MeshDeviceNotFoundResponse
 
-        await found_node.async_reboot(True)
+        await found_node.async_reboot(force=True)
 
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.

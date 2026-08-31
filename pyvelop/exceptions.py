@@ -101,8 +101,4 @@ class MeshNodeNotPrimary(MeshException):
 
 
 class MeshTimeoutError(MeshException):
-    """Timeout error for the API."""
-
-    def __init__(self) -> None:
-        """Initialise and default message."""
-        super().__init__("Timeout Error")
+    """Raised when a mesh action exceeds its timeout."""
