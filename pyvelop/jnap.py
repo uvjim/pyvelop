@@ -34,6 +34,12 @@ _LOGGER: Logger = Logger(logging.getLogger(__name__))
 _LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
 
 
+type JnapResponseSingle = dict[str, Any]
+type JnapResponseTransaction = list[JnapResponseSingle]
+type JnapPayloadSingle = dict[str, Any]
+type JnapPayloadTransaction = list[JnapPayloadSingle]
+
+
 def jnap_url(target: str) -> str:
     """Return the URL that should be used for the request.
 
@@ -51,7 +57,7 @@ class Request:
         action: str,
         password: str,
         target: str,
-        payload: list[dict[str, Any]] | dict[str, Any] = {},
+        payload: JnapResponseSingle | JnapResponseTransaction = {},
         raise_on_error: bool = True,
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
@@ -72,7 +78,7 @@ class Request:
         """
         self._action: str = action
         self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
-        self._payload: list[dict[str, Any]] | dict[str, Any] = payload
+        self._payload: JnapResponseSingle | JnapResponseTransaction = payload
         self._raise_on_error: bool = raise_on_error
         self._redact: bool = redact
         self._session: aiohttp.ClientSession = (
@@ -169,7 +175,7 @@ class Request:
         return self._action
 
     @property
-    def payload(self) -> list[dict[str, Any]] | dict[str, Any]:
+    def payload(self) -> JnapResponseSingle | JnapResponseTransaction:
         """Return the payload used for the request.
 
         :return: the payload

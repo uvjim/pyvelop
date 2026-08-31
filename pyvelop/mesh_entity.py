@@ -22,7 +22,8 @@ from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 
 if TYPE_CHECKING:
-    from .mesh import JnapPayloadSingle, JnapResponseSingle, MeshCapability
+    from .jnap import JnapPayloadSingle, JnapResponseSingle
+    from .mesh import MeshCapability
 
 # endregion
 
