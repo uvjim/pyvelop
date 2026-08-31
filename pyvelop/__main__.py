@@ -183,7 +183,7 @@ class StandardCommand(click.Command):
             """Handle logging."""
             if param.name == "verbose":
                 if value:
-                    logging.basicConfig()
+                    logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s:%(message)s")
                     _LOGGER.setLevel(logging.DEBUG)
                     _LOGGER.debug("args: %s", sys.argv[1:])
                     _LOGGER.debug("Setting up logging")
@@ -192,13 +192,14 @@ class StandardCommand(click.Command):
                         logging.getLogger(f"{__package__}.jnap").setLevel(logging.WARNING)
                         logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.WARNING)
                         logging.getLogger(f"{__package__}.mesh.verbose").setLevel(logging.WARNING)
+                        logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.WARNING)
                         if value > 2:
                             logging.getLogger(f"{__package__}.mesh.verbose").setLevel(logging.DEBUG)
+                            logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.DEBUG)
                             if value > 3:
                                 logging.getLogger(f"{__package__}.jnap").setLevel(logging.DEBUG)
                                 if value > 4:
                                     logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.DEBUG)
-                                    logging.getLogger(f"{__package__}.action_registry.verbose").setLevel(logging.DEBUG)
 
         standard_options: list[click.Option] = [
             click.Option(
@@ -1054,6 +1055,7 @@ async def node_details(
                     ),
                     "Device ID": found_node.unique_id.value,
                     "Online": found_node.status.value,
+                    "Uptime": found_node.uptime.value,
                     "Node type": found_node.type.value.title(),
                     "Manufacturer": found_node.manufacturer.value,
                     "Model": found_node.model.value,
@@ -1150,11 +1152,13 @@ async def node_execute(
 
 @node_group.command(cls=StandardCommand, name="restart")
 @click.argument("node_name")
+@click.option("--force/--no-force", default=False)
 @click.pass_context
 async def node_restart(
     ctx: click.Context,
     /,
     node_name: str,
+    force: bool,
     **_: Any,
 ) -> None:
     """Restart a node on the Mesh."""
@@ -1168,7 +1172,7 @@ async def node_restart(
             if found_node is None:
                 click.echo("Node not found")
             else:
-                await found_node.async_reboot()
+                await found_node.async_reboot(force=force, wait=True)
 
     await _with_mesh(ctx, _node_restart)
 
