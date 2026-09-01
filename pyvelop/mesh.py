@@ -8,17 +8,18 @@ import contextlib
 import copy
 import datetime as dt
 import functools
+import inspect
 import json
 import logging
 import re
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
 from types import MappingProxyType
-from typing import Any, Final, NamedTuple, cast, overload
+from typing import Any, Final, Literal, NamedTuple, cast, overload
 
 import aiohttp
 from aiohttp import ClientSession
@@ -41,6 +42,7 @@ from .exceptions import (
     MeshDeviceNotFoundResponse,
     MeshException,
     MeshInvalidCredentials,
+    MeshInvalidOutput,
     MeshNeedsInitialise,
     MeshNodeNotPrimary,
 )
@@ -58,6 +60,7 @@ from .mesh_entity import (
     NodeEntity,
     NodeType,
 )
+from .timeouts import poll_with_yield
 
 # endregion
 
@@ -388,6 +391,9 @@ def needs_initialise[F: Callable[..., Any]](func: F) -> F:
         return func(self, *args, **kwargs)
 
     return cast(F, wrapper)
+
+
+SpeedtestStateCallback = Callable[[SpeedtestResult], None | Awaitable[None]]
 
 
 _ACTION_BY_SERVICE: Final[Mapping[str, tuple[ActionDefinition, ...]]] = MappingProxyType(
@@ -790,16 +796,13 @@ class Mesh:
         if enabled:
             self._last_gather_details[name.value] = time.time()
 
-    def _process_speedtest_results(self, results: dict[str, Any]) -> SpeedtestResult | None:
+    def _process_speedtest_results(self, results: dict[str, Any]) -> SpeedtestResult:
         """Build a SpeedtestResult object from the provisded results."""
 
         if "speedTestResult" not in results:
             raise ValueError
 
-        result_set: dict[str, Any] | None = results.get("speedTestResult")
-        if result_set is None:
-            return None
-
+        result_set: dict[str, Any] = results.get("speedTestResult", {})
         props: dict[str, Any] = {
             "download_bandwidth": result_set.get("downloadBandwidth"),
             "exit_code": SpeedtestExitCode(result_set.get("exitCode")),
@@ -1058,6 +1061,44 @@ class Mesh:
             # endregion
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_PROCESS_DETAILS_END)
         # endregion
+
+        return ret
+
+    async def _async_get_speedtest_results(
+        self, *, count: int | None = None, result_ids: Sequence[int] | None = None
+    ) -> list[SpeedtestResult]:
+        """Retrieve speedtest results from the mesh."""
+
+        if (count is None) == (result_ids is None):
+            raise ValueError("Provide exactly one of count or result_ids")
+
+        if count is not None and count < 1:
+            raise ValueError("Count must be greater than zero")
+
+        if result_ids is not None and not result_ids:
+            return []
+
+        cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_RESULTS")
+        payload: JnapPayloadSingle = {**cap.action_definition.payload}
+        if count is not None:
+            payload["lastNumberOfResults"] = count
+
+        if result_ids is not None:
+            payload["resultIDs"] = list(result_ids)
+
+        resp: JnapResponseSingle = await cap.async_execute(payload=payload)
+        raw_results = resp.get("healthCheckResults")
+        if raw_results is None:
+            return []
+
+        ret: list[SpeedtestResult] = []
+        for raw_result in raw_results:
+            try:
+                result = self._process_speedtest_results(raw_result)
+            except ValueError:
+                pass
+            else:
+                ret.append(result)
 
         return ret
 
@@ -1326,51 +1367,46 @@ class Mesh:
         return tuple(ret)
 
     @needs_initialise
-    async def async_get_speedtest_results(
-        self, count: int = 1, only_latest: bool = False, only_completed: bool = False
-    ) -> list[SpeedtestResult]:
-        """Retrieve Speedtest results.
+    async def async_get_speedtest_result_by_id(self, result_ids: Sequence[int]) -> tuple[SpeedtestResult, ...]:
+        """Retrieve speedtest results by ID.
 
-        :param count: the number of results to return; defaults to 1
-        :param only_latest: True to only return the latest result
-        :param only_completed: True to only return results that are not currently running
-
-        :return: List of dictionaries containing the result details
+        :param result_ids: the ids of the result objects you want to retrieve.
+        :return: speedtest results detailing the requested IDs.
         """
 
-        payload: JnapPayloadSingle = {
-            **Actions.GET_SPEEDTEST_RESULTS.payload,
-            "healthCheckModule": "SpeedTest",
-            "lastNumberOfResults": count,
-        }
-        cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_RESULTS")
-        resp: JnapResponseSingle = await cap.async_execute(payload=payload)
-
-        ret: list[SpeedtestResult] = []
-        if resp is not None:
-            speedtest_results = resp.get("healthCheckResults", [])
-            for res in speedtest_results:
-                sres: SpeedtestResult | None = self._process_speedtest_results(res)
-                if sres is not None:
-                    ret.append(sres)
-            if only_completed:
-                ret = [result for result in ret if result.exit_code not in (None, SpeedtestExitCode.UNAVAILABLE)]
-            if only_latest and len(ret) != 0:
-                ret = [sorted(ret, key=lambda itm: itm.timestamp, reverse=True)][0]
-
-        return ret
+        return tuple(await self._async_get_speedtest_results(result_ids=result_ids))
 
     @needs_initialise
-    async def async_get_speedtest_state(self) -> SpeedtestResult | None:
+    async def async_get_speedtest_results(
+        self,
+        count: int = 10,
+        *,
+        only_completed: bool = False,
+    ) -> tuple[SpeedtestResult, ...]:
+        """Retrieve the specified number of results from mesh optionally filtering to only completed results.
+
+        :param count: the maximum number of results to return, before filtering.
+        :param only_completed: optional filter allowing you to remove results that are not completed.
+        :return: the optionally filtered speedtest results.
+        """
+
+        results = await self._async_get_speedtest_results(count=count)
+        if only_completed:
+            results = [result for result in results if result.exit_code != SpeedtestExitCode.UNAVAILABLE]
+
+        return tuple(results)
+
+    @needs_initialise
+    async def async_get_speedtest_status(self) -> SpeedtestResult:
         """Return details about the current stage of a Speedtest.
 
         :return: Details about the current stage of the Speedtest.
+        :raises ValueError: when there is no status available
         """
 
-        ret: SpeedtestResult | None = None
         cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_STATUS")
         result: JnapResponseSingle = await cap.async_execute()
-        ret = self._process_speedtest_results(result)
+        ret: SpeedtestResult = self._process_speedtest_results(result)
 
         return ret
 
@@ -1627,19 +1663,91 @@ class Mesh:
         except MeshAlreadyInProgress as err:
             _LOGGER.debug("%s", err)
 
-    @needs_initialise
-    async def async_start_speedtest(self) -> None:
-        """Instruct the mesh to carry out a Speedtest.
+    @overload
+    async def async_start_speedtest(
+        self,
+        *,
+        wait: Literal[False] = False,
+        callback_func: SpeedtestStateCallback | None = None,
+    ) -> int: ...
 
-        A Speedtest is a long-running task.  You should use the async_get_speedtest_state method to understand
-        the progress of the task.
+    @overload
+    async def async_start_speedtest(
+        self,
+        *,
+        wait: Literal[True],
+        callback_func: SpeedtestStateCallback | None = None,
+    ) -> SpeedtestResult: ...
+
+    @needs_initialise
+    async def async_start_speedtest(
+        self,
+        *,
+        wait: bool = False,
+        callback_func: SpeedtestStateCallback | None = None,
+    ) -> int | SpeedtestResult:
+        """Start a Speedtest.
+
+        A Speedtest is a long-running task. By default, this method returns after
+        requesting the Speedtest. Set ``wait`` to true to poll until the Speedtest
+        has completed.
+
+        :param wait: Whether to wait for the Speedtest to complete before returning.
+        :param callback_func: An optional synchronous or asynchronous callback invoked with each
+        updated `SpeedtestResult` while waiting. The callback is not invoked
+        when ``wait`` is false.
+        :raises MeshInvalidOutput:
         """
 
+        # region #-- start the speedtest --#
         cap: MeshCapability = self._get_mesh_capability("START_SPEEDTEST")
         payload: JnapPayloadSingle = {
             "runHealthCheckModule": "SpeedTest",
         }
-        await cap.async_execute(payload=payload)
+        resp: JnapResponseSingle = await cap.async_execute(payload=payload)
+        result_id: int | None = resp.get("resultID")
+        if result_id is None:
+            raise MeshInvalidOutput("No result ID returned")
+        # endregion
+
+        if not wait:
+            return result_id
+
+        # region #-- wait and send progress if needed --#
+        await asyncio.sleep(1.0)
+        try:
+            async for state in poll_with_yield(
+                self.async_get_speedtest_status,
+                interval=0.5,
+                timeout=300.0,
+            ):
+                # the state isn't for the same speedtest
+                if int(state.result_id) != result_id:
+                    break
+
+                # process the callback
+                if callback_func is not None:
+                    callback_result = callback_func(state)
+
+                    if inspect.isawaitable(callback_result):
+                        await callback_result
+
+                # must be finished
+                if state.exit_code != SpeedtestExitCode.UNAVAILABLE:
+                    break
+        except ValueError:
+            # raised when there is no status to retrieve or the status is not for the
+            # run we're looking for.
+            pass
+        # endregion
+
+        # region #-- --#
+        final_res: tuple[SpeedtestResult, ...] = await self.async_get_speedtest_result_by_id([result_id])
+        if final_res:
+            ret = final_res[0]
+        # endregion
+
+        return ret
 
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid.
