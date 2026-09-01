@@ -3,13 +3,13 @@
 # region #-- imports --#
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import datetime as dt
 import json
 import logging
 import sys
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import fields, is_dataclass
 from enum import StrEnum, auto
 from types import MappingProxyType
 from typing import Any, cast
@@ -32,7 +32,6 @@ from .mesh import (
     Mesh,
     NightModeState,
     ScheduledRebootInterval,
-    SpeedtestExitCode,
     SpeedtestResult,
 )
 from .mesh_attribute import MeshAttribute
@@ -116,42 +115,31 @@ class MeshWorkflows:
         await mesh.async_clear_speedtest_results()
 
     @staticmethod
-    async def speedtest_get_results(mesh: Mesh) -> None:
+    async def speedtest_get_results(mesh: Mesh) -> tuple[SpeedtestResult, ...]:
         """Retrieve the Speedtest results from the mesh."""
-        await mesh.async_get_speedtest_results()
+        ret: tuple[SpeedtestResult, ...] = await mesh.async_get_speedtest_results(count=10)
+        return ret
 
     @staticmethod
-    async def speedtest_get_state(mesh: Mesh) -> None:
+    async def speedtest_get_status(mesh: Mesh) -> None:
         """Retrieve the current speedtest state from the mesh."""
-        await mesh.async_get_speedtest_state()
+        await mesh.async_get_speedtest_status()
 
     @staticmethod
-    async def speedtest_start(mesh: Mesh) -> dict[str, Any]:
+    async def speedtest_start(mesh: Mesh) -> int | SpeedtestResult:
         """Start a Speedtest on the mesh.
 
         The function waits for the test to complete and displays the results.
 
-        :return: details of the last executed speedtest.
+        :return: details of the executed speedtest.
         """
-        ret: dict[str, Any] = {}
-        await mesh.async_start_speedtest()
-        res: SpeedtestResult | None = await mesh.async_get_speedtest_state()
-        if res is not None:
-            click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
-            prev_res: SpeedtestResult = res
-            while res.exit_code == SpeedtestExitCode.UNAVAILABLE:
-                await asyncio.sleep(1)
-                res = await mesh.async_get_speedtest_state()
-                if res is None:
-                    break
-                if res.friendly_status != prev_res.friendly_status:
-                    click.echo(f"{dt.datetime.now()} state, {res.friendly_status}")
-                    prev_res = res
-            res_latest: list[SpeedtestResult] = await mesh.async_get_speedtest_results(
-                only_latest=True, only_completed=True
-            )
-            ret = res_latest[0].as_dict()
-            ret["timestamp"] = str(ret["timestamp"])
+
+        def _display_progress(info: SpeedtestResult) -> None:
+            """Display the progress of the speedtest."""
+
+            _output(None, f"{json.dumps(info, default=json_default)}\n")
+
+        ret = await mesh.async_start_speedtest(wait=True, callback_func=_display_progress)
 
         return ret
 
@@ -286,7 +274,7 @@ MESH_WORKFLOWS: Mapping[str, Callable[[Mesh], Awaitable[Any]]] = MappingProxyTyp
         "parental_control_on": lambda mesh: MeshWorkflows.parental_control_state(mesh, True),
         "speedtest_clear_results": MeshWorkflows.speedtest_clear_results,
         "speedtest_results": MeshWorkflows.speedtest_get_results,
-        "speedtest_status": MeshWorkflows.speedtest_get_state,
+        "speedtest_status": MeshWorkflows.speedtest_get_status,
         "speedtest_start": MeshWorkflows.speedtest_start,
         "update_check_start": MeshWorkflows.check_for_updates,
         "upnp_off": lambda mesh: MeshWorkflows.upnp_state(mesh, False),
@@ -307,16 +295,50 @@ _LOGGER: Logger = Logger(logging.getLogger(f"{__package__}.cli"))
 
 
 def get_properties[T](cls: type[T]) -> set[str]:
-    """Retrieve the properties for the given class."""
+    """Retrieve effective properties and dataclass fields for a class.
 
-    _props: set[str] = set()
+    Python properties are collected according to normal MRO resolution.
+    Dataclass fields are also included when ``cls`` is a dataclass.
 
-    for b in cls.mro():
-        for name, val in b.__dict__.items():
-            if isinstance(val, property):
-                _props.add(name)
+    :param cls:
+        The class to inspect.
+    :returns:
+        The names of the class's effective properties and dataclass fields.
+    """
 
-    return _props
+    properties: set[str] = set()
+    seen: set[str] = set()
+
+    # Respect normal attribute resolution when inspecting properties.
+    for base in cls.__mro__:
+        for name, value in base.__dict__.items():
+            if name in seen:
+                continue
+
+            seen.add(name)
+
+            if isinstance(value, property):
+                properties.add(name)
+
+    # dataclasses.fields() includes inherited dataclass fields and excludes
+    # ClassVar and InitVar fields.
+    if is_dataclass(cls):
+        properties.update(field.name for field in fields(cls))
+
+    return properties
+
+
+def json_default(obj: Any) -> Any:
+    """Serialise objects that cannot otherwise be serialised.
+
+    :returns: a serialisable object for `json.dump` or `json.dumps`.
+    """
+
+    if isinstance(obj, SpeedtestResult):
+        props: set[str] = get_properties(SpeedtestResult)
+        return {p: str(getattr(obj, p, None)) for p in props}
+
+    return obj.__repr__
 
 
 @click.group()
@@ -672,7 +694,7 @@ async def mesh_action(
     workflow = MESH_WORKFLOWS[action]
 
     ret = await _with_mesh(ctx, workflow)
-    _output(None, json.dumps(ret))
+    _output(None, json.dumps(ret, default=json_default))
 
 
 @mesh_group.command(cls=StandardCommand, name="attribute")

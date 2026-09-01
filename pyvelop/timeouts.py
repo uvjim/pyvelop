@@ -3,10 +3,53 @@
 import asyncio
 import functools
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 _NO_DEFAULT = object()
+
+
+async def poll_with_yield[T](
+    probe: Callable[[], Awaitable[T]],
+    *,
+    interval: float = 5.0,
+    timeout: float = 300.0,
+) -> AsyncIterator[T]:
+    """Poll an asynchronous callable at regular intervals.
+
+    The result of every probe call is yielded. Polling stops when `timeout`
+    expires.
+
+    :param probe: Asynchronous callable that retrieves the value to be polled.
+    :param interval: Minimum delay between probe calls, in seconds.
+    :param timeout: Maximum polling duration, in seconds.
+    :raises ValueError: If `interval` is negative or `timeout` is not greater than zero.
+    :raises TimeoutError: If the timeout expires before polling completes.
+    :yields: The value returned by each invocation of ``probe``.
+    """
+    if interval < 0:
+        raise ValueError("interval must be non-negative")
+
+    if timeout <= 0:
+        raise ValueError("timeout must be greater than zero")
+
+    deadline = time.monotonic() + timeout
+
+    while True:
+        remaining = deadline - time.monotonic()
+
+        if remaining <= 0:
+            raise TimeoutError(f"probe did not complete within {timeout}s")
+
+        value = await probe()
+        yield value
+
+        remaining = deadline - time.monotonic()
+
+        if remaining <= 0:
+            raise TimeoutError(f"probe did not complete within {timeout}s")
+
+        await asyncio.sleep(min(interval, remaining))
 
 
 async def wait_for_predicate(
