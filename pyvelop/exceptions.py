@@ -63,9 +63,10 @@ class MeshDeviceNotFoundResponse(MeshException):
 class MeshInvalidCredentials(MeshException):
     """Credentials are invalid."""
 
-    def __init__(self) -> None:
+    def __init__(self, details=None) -> None:
         """Initialise and default message."""
         super().__init__("Invalid Credentials")
+        self.details = details or {}
 
 
 class MeshInvalidInput(MeshException):

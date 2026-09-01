@@ -1360,8 +1360,10 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             await mesh_object.async_initialise()
         except MeshConnectionError:
             msg = f"Unable to connect to {ctx.params.get('primary_node')}"
-        except MeshInvalidCredentials:
+        except MeshInvalidCredentials as exc:
             msg = f"Unable to authenticate with {ctx.params.get('primary_node')} using provided credentials"
+            if exc.details:
+                msg += f", error details: {exc.details}"
         except MeshNodeNotPrimary:
             msg = f"{ctx.params.get('primary_node')} is not the primary node"
         except MeshTimeoutError:
