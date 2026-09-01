@@ -1397,16 +1397,18 @@ class Mesh:
         return tuple(results)
 
     @needs_initialise
-    async def async_get_speedtest_status(self) -> SpeedtestResult:
+    async def async_get_speedtest_status(self) -> SpeedtestResult | None:
         """Return details about the current stage of a Speedtest.
 
         :return: Details about the current stage of the Speedtest.
-        :raises ValueError: when there is no status available
+        `None` is returned if the responses does not indicate a speedtest is runnig.
         """
 
+        ret: SpeedtestResult | None = None
         cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_STATUS")
         result: JnapResponseSingle = await cap.async_execute()
-        ret: SpeedtestResult = self._process_speedtest_results(result)
+        with contextlib.suppress(ValueError):
+            ret = self._process_speedtest_results(result)
 
         return ret
 
@@ -1689,14 +1691,13 @@ class Mesh:
         """Start a Speedtest.
 
         A Speedtest is a long-running task. By default, this method returns after
-        requesting the Speedtest. Set ``wait`` to true to poll until the Speedtest
+        requesting the Speedtest. Set `wait` to true to poll until the Speedtest
         has completed.
 
         :param wait: Whether to wait for the Speedtest to complete before returning.
-        :param callback_func: An optional synchronous or asynchronous callback invoked with each
-        updated `SpeedtestResult` while waiting. The callback is not invoked
-        when ``wait`` is false.
-        :raises MeshInvalidOutput:
+        :param callback_func: An optional synchronous or asynchronous callback invoked with each updated `SpeedtestResult` while waiting.
+        The callback is not invoked when `wait` is false.
+        :raises MeshInvalidOutput: if an invalid result is found.
         """
 
         # region #-- start the speedtest --#
@@ -1714,31 +1715,28 @@ class Mesh:
             return result_id
 
         # region #-- wait and send progress if needed --#
-        await asyncio.sleep(1.0)
-        try:
-            async for state in poll_with_yield(
-                self.async_get_speedtest_status,
-                interval=0.5,
-                timeout=300.0,
-            ):
-                # the state isn't for the same speedtest
-                if int(state.result_id) != result_id:
-                    break
+        async for state in poll_with_yield(
+            self.async_get_speedtest_status,
+            interval=0.25,
+            timeout=300.0,
+        ):
+            if state is None:
+                break
 
-                # process the callback
-                if callback_func is not None:
-                    callback_result = callback_func(state)
+            # the state isn't for the same speedtest
+            if int(state.result_id) != result_id:
+                break
 
-                    if inspect.isawaitable(callback_result):
-                        await callback_result
+            # process the callback
+            if callback_func is not None:
+                callback_result = callback_func(state)
 
-                # must be finished
-                if state.exit_code != SpeedtestExitCode.UNAVAILABLE:
-                    break
-        except ValueError:
-            # raised when there is no status to retrieve or the status is not for the
-            # run we're looking for.
-            pass
+                if inspect.isawaitable(callback_result):
+                    await callback_result
+
+            # must be finished
+            if state.exit_code != SpeedtestExitCode.UNAVAILABLE:
+                break
         # endregion
 
         # region #-- --#
