@@ -1257,6 +1257,7 @@ class Mesh:
             }
             device_details: dict[ActionKey, Any] = await self.async_gather_details(device_capabilities)
             device_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(False, device_details)
+            device_entities: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(False, device_entities)
             all_devices = [dev for dev in device_entities if isinstance(dev, DeviceEntity)]
         else:
             all_devices = list(self.devices)
