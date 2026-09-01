@@ -314,7 +314,8 @@ class Response:
                 elif resp.get(self.RESULT_KEY) == "_ErrorInvalidOutput":
                     err = MeshInvalidOutput(resp.get("error"))
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnauthorized":
-                    err = MeshInvalidCredentials()
+                    err_details: str | None = resp.get("error")
+                    err = MeshInvalidCredentials(details=err_details)
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
                     action: str = ""
                     if "error" in resp:
