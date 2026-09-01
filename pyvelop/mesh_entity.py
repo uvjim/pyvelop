@@ -1786,9 +1786,10 @@ class NodeEntity(MeshEntity):
         """Return the number of seconds the node has been running."""
 
         ret: dt.datetime | None = None
-        attr: int | None = self._data.get(EntityDataProperties.SYSTEM_STATS, {}).get("uptimeSeconds")
-        if attr is not None:
-            ret = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=attr)
+
+        prop: MeshAttribute[int | None] = self.uptime
+        if prop.value is not None:
+            ret = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=prop.value)
 
         return MeshAttribute[dt.datetime | None](
             ret, (AttributeAuditEntry(EntityDataProperties.SYSTEM_STATS.value, ret),)
