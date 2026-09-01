@@ -812,7 +812,7 @@ class MeshEntity(ABC):
                 )
                 props.update(props_wifi_type)
 
-            # unknown still so let's derive from GetNetworkConnections2
+            # unknown still so let's derive from GET_NETWORK_CONNECTIONS
             props_nnc_type: dict[str, Any] = {}
             if node_network_conns:
                 if props.get("type") != ConnectionType.WIRELESS and any(
@@ -1628,13 +1628,16 @@ class NodeEntity(MeshEntity):
     def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
 
         ret: dict[str, Any] = super().to_dict(include_audit=include_audit)
+
         ret.update(
             {
                 "backhaul": self.backhaul.to_dict(include_audit=include_audit),
                 "connected_devices": [repr(dev) for dev in self.connected_devices],
                 "firmware": self.firmware.to_dict(include_audit=include_audit),
                 "hardware_version": self.hardware_version.to_dict(include_audit=include_audit),
+                "last_reboot": self.last_reboot.to_dict(include_audit=include_audit),
                 "last_update_check": self.last_update_check.to_dict(include_audit=include_audit),
+                "uptime": self.uptime.to_dict(include_audit=include_audit),
                 "type": self.type.to_dict(include_audit=include_audit),
             }
         )
