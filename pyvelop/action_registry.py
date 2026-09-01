@@ -384,6 +384,7 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_SYSTEM_STATS",
             "http://linksys.com/jnap/diagnostics/GetSystemStats",
             "http://linksys.com/jnap/diagnostics/Diagnostics",
+            features=ActionFeatures.DEVICE_INFO,
             scope=ActionScope.NODE,
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
