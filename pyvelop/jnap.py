@@ -113,24 +113,106 @@ class Request:
 
         self._jnap_url: str = jnap_url(target=target)
 
+    def _get_action_key_from_uri(self, action_uri: str) -> str:
+        """Get the ActionKey from an action URI.
+
+        :param action_uri: the action URI to look up
+        :return: the ActionKey if found, otherwise the original URI string
+        """
+        # Try to match by action_base (with or without version suffix)
+        for action_def in Actions.values():
+            # Check exact match or version-suffixed match
+            if action_uri == action_def.action_base or action_uri.startswith(action_def.action_base):
+                return action_def.key
+        return action_uri
+
+    def _build_redactions(self, key: str) -> set[str]:
+        """Build the set of redactions for a given action key.
+
+        :param key: the action key to look up redactions for
+        :return: the set of field names to redact
+        """
+        ret: set[str] = set()
+        action: ActionDefinition | None = next((a for a in Actions.values() if a.key == key), None)
+
+        if action is not None:
+            ret = action.redactions.union(self._supplementary_redactions.get(action.key, set()))
+
+        return ret
+
+    def _redact_payload(
+        self,
+        payload: JnapPayloadSingle | JnapPayloadTransaction,
+        action_uri: str,
+    ) -> JnapPayloadSingle | JnapPayloadTransaction:
+        """Redact sensitive data from request payload.
+
+        :param payload: the payload to redact
+        :param action_uri: the action URI for redaction lookup
+        :return: redacted copy of the payload
+        """
+        action_key = self._get_action_key_from_uri(action_uri)
+        redactions = self._build_redactions(action_key)
+        if not redactions:
+            return payload
+
+        if isinstance(payload, list):
+            # Transaction: redact each payload entry
+            return [_LOGGER.redact(p, redactions) if isinstance(p, dict) else p for p in payload]
+
+        if isinstance(payload, dict):
+            # Single: redact the payload dict
+            return _LOGGER.redact(payload, redactions)
+
+        return payload
+
+    def _redact_response(
+        self,
+        response: JnapResponseSingle | JnapResponseTransaction,
+    ) -> JnapResponseSingle | JnapResponseTransaction:
+        """Redact sensitive data from response.
+
+        :param response: the response to redact
+        :return: redacted copy of the response
+        """
+        # Only redact successful responses
+        if response.get("result") != "OK":
+            return response
+
+        redacted = copy.deepcopy(response)
+
+        if _is_transaction_response(redacted):
+            # Transaction: redact each response entry
+            for idx, r_entry in enumerate(redacted.get("responses", [])):
+                if isinstance(r_entry, dict) and r_entry.get("result") == "OK":
+                    # Use action from payload[idx] or fallback to the main action
+                    action_uri = self._action
+                    if isinstance(self._payload, list) and idx < len(self._payload):
+                        action_uri = self._payload[idx].get("action", self._action)
+
+                    # Convert URI to ActionKey for redaction lookup
+                    action_key = self._get_action_key_from_uri(action_uri)
+                    redactions = self._build_redactions(action_key)
+                    if redactions:
+                        r_entry["output"] = _LOGGER.redact(r_entry.get("output", {}), redactions)
+            return redacted
+
+        # Single response: redact the output
+        action_key = self._get_action_key_from_uri(self._action)
+        redactions = self._build_redactions(action_key)
+        if redactions:
+            redacted_single = cast(JnapResponseSingle, redacted)
+            output = redacted_single.get("output", {})
+            if isinstance(output, dict):
+                redacted_single["output"] = _LOGGER.redact(output, redactions)
+        return redacted
+
     async def execute(self, timeout: float = 10) -> Response:
         """Send the request.
 
         :param timeout: the timeout in seconds for the request, defaults to 10s
         :return: a Response object representing the returned results
         """
-
-        def _build_redactions(key: str) -> set[str]:
-
-            ret: set[str] = set()
-            default_redactions: set[str]
-            action: ActionDefinition | None = next((a for a in Actions.values() if a.key == key), None)
-
-            if action is not None:
-                default_redactions = action.redactions
-                ret = default_redactions.union(self._supplementary_redactions.get(action.key, set()))
-
-            return ret
 
         headers: dict[str, str] = {
             "Accept": "*/*",
@@ -160,27 +242,9 @@ class Request:
         # region #-- log the response --#
         to_log: dict[str, Any] = {
             "action": self._action,
-            "payload": self._payload,
-            "response": copy.deepcopy(resp_json),
+            "payload": self._redact_payload(self._payload, self._action) if self._redact else self._payload,
+            "response": self._redact_response(resp_json) if self._redact else copy.deepcopy(resp_json),
         }
-        if self._redact:
-            if _is_transaction_response(resp_json):
-                for idx, r_json in _iter_response_entries(resp_json):
-                    action: str = (
-                        self._payload[idx].get("action", "")
-                        if isinstance(self._payload, list) and idx < len(self._payload)
-                        else self._action
-                    )
-                    redactions = _build_redactions(action)
-                    if r_json.get("result") == "OK":
-                        r_json["output"] = _LOGGER.redact(r_json.get("output", {}), redactions)
-            elif resp_json.get("result") == "OK":
-                redactions = _build_redactions(self._action)
-                to_log["response"]["output"] = _LOGGER.redact(
-                    to_log["response"].get("output", {}),
-                    redactions,
-                )
-
         _LOGGER_VERBOSE.debug(json.dumps(to_log))
         # endregion
 
