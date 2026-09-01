@@ -226,6 +226,9 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_DEVICE_INFO",
             "http://linksys.com/jnap/core/GetDeviceInfo",
             "http://linksys.com/jnap/core/Core",
+            redactions={
+                "serialNumber",
+            },
             requires_auth=False,
         ),
         ActionDefinition(
@@ -285,7 +288,7 @@ Actions: ActionRegistry = ActionRegistry(
             features=ActionFeatures.DEVICE_INFO,
             redactions={
                 "hostName",
-                "reservations",
+                "dhcpSettings.reservations",
             },
         ),
         ActionDefinition(
