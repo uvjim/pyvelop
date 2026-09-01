@@ -178,9 +178,13 @@ Actions: ActionRegistry = ActionRegistry(
             "http://linksys.com/jnap/core/CheckAdminPassword",
             "http://linksys.com/jnap/core/Core",
             purpose=ActionPurpose.INVOKE,
+            redactions={
+                "adminPassword",  # this is added in both
+            },
             requires_auth=False,
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
+                # adds: expects an object to be passed in the body
                 ActionVersionMap(action_version=2, service_version=2),
                 ActionVersionMap(action_version=3, service_version=7),
             ),
