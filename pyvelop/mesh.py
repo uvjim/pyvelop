@@ -417,6 +417,7 @@ class Mesh:
     _DEF_MESH_CAPABILITIES: dict[ActionKey, MeshCapability] = {
         "CHECK_PASSWORD": MeshCapability(
             Actions.CHECK_PASSWORD,
+            implemented_versions=(1, 2),
         ),
         "GET_DEVICE_INFO": MeshCapability(
             action_definition=Actions.GET_DEVICE_INFO,
@@ -1759,6 +1760,8 @@ class Mesh:
             cap: MeshCapability = self._get_mesh_capability("CHECK_PASSWORD")
             if cap.action_version == 1:
                 payload = {}
+            elif cap.action_version == 2:
+                payload = {"adminPassword": self._password}
             else:
                 raise MeshActionVersionNotImplemented(
                     f"{cap.action_definition.key} version {cap.action_version} has not been implemented"
