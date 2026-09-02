@@ -1306,6 +1306,7 @@ class DeviceEntity(MeshEntity):
         )
 
         # region #-- calculate the device properties to update --#
+        cap = self._get_capability("SET_DEVICE_PROPERTY")
         device_properties = self._get_parental_control_device_attributes(
             schedule=new_rule if isinstance(new_rule, dict) else {},
             urls=(this_device_rules[0].get("blockedURLs", []) if this_device_rules else []),
