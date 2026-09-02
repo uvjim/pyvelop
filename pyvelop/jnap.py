@@ -21,6 +21,7 @@ from .exceptions import (
     MeshDeviceDbFailure,
     MeshException,
     MeshInvalidCredentials,
+    MeshInvalidCredentialsWithDelay,
     MeshInvalidInput,
     MeshInvalidOutput,
     MeshNodeNotPrimary,
@@ -31,7 +32,7 @@ from .logger import Logger
 # endregion
 
 _LOGGER: Logger = Logger(logging.getLogger(__name__))
-_LOGGER_VERBOSE = logging.getLogger(f"{__name__}.verbose")
+_LOGGER_VERBOSE = Logger(logging.getLogger(f"{__name__}.verbose"))
 
 
 type JnapResponseSingle = dict[str, Any]
@@ -314,7 +315,7 @@ class Response:
                 elif resp.get(self.RESULT_KEY) == "_ErrorInvalidOutput":
                     err = MeshInvalidOutput(resp.get("error"))
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnauthorized":
-                    err_details: str | None = resp.get("error")
+                    err_details = resp.get("error")
                     err = MeshInvalidCredentials(details=err_details)
                 elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
                     action: str = ""
@@ -333,6 +334,14 @@ class Response:
                     err = MeshDeviceDbFailure(resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", ""))
                 elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
                     err = MeshNodeNotPrimary()
+                elif resp.get(self.RESULT_KEY) == "ErrorInvalidAdminPassword":
+                    err_details = resp.get(self.DATA_KEY_SINGLE, {})
+                    err = MeshInvalidCredentialsWithDelay(
+                        details={
+                            "attempts_remaining": err_details.get("attemptsRemaining"),
+                            "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
+                        }
+                    )
                 elif resp.get(self.RESULT_KEY) == "ErrorInvalidWANSchedule":
                     err = MeshInvalidInput("Invalid WAN Schedule")
                 elif resp.get(self.RESULT_KEY) == "ErrorRulesOverlap":

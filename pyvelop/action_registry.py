@@ -186,6 +186,11 @@ Actions: ActionRegistry = ActionRegistry(
                 ActionVersionMap(action_version=1, service_version=1),
                 # adds: expects an object to be passed in the body
                 ActionVersionMap(action_version=2, service_version=2),
+                # changes: now unauthenticated (ignores the header if it is passed), return is a whole new object.
+                # delayTimeRemaining is in seconds and password retries should be guarded against this.
+                # {"result": "OK", "output": {"isPasswordValid": true}}
+                # {"result": "ErrorInvalidAdminPassword", "output": {"attemptsRemaining": <int>, "delayTimeReminaing": <int>}}
+                # {"result": "ErrorPasswordCheckDelayed", "output": {"attemptsRemaining": <int>, "delayTimeRemaining": <int>}}
                 ActionVersionMap(action_version=3, service_version=7),
             ),
         ),

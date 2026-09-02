@@ -41,7 +41,6 @@ from .exceptions import (
     MeshAlreadyInProgress,
     MeshDeviceNotFoundResponse,
     MeshException,
-    MeshInvalidCredentials,
     MeshInvalidOutput,
     MeshNeedsInitialise,
     MeshNodeNotPrimary,
@@ -310,6 +309,12 @@ class MeshCapability:
         return ret
 
     @property
+    def implemented_versions(self) -> tuple[int, ...]:
+        """Return the implemented versions of the action."""
+
+        return self._implemented_versions
+
+    @property
     def service_versions(self) -> Iterable[int]:
         """Retrieve the available service versions for the capability."""
 
@@ -417,7 +422,7 @@ class Mesh:
     _DEF_MESH_CAPABILITIES: dict[ActionKey, MeshCapability] = {
         "CHECK_PASSWORD": MeshCapability(
             Actions.CHECK_PASSWORD,
-            implemented_versions=(1, 2),
+            implemented_versions=(1, 2, 3),
         ),
         "GET_DEVICE_INFO": MeshCapability(
             action_definition=Actions.GET_DEVICE_INFO,
@@ -1175,9 +1180,7 @@ class Mesh:
 
         # region #-- test the credentials --#
         self._mesh_details.password = self._password
-        valid_credentials: bool = await self.async_test_credentials()
-        if not valid_credentials:
-            raise MeshInvalidCredentials()
+        await self.async_test_credentials()
         # endregion
 
         # region #-- query for speedtest availablility --#
@@ -1751,28 +1754,25 @@ class Mesh:
     async def async_test_credentials(self) -> bool:
         """Check the provided credentials are valid.
 
-        :return: True if valid, False if not
+        :return: `True` if valid
+        :raises MeshActionVersionNotImplemented: If the specified version is not implemented
+        :raises MeshInvalidCredentials: If the password is invalid
+        :raises MeshInvalidCrednetialsWithDelay: If the mesh has informed the password is incorrect but
+        a delay should be used before retrying.
         """
 
         ret: bool = False
-        payload: JnapPayloadSingle
-        try:
-            cap: MeshCapability = self._get_mesh_capability("CHECK_PASSWORD")
-            if cap.action_version == 1:
-                payload = {}
-            elif cap.action_version == 2:
-                payload = {"adminPassword": self._password}
-            else:
-                raise MeshActionVersionNotImplemented(
-                    f"{cap.action_definition.key} version {cap.action_version} has not been implemented"
-                )
-            await cap.async_execute(payload=payload)
-            ret = True
-        except MeshInvalidCredentials:
-            pass
-        except Exception as err:
-            _LOGGER.error(err)
-            raise
+        payload: JnapPayloadSingle = {}
+        cap: MeshCapability = self._get_mesh_capability("CHECK_PASSWORD")
+        if cap.action_version not in cap.implemented_versions:
+            raise MeshActionVersionNotImplemented(
+                f"{cap.action_definition.key} version {cap.action_version} has not been implemented"
+            )
+
+        if cap.action_version in (2, 3):
+            payload = {"adminPassword": self._password}
+        await cap.async_execute(payload=payload)
+        ret = True
 
         return ret
 
