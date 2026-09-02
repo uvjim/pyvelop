@@ -1812,21 +1812,29 @@ class Mesh:
 
     @property
     @needs_initialise
-    def capabilities(self) -> tuple[ActionKey, ...]:
+    def capabilities(self) -> tuple[Mapping[str, Any], ...]:
         """Get the list of capabilities that the Mesh supports.
 
         :return: mesh capabilities
         """
 
-        ret: tuple[ActionKey, ...] = tuple(
-            sorted(
-                cap_key
-                for cap_key, cap in self._mesh_capabilities.items()
-                if cap.action_definition.purpose == ActionPurpose.GET
+        ret: list[MappingProxyType[str, Any]] = []
+        for cap_key, cap in sorted(
+            self._mesh_capabilities.items(),
+            key=lambda item: item[0],
+        ):
+            ret.append(
+                MappingProxyType(
+                    {
+                        "key": cap_key,
+                        "action_version": cap.action_version,
+                        "fallback_action": cap.is_fallback_action,
+                        "fallback_service": cap.is_fallback_service,
+                    }
+                )
             )
-        )
 
-        return ret
+        return tuple(ret)
 
     @property
     @needs_initialise

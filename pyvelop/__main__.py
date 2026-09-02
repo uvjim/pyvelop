@@ -59,13 +59,13 @@ class MeshWorkflows:
         return await mesh.async_get_channel_scan_info()
 
     @staticmethod
-    async def detect_capabilities(mesh: Mesh) -> list[ActionKey]:
+    async def detect_capabilities(mesh: Mesh) -> tuple[Mapping[str, Any], ...]:
         """Retrieve the mesh capabilities from the last time they were discovered.
 
         :return: the capabilities that were discovered on the mesh.
         """
-        capabilities = mesh.capabilities
-        return list(capabilities)
+        ret = mesh.capabilities
+        return ret
 
     @staticmethod
     async def channel_scan_start(mesh: Mesh) -> None:
@@ -335,8 +335,9 @@ def json_default(obj: Any) -> Any:
     """
 
     if isinstance(obj, SpeedtestResult):
-        props: set[str] = get_properties(SpeedtestResult)
-        return {p: str(getattr(obj, p, None)) for p in props}
+        return obj.as_dict()
+    elif isinstance(obj, MappingProxyType):
+        return obj.copy()
 
     return obj.__repr__
 
@@ -748,10 +749,15 @@ async def mesh_details(
         )
         _display(
             outfile,
-            pd.DataFrame(mesh.capabilities, columns=[""]),
+            pd.DataFrame(
+                mesh.capabilities,
+                index=pd.RangeIndex(start=1, stop=len(mesh.capabilities) + 1),
+            ),
+            index=True,
             title="Capabilities",
         )
-        if Actions.GET_LED_NIGHT_MODE.key in mesh.capabilities:
+        mesh_capabilities: set[str] = {cap.get("key", "") for cap in mesh.capabilities}
+        if Actions.GET_LED_NIGHT_MODE.key in mesh_capabilities:
             data = {"Night mode": str(mesh.night_mode)}
             _display(
                 outfile,
@@ -759,7 +765,7 @@ async def mesh_details(
                 index=True,
                 title="Night mode",
             )
-        if Actions.GET_SCHEDULED_REBOOT_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_SCHEDULED_REBOOT_SETTINGS.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.scheduled_reboot_enabled.value,
                 "Interval": (str(mesh.scheduled_reboot_interval) if mesh.scheduled_reboot_interval else None),
@@ -770,7 +776,7 @@ async def mesh_details(
                 index=True,
                 title="Scheduled Reboot Settings",
             )
-        if Actions.GET_WAN_INFO.key in mesh.capabilities:
+        if Actions.GET_WAN_INFO.key in mesh_capabilities:
             data = {
                 "Internet connected": mesh.wan_status.value,
                 "Bridge mode": mesh.is_in_bridge_mode.value,
@@ -783,7 +789,7 @@ async def mesh_details(
                 index=True,
                 title="WAN Info",
             )
-        if Actions.GET_LAN_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_LAN_SETTINGS.key in mesh_capabilities:
             data = {
                 "DHCP enabled": mesh.dhcp_enabled.value,
             }
@@ -802,7 +808,7 @@ async def mesh_details(
                 index=True,
                 title="DHCP Reservations",
             )
-        if Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key in mesh_capabilities:
             data = {
                 "Client steering enabled": mesh.client_steering_enabled.value,
                 "Node steering enabled": mesh.node_steering_enabled.value,
@@ -813,7 +819,7 @@ async def mesh_details(
                 index=True,
                 title="Topology Optimisation Settings",
             )
-        if Actions.GET_MLO_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_MLO_SETTINGS.key in mesh_capabilities:
             data = {"Enabled": (mesh.mlo_state.value if mesh.mlo_state.value is not None else "Unsupported")}
             _display(
                 outfile,
@@ -821,7 +827,7 @@ async def mesh_details(
                 index=True,
                 title="Multi-Link Operation (MLO)",
             )
-        if Actions.GET_EXPRESS_FORWARDING.key in mesh.capabilities:
+        if Actions.GET_EXPRESS_FORWARDING.key in mesh_capabilities:
             data = {
                 "Supported": mesh.express_forwarding_supported.value,
                 "Enabled": mesh.express_forwarding_enabled.value,
@@ -832,7 +838,7 @@ async def mesh_details(
                 index=True,
                 title="Express Forwarding",
             )
-        if Actions.GET_PARENTAL_CONTROL_INFO.key in mesh.capabilities:
+        if Actions.GET_PARENTAL_CONTROL_INFO.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.parental_control_enabled.value,
             }
@@ -842,7 +848,7 @@ async def mesh_details(
                 index=True,
                 title="Parental Control",
             )
-        if Actions.GET_MAC_FILTERING_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_MAC_FILTERING_SETTINGS.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.mac_filtering_enabled.value,
                 "Mode": str(mesh.mac_filtering_mode),
@@ -854,7 +860,7 @@ async def mesh_details(
                 index=True,
                 title="MAC Filtering",
             )
-        if Actions.GET_WPS_SERVER_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_WPS_SERVER_SETTINGS.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.wps_state.value,
             }
@@ -864,7 +870,7 @@ async def mesh_details(
                 index=True,
                 title="WPS Settings",
             )
-        if Actions.GET_ALG_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_ALG_SETTINGS.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.sip_enabled.value,
             }
@@ -874,7 +880,7 @@ async def mesh_details(
                 index=True,
                 title="SIP Settings",
             )
-        if Actions.GET_HOMEKIT_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_HOMEKIT_SETTINGS.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.homekit_enabled.value,
                 "Paired": mesh.homekit_paired.value,
@@ -885,7 +891,7 @@ async def mesh_details(
                 index=True,
                 title="HomeKit Settings",
             )
-        if Actions.GET_UPNP_SETTINGS.key in mesh.capabilities:
+        if Actions.GET_UPNP_SETTINGS.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.upnp_enabled.value,
                 "allow_change_settings": mesh.upnp_allow_change_settings.value,
@@ -897,7 +903,7 @@ async def mesh_details(
                 index=True,
                 title="UPnP Settings",
             )
-        if Actions.GET_DEVICES.key in mesh.capabilities:
+        if Actions.GET_DEVICES.key in mesh_capabilities:
             data_list: list[str | dict[str, Any]] = [n.name.value for n in mesh.nodes]
             _display(
                 outfile,
@@ -909,7 +915,7 @@ async def mesh_details(
                 index=True,
                 title="Nodes",
             )
-        if Actions.GET_SPEEDTEST_RESULTS.key in mesh.capabilities:
+        if Actions.GET_SPEEDTEST_RESULTS.key in mesh_capabilities:
             _display(
                 outfile,
                 pd.DataFrame(
@@ -919,7 +925,7 @@ async def mesh_details(
                 index=True,
                 title="Speedtest Results",
             )
-        if Actions.GET_GUEST_NETWORK_INFO.key in mesh.capabilities:
+        if Actions.GET_GUEST_NETWORK_INFO.key in mesh_capabilities:
             data = {
                 "Enabled": mesh.guest_wifi_enabled.value,
             }
@@ -934,13 +940,13 @@ async def mesh_details(
                 pd.DataFrame.from_dict(cast(dict[str, Any], mesh.guest_wifi_details.value)),
                 title="# Networks",
             )
-        if Actions.GET_STORAGE_PARTITIONS.key in mesh.capabilities:
+        if Actions.GET_STORAGE_PARTITIONS.key in mesh_capabilities:
             _display(
                 outfile,
                 pd.DataFrame(mesh.storage_available.value),
                 title="File Shares",
             )
-        if Actions.GET_DEVICES.key in mesh.capabilities:
+        if Actions.GET_DEVICES.key in mesh_capabilities:
             data_list = [
                 {"name": d.name.value, "ip": d.adapter_info.value[0].ip if d.adapter_info else None}
                 for d in mesh.devices
