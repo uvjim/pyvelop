@@ -47,6 +47,23 @@ class MeshConnectionError(MeshException):
         super().__init__("Connection Error")
 
 
+class MeshCredentialCheckDelayed(MeshException):
+    """An attempt to check credentials was made, but the check has been delayed by a previous check.
+
+    The `details` attribute will determine: -
+    - the number of attempts remaining
+    - the amount of seconds before you should try again
+    """
+
+    msg: str = "Credential checking is subject to a delay"
+
+    def __init__(self, msg: str | None = None, *, details=None) -> None:
+        """Initialise and default message."""
+        exc_msg: str = msg if msg is not None else self.msg
+        super().__init__(exc_msg)
+        self.details = details or {}
+
+
 class MeshDeviceDbFailure(MeshException):
     """DeviceDBFailure reported by the API."""
 
@@ -63,10 +80,24 @@ class MeshDeviceNotFoundResponse(MeshException):
 class MeshInvalidCredentials(MeshException):
     """Credentials are invalid."""
 
-    def __init__(self, details=None) -> None:
+    msg: str = "Invalid credentials"
+
+    def __init__(self, msg: str | None = None, *, details=None) -> None:
         """Initialise and default message."""
-        super().__init__("Invalid Credentials")
+        exc_msg: str = msg if msg is not None else self.msg
+        super().__init__(exc_msg)
         self.details = details or {}
+
+
+class MeshInvalidCredentialsNoRetry(MeshInvalidCredentials):
+    """Credentials are invalid.  Each retry attempt will be rejected.
+
+    This guard is in place to stop the module from depleting the potential retry attempts
+    too much. The expectation is that the user should now login using the Linksys app or Web UI
+    to follow password policies that are enforced there.
+    """
+
+    msg: str = "Credential retry boundary reached"
 
 
 class MeshInvalidCredentialsWithDelay(MeshInvalidCredentials):

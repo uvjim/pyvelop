@@ -32,6 +32,7 @@ ActionKey = Literal[
     "GET_NETWORK_CONNECTIONS",
     "GET_NODE_WIRELESS_CONNECTIONS",
     "GET_PARENTAL_CONTROL_INFO",
+    "GET_PASSWORD_AUTH_STATUS",
     "GET_SCHEDULED_REBOOT_SETTINGS",
     "GET_SPEEDTEST_TYPES",
     "GET_SPEEDTEST_RESULTS",
@@ -354,6 +355,12 @@ Actions: ActionRegistry = ActionRegistry(
                 "rules.macAddresses",
             },
             scope=ActionScope.DEVICE | ActionScope.MESH,
+        ),
+        ActionDefinition(
+            "GET_PASSWORD_AUTH_STATUS",
+            "http://linksys.com/jnap/core/GetAdminPasswordAuthStatus",
+            "http://linksys.com/jnap/core/Core",
+            requires_auth=False,
         ),
         ActionDefinition(
             "GET_SCHEDULED_REBOOT_SETTINGS",
