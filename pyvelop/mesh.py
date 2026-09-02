@@ -1195,87 +1195,59 @@ class Mesh:
         cap: MeshCapability = self._get_capability("CLEAR_SPEEDTEST_RESULTS")
         await cap.async_execute()
 
-    async def async_detect_capabilities(self) -> tuple[ActionKey, ...]:
+    async def async_detect_capabilities(self) -> None:
         """Attempt to detect the capabilities of the Mesh.
 
         This will read the services from the mesh and then build up the available capabilities.
 
         :return: capability keys for the mesh.
         """
+        bootstrap_capability: MeshCapability = self._get_capability("GET_DEVICE_INFO")
+        device_info: JnapResponseSingle = await bootstrap_capability.async_execute()
+        services: list[str] = [service for service in device_info.get("services", []) if isinstance(service, str)]
 
-        cap: MeshCapability
-        cap_to_remove: set[ActionKey] = set()
-        resp: dict[str, Any]
-        ret: list[ActionKey] = []
-
-        # region #-- query the node for capabilities --#
-        # Credentials are not required for this and are currently not set in the MeshDetails object.
-        # Check the capabilities first so action versions can be determined.
-        cap = self._get_capability("GET_DEVICE_INFO")
-        resp = await cap.async_execute()
-        # endregion
-
-        # region #-- populate available capabilities --#
-        services: list[str] = resp.get("services", [])
+        detected: dict[ActionKey, MeshCapability] = {}
         for service_base, service_versions in self._group_sort_services(services).items():
             actions: tuple[ActionDefinition, ...] = _ACTION_BY_SERVICE.get(service_base, ())
             for action in actions:
-                if action.key not in self._capabilities:
-                    self._capabilities[action.key] = MeshCapability(
-                        action,
-                        self._mesh_details,
-                    )
-                self._capabilities[action.key].add_action_unknown_callback(self._remove_mesh_capability)
-                self._capabilities[action.key].service_versions = service_versions
-        # endregion
+                default_capability: MeshCapability | None = type(self)._DEF_MESH_CAPABILITIES.get(action.key)
+                implemented_versions: tuple[int, ...] = (
+                    default_capability.implemented_versions if default_capability is not None else (1,)
+                )
+                capability: MeshCapability = MeshCapability(
+                    action,
+                    self._mesh_details,
+                    implemented_versions=implemented_versions,
+                )
+                capability.add_action_unknown_callback(self._remove_mesh_capability)
+                capability.service_versions = service_versions
+                detected[action.key] = capability
 
-        # region #-- test the credentials --#
+        transaction: MeshCapability = MeshCapability(Actions.TRANSACTION, self._mesh_details)
+        detected.setdefault(transaction.action_definition.key, transaction)
+        self._capabilities = detected
+
         self._mesh_details.password = self._password
         await self.async_test_credentials()
-        # endregion
 
-        # region #-- query for speedtest availablility --#
-        cap = self._get_capability("GET_SPEEDTEST_TYPES")
-        resp = await cap.async_execute()
-        _LOGGER_VERBOSE.debug("establishing if SpeedTest is really available")
-        valid_speedtest: set[str] = {"SpeedTest"}
-        healthcheck_modules: set[str] = set(resp.get("supportedHealthCheckModules", []))
-        if valid_speedtest.isdisjoint(healthcheck_modules):
-            _LOGGER_VERBOSE.debug("speedtest isn't really available, %s", healthcheck_modules)
-            cap_speedtest: set[ActionKey] = {
-                act.key
-                for act in Actions.values()
-                if act.features is not None and ActionFeatures.SPEEDTEST in act.features
+        speedtest_capability: MeshCapability | None = self._find_capability("GET_SPEEDTEST_TYPES")
+        if speedtest_capability is not None:
+            speedtest_info: JnapResponseSingle = await speedtest_capability.async_execute()
+            healthcheck_modules: set[str] = {
+                module for module in speedtest_info.get("supportedHealthCheckModules", []) if isinstance(module, str)
             }
-            cap_to_remove = cap_to_remove.union(cap_speedtest)
-        else:
-            _LOGGER_VERBOSE.debug("speedtest is available, %s", healthcheck_modules)
-        # endregion
+            if "SpeedTest" not in healthcheck_modules:
+                for action in Actions.values():
+                    if action.features is not None and ActionFeatures.SPEEDTEST in action.features:
+                        self._capabilities.pop(action.key, None)
 
-        # region #-- query for bridge mode --#
-        # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
-        cap = self._get_capability("GET_WAN_INFO")
-        resp = await cap.async_execute()
-        is_bridge_mode: bool = resp.get("detectedWANType", "").lower() == "bridge"
-        if is_bridge_mode:
-            cap_bridge_remove: set[ActionKey] = {
-                act.key
-                for act in Actions.values()
-                if act.features is not None
-                and any(feature in act.features for feature in (ActionFeatures.PARENTAL_CONTROL,))
-            }
-            cap_to_remove = cap_to_remove.union(cap_bridge_remove)
-        # endregion
-
-        # region #-- cleanup the capabilities --#
-        for cap_key in cap_to_remove:
-            self._capabilities.pop(cap_key, None)
-        # endregion
-
-        ret = sorted(
-            cap_key for cap_key, cap in self._capabilities.items() if cap.action_definition.purpose == ActionPurpose.GET
-        )
-        return tuple(ret)
+        wan_capability: MeshCapability | None = self._find_capability("GET_WAN_INFO")
+        if wan_capability is not None:
+            wan_info: JnapResponseSingle = await wan_capability.async_execute()
+            if wan_info.get("detectedWANType", "").lower() == "bridge":
+                for action in Actions.values():
+                    if action.features is not None and ActionFeatures.PARENTAL_CONTROL in action.features:
+                        self._capabilities.pop(action.key, None)
 
     @needs_initialise
     async def async_gather_details(
