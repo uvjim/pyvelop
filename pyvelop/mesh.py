@@ -9,7 +9,6 @@ import copy
 import datetime as dt
 import functools
 import inspect
-import json
 import logging
 import re
 import time
@@ -162,8 +161,11 @@ class MeshCapability:
         self._action_definition: ActionDefinition = action_definition
         self._action_unknown_callback: list[Callable[[str], None]] = []
         self._implemented_versions: tuple[int, ...] = implemented_versions
+        self._is_fallback_action: bool = False
+        self._is_fallback_service: bool = False
         self._mesh_details: MeshDetails | None = mesh_details
         self._service_versions: list[int] = []
+
         self._action_version: int = self._get_action_version()
 
     def __repr__(self) -> str:
@@ -183,6 +185,10 @@ class MeshCapability:
             default=ActionVersionMap(1, 1),
         )
 
+        # the service we're using is a fallback because we don't have the required on available.
+        if latest_service_version.service_version < required_service_version:
+            self._is_fallback_service = True
+
         actual_version: int = (
             latest_service_version.action_version
             if latest_service_version.action_version in self._implemented_versions
@@ -191,6 +197,11 @@ class MeshCapability:
                 default=1,
             )
         )
+
+        # the action is a fallback if it isn't the same as the one from the service being used.
+        # this likely because the action version for the slected service hasn't been implemented.
+        if actual_version != latest_service_version.action_version:
+            self._is_fallback_action = True
 
         ret = actual_version
         return ret
@@ -314,6 +325,29 @@ class MeshCapability:
         """Return the implemented versions of the action."""
 
         return self._implemented_versions
+
+    @property
+    def is_fallback_action(self) -> bool:
+        """Return whether the action has been determined by fallback.
+
+        Considered `True` if the selected action is not the action that is defined by
+        the selected service. Strictly speaking this isn't an issue, it just might mean
+        that all the information or functionality offered is not being used or hasn't
+        been implemented.
+        """
+
+        return self._is_fallback_action
+
+    @property
+    def is_fallback_service(self) -> bool:
+        """Return whether the service has been determined by fallback.
+
+        Considered `True` if the discovered service has no entry in the version map.
+        This isn't an issue, it could just be that the service hasn't implemented any changes
+        to the action.
+        """
+
+        return self._is_fallback_service
 
     @property
     def service_versions(self) -> Iterable[int]:
@@ -1167,16 +1201,6 @@ class Mesh:
                     )
                 self._mesh_capabilities[action.key].add_action_unknown_callback(self._remove_mesh_capability)
                 self._mesh_capabilities[action.key].service_versions = service_versions
-        _display_versions: tuple[tuple[str, str, int, int], ...] = tuple(
-            (
-                action_name,
-                cap.action_uri,
-                cap.action_version,
-                max(cap.service_versions, default=1),
-            )
-            for action_name, cap in self._mesh_capabilities.items()
-        )
-        _LOGGER_VERBOSE.debug("%s", json.dumps(_display_versions))
         # endregion
 
         # region #-- test the credentials --#
