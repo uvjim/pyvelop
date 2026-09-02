@@ -69,6 +69,15 @@ class MeshInvalidCredentials(MeshException):
         self.details = details or {}
 
 
+class MeshInvalidCredentialsWithDelay(MeshInvalidCredentials):
+    """Credentials are invalid, but you must delay before retrying.
+
+    The `details` attribute will determine: -
+    - the number of attempts remaining
+    - the delay time before retry
+    """
+
+
 class MeshInvalidInput(MeshException):
     """Parameters passed to the API are in valid."""
 
