@@ -8,8 +8,8 @@ import datetime as dt
 import json
 import logging
 import sys
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import fields, is_dataclass
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, fields, is_dataclass
 from enum import StrEnum, auto
 from types import MappingProxyType
 from typing import Any, cast
@@ -342,6 +342,330 @@ def json_default(obj: Any) -> Any:
     return obj.__repr__
 
 
+type DetailSectionRenderer[T] = Callable[[str | None, T, int], None]
+
+
+@dataclass(frozen=True, slots=True)
+class MeshDetailSection[T]:
+    """Define a section of the mesh details report."""
+
+    properties: tuple[str, ...]
+    render: DetailSectionRenderer[T]
+
+
+@dataclass(frozen=True, slots=True)
+class MeshDetailGroup[T]:
+    """Define a group containing mesh detail subsections."""
+
+    title: str
+    sections: tuple[MeshDetailSection[T], ...]
+
+
+def _display_table(
+    outfile: str | None,
+    data: Mapping[str, Any] | Sequence[Any],
+    *,
+    title: str,
+    index: bool = True,
+    heading_level: int = 2,
+) -> None:
+    """Display one table."""
+    frame = (
+        pd.DataFrame.from_dict(dict(data), orient="index", columns=[""])
+        if isinstance(data, Mapping)
+        else pd.DataFrame(data)
+    )
+    _display(outfile, frame, index=index, title=title, heading_level=heading_level)
+
+
+def _render_capabilities(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(outfile, mesh.capabilities, title="Capabilities", heading_level=heading_level)
+
+
+def _render_device_connections(outfile: str | None, device: DeviceEntity, heading_level: int = 2) -> None:
+    _display_table(outfile, device.adapter_info.value, title="Connections", heading_level=heading_level)
+
+
+def _render_device_parental_control(outfile: str | None, device: DeviceEntity, heading_level: int = 2) -> None:
+    schedule = device.parental_control_schedule
+    blocked_sites = schedule.value.get("blocked_sites", [])
+    if blocked_sites:
+        _display_table(
+            outfile,
+            [{"site": site} for site in blocked_sites],
+            title="Blocked Sites",
+            heading_level=heading_level,
+        )
+
+    blocked_internet_access = schedule.get("blocked_internet_access", {})
+    if blocked_internet_access:
+        blocked_access_rows = [
+            {"day": day, "blocked_times": ", ".join(times)} for day, times in blocked_internet_access.items()
+        ]
+        _display_table(
+            outfile,
+            blocked_access_rows,
+            title="Blocked Internet Access Schedule",
+            heading_level=heading_level,
+        )
+
+
+def _render_device_summary(outfile: str | None, device: DeviceEntity, heading_level: int = 2) -> None:
+    data: dict[str, Any] = {
+        "Queried at": (
+            dt.datetime.fromtimestamp(device.results_time).replace(tzinfo=dt.UTC)
+            if device.results_time is not None
+            else None
+        ),
+        "Device ID": device.unique_id.value,
+        "Online": device.status.value,
+        "Parent": device.parent_name.value,
+        "Manufacturer": device.manufacturer.value,
+        "Model": device.model.value,
+        "Description": device.description.value,
+        "Operating system": device.operating_system.value,
+        "Serial #": device.serial.value,
+        "Icon type": device.ui_type.value,
+    }
+    _display_table(outfile, data, title="Overview", heading_level=heading_level)
+
+
+def _render_devices(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    online = [
+        {"name": device.name.value, "ip": device.adapter_info.value[0].ip if device.adapter_info else None}
+        for device in mesh.devices
+        if device.status.value
+    ]
+    offline = [{"name": device.name.value} for device in mesh.devices if not device.status.value]
+    _display_table(outfile, online, title="Online Devices", heading_level=heading_level)
+    _display_table(outfile, offline, title="Offline Devices", heading_level=heading_level)
+
+
+def _render_express_forwarding(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        {"Supported": mesh.express_forwarding_supported.value, "Enabled": mesh.express_forwarding_enabled.value},
+        title="Express Forwarding",
+        heading_level=heading_level,
+    )
+
+
+def _render_guest_network(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile, {"Enabled": mesh.guest_wifi_enabled.value}, title="Guest Network Settings", heading_level=heading_level
+    )
+    _display_table(
+        outfile, mesh.guest_wifi_details.value, title="Networks", index=False, heading_level=heading_level + 1
+    )
+
+
+def _render_homekit(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        {"Enabled": mesh.homekit_enabled.value, "Paired": mesh.homekit_paired.value},
+        title="HomeKit Settings",
+        heading_level=heading_level,
+    )
+
+
+def _render_lan(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile, {"DHCP enabled": mesh.dhcp_enabled.value}, title="LAN Settings", heading_level=heading_level
+    )
+    _display_table(outfile, mesh.dhcp_reservations.value, title="DHCP Reservations", heading_level=heading_level)
+
+
+def _render_mac_filtering(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        {
+            "Enabled": mesh.mac_filtering_enabled.value,
+            "Mode": str(mesh.mac_filtering_mode),
+            "Filters": mesh.mac_filtering_addresses.value if len(mesh.mac_filtering_addresses) > 0 else None,
+        },
+        title="MAC Filtering",
+        heading_level=heading_level,
+    )
+
+
+def _render_night_mode(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(outfile, {"Night mode": str(mesh.night_mode)}, title="Night mode", heading_level=heading_level)
+
+
+def _render_nodes(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    names = [node.name.value for node in mesh.nodes]
+    _display_table(outfile, [{"name": name} for name in names], title="Nodes", heading_level=heading_level)
+
+
+def _render_parental_control(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile, {"Enabled": mesh.parental_control_enabled.value}, title="Parental Control", heading_level=heading_level
+    )
+
+
+def _render_scheduled_reboot(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        {
+            "Enabled": mesh.scheduled_reboot_enabled.value,
+            "Interval": str(mesh.scheduled_reboot_interval) if mesh.scheduled_reboot_interval else None,
+        },
+        title="Scheduled Reboot Settings",
+        heading_level=heading_level,
+    )
+
+
+def _render_sip(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(outfile, {"Enabled": mesh.sip_enabled.value}, title="SIP Settings", heading_level=heading_level)
+
+
+def _render_speedtest(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(outfile, mesh.speedtest_results.value, title="Speedtest Results", heading_level=heading_level)
+
+
+def _render_storage(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(outfile, mesh.storage_available.value, title="File Shares", index=False, heading_level=heading_level)
+
+
+def _render_timings(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    data: dict[str, dt.datetime | float] = {
+        k: dt.datetime.fromtimestamp(v).replace(tzinfo=dt.UTC) for k, v in mesh.last_gather_details
+    }
+    data.update(
+        {
+            "duration": dt.timedelta(
+                seconds=(mesh.last_gather_details[-1][1] - mesh.last_gather_details[0][1])
+            ).total_seconds()
+        }
+    )
+    _display_table(outfile, data, title="Timings")
+
+
+def _render_topology(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        {
+            "Client steering enabled": mesh.client_steering_enabled.value,
+            "Node steering enabled": mesh.node_steering_enabled.value,
+            "Multi-Link Operation (MLO)": mesh.mlo_state.value if mesh.mlo_state.value is not None else "Unsupported",
+        },
+        title="Topology Optimisation Settings",
+        heading_level=heading_level,
+    )
+
+
+def _render_upnp(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        {
+            "Enabled": mesh.upnp_enabled.value,
+            "allow_change_settings": mesh.upnp_allow_change_settings.value,
+            "allow_disable_internet": mesh.upnp_allow_disable_internet.value,
+        },
+        title="UPnP Settings",
+        heading_level=heading_level,
+    )
+
+
+def _render_wan(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        {
+            "Internet connected": mesh.wan_status.value,
+            "Bridge mode": mesh.is_in_bridge_mode.value,
+            "Public IP": mesh.wan_ip.value,
+            "WAN MAC": mesh.wan_mac.value,
+        },
+        title="WAN Info",
+        heading_level=heading_level,
+    )
+
+
+def _render_wps(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+    _display_table(outfile, {"Enabled": mesh.wps_state.value}, title="WPS Settings", heading_level=heading_level)
+
+
+MESH_DETAIL_SECTIONS: tuple[MeshDetailSection[Mesh] | MeshDetailGroup[Mesh], ...] = (
+    MeshDetailGroup(
+        "Overview",
+        (
+            MeshDetailSection(("last_gather_details",), _render_timings),
+            MeshDetailSection(("capabilities",), _render_capabilities),
+        ),
+    ),
+    MeshDetailGroup(
+        "Mesh Settings",
+        (
+            MeshDetailSection(("parental_control_enabled",), _render_parental_control),
+            MeshDetailSection(("night_mode",), _render_night_mode),
+            MeshDetailSection(("scheduled_reboot_enabled", "scheduled_reboot_interval"), _render_scheduled_reboot),
+            MeshDetailSection(("homekit_enabled", "homekit_paired"), _render_homekit),
+        ),
+    ),
+    MeshDetailSection(("wan_status", "is_in_bridge_mode", "wan_ip", "wan_mac"), _render_wan),
+    MeshDetailGroup(
+        "Connectivity",
+        (
+            MeshDetailSection(("dhcp_enabled", "dhcp_reservations"), _render_lan),
+            MeshDetailSection(
+                ("upnp_enabled", "upnp_allow_change_settings", "upnp_allow_disable_internet"),
+                _render_upnp,
+            ),
+            MeshDetailSection(("sip_enabled",), _render_sip),
+            MeshDetailSection(("client_steering_enabled", "node_steering_enabled", "mlo_state"), _render_topology),
+            MeshDetailSection(("guest_wifi_enabled", "guest_wifi_details"), _render_guest_network),
+            MeshDetailSection(("wps_state",), _render_wps),
+        ),
+    ),
+    MeshDetailSection(("express_forwarding_supported", "express_forwarding_enabled"), _render_express_forwarding),
+    MeshDetailSection(
+        ("mac_filtering_enabled", "mac_filtering_mode", "mac_filtering_addresses"), _render_mac_filtering
+    ),
+    MeshDetailSection(("speedtest_results",), _render_speedtest),
+    MeshDetailSection(("storage_available",), _render_storage),
+    MeshDetailGroup(
+        "Device Lists",
+        (
+            MeshDetailSection(("nodes",), _render_nodes),
+            MeshDetailSection(("devices",), _render_devices),
+        ),
+    ),
+)
+
+
+DEVICE_DETAIL_SECTIONS: tuple[MeshDetailSection[DeviceEntity] | MeshDetailGroup[DeviceEntity], ...] = (
+    MeshDetailGroup(
+        "General",
+        (
+            MeshDetailSection(
+                (
+                    "results_time",
+                    "unique_id",
+                    "status",
+                    "parent_name",
+                    "manufacturer",
+                    "model",
+                    "description",
+                    "operating_system",
+                    "serial",
+                    "ui_type",
+                    "name",
+                ),
+                _render_device_summary,
+            ),
+        ),
+    ),
+    MeshDetailGroup(
+        "Adapter Information",
+        (MeshDetailSection(("adapter_info",), _render_device_connections),),
+    ),
+    MeshDetailGroup(
+        "Parental Control",
+        (MeshDetailSection(("parental_control_schedule",), _render_device_parental_control),),
+    ),
+)
+
+
 @click.group()
 @click.version_option(package_name=__package__)
 async def cli() -> None:
@@ -410,57 +734,20 @@ async def device_details(
     if devices is not None:
         _output(outfile, "# Device Details\n")
         for found_device in devices:
-            data: dict[str, Any] = {
-                "Queried at": (
-                    dt.datetime.fromtimestamp(found_device.results_time).replace(tzinfo=dt.UTC)
-                    if found_device.results_time is not None
-                    else None
-                ),
-                "Device ID": found_device.unique_id.value,
-                "Online": found_device.status.value,
-                "Parent": found_device.parent_name.value,
-                "Manufacturer": found_device.manufacturer.value,
-                "Model": found_device.model.value,
-                "Description": found_device.description.value,
-                "Operating system": found_device.operating_system.value,
-                "Serial #": found_device.serial.value,
-                "Icon type": found_device.ui_type.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title=found_device.name.value,
-            )
-            _display(
-                outfile,
-                pd.DataFrame(found_device.adapter_info.value),
-                title="# Connections",
-            )
-            num_blocked_sites = len(found_device.parental_control_schedule.value.get("blocked_sites", []))
-            if num_blocked_sites > 0:
-                _display(
-                    outfile,
-                    pd.DataFrame(
-                        found_device.parental_control_schedule.get("blocked_sites"),
-                        columns=["site"],
-                    ),
-                    title="Parental Control",
-                )
-            schedule = found_device.parental_control_schedule.get("blocked_internet_access", {})
-            if num_blocked_sites == 0 and schedule:
-                _display(
-                    outfile,
-                    pd.DataFrame.from_dict(schedule, orient="index"),
-                    index=True,
-                    title="Parental Control",
-                )
-            else:
-                _display(
-                    outfile,
-                    pd.DataFrame.from_dict(schedule, orient="index"),
-                    index=True,
-                )
+            _output(outfile, f"\n## {found_device.name.value}\n")
+            for section in DEVICE_DETAIL_SECTIONS:
+                if isinstance(section, MeshDetailGroup):
+                    available_sections = tuple(
+                        subsection
+                        for subsection in section.sections
+                        if all(hasattr(found_device, property_name) for property_name in subsection.properties)
+                    )
+                    if available_sections:
+                        _output(outfile, f"\n### {section.title}\n")
+                        for subsection in available_sections:
+                            subsection.render(outfile, found_device, 4)
+                elif all(hasattr(found_device, property_name) for property_name in section.properties):
+                    section.render(outfile, found_device, 3)
 
 
 @device_group.command(cls=StandardCommand, name="internet_access")
@@ -728,250 +1015,21 @@ async def mesh_details(
     """Get details about the Mesh."""
 
     async def _mesh_details(mesh: Mesh) -> None:
-        data: dict[str, Any] = {}
         _output(outfile, "# Mesh Details\n")
-        data = {k: dt.datetime.fromtimestamp(v).replace(tzinfo=dt.UTC) for k, v in mesh.last_gather_details}
-        data.update(
-            {
-                "duration": dt.timedelta(
-                    seconds=(mesh.last_gather_details[-1][1] - mesh.last_gather_details[0][1])
-                ).total_seconds()
-            }
-        )
-        _display(
-            outfile,
-            pd.DataFrame.from_dict(
-                data,
-                orient="index",
-                columns=[""],
-            ),
-            index=True,
-        )
-        _display(
-            outfile,
-            pd.DataFrame(
-                mesh.capabilities,
-                index=pd.RangeIndex(start=1, stop=len(mesh.capabilities) + 1),
-            ),
-            index=True,
-            title="Capabilities",
-        )
-        mesh_capabilities: set[str] = {cap.get("key", "") for cap in mesh.capabilities}
-        if Actions.GET_LED_NIGHT_MODE.key in mesh_capabilities:
-            data = {"Night mode": str(mesh.night_mode)}
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="Night mode",
-            )
-        if Actions.GET_SCHEDULED_REBOOT_SETTINGS.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.scheduled_reboot_enabled.value,
-                "Interval": (str(mesh.scheduled_reboot_interval) if mesh.scheduled_reboot_interval else None),
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="Scheduled Reboot Settings",
-            )
-        if Actions.GET_WAN_INFO.key in mesh_capabilities:
-            data = {
-                "Internet connected": mesh.wan_status.value,
-                "Bridge mode": mesh.is_in_bridge_mode.value,
-                "Public IP": mesh.wan_ip.value,
-                "WAN MAC": mesh.wan_mac.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="WAN Info",
-            )
-        if Actions.GET_LAN_SETTINGS.key in mesh_capabilities:
-            data = {
-                "DHCP enabled": mesh.dhcp_enabled.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="LAN Settings",
-            )
-            _display(
-                outfile,
-                pd.DataFrame(
-                    mesh.dhcp_reservations.value,
-                    index=pd.RangeIndex(start=1, stop=(len(mesh.dhcp_reservations) + 1)),
-                ),
-                index=True,
-                title="DHCP Reservations",
-            )
-        if Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key in mesh_capabilities:
-            data = {
-                "Client steering enabled": mesh.client_steering_enabled.value,
-                "Node steering enabled": mesh.node_steering_enabled.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="Topology Optimisation Settings",
-            )
-        if Actions.GET_MLO_SETTINGS.key in mesh_capabilities:
-            data = {"Enabled": (mesh.mlo_state.value if mesh.mlo_state.value is not None else "Unsupported")}
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="Multi-Link Operation (MLO)",
-            )
-        if Actions.GET_EXPRESS_FORWARDING.key in mesh_capabilities:
-            data = {
-                "Supported": mesh.express_forwarding_supported.value,
-                "Enabled": mesh.express_forwarding_enabled.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="Express Forwarding",
-            )
-        if Actions.GET_PARENTAL_CONTROL_INFO.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.parental_control_enabled.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="Parental Control",
-            )
-        if Actions.GET_MAC_FILTERING_SETTINGS.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.mac_filtering_enabled.value,
-                "Mode": str(mesh.mac_filtering_mode),
-                "Filters": (mesh.mac_filtering_addresses.value if len(mesh.mac_filtering_addresses) > 0 else None),
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="MAC Filtering",
-            )
-        if Actions.GET_WPS_SERVER_SETTINGS.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.wps_state.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="WPS Settings",
-            )
-        if Actions.GET_ALG_SETTINGS.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.sip_enabled.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="SIP Settings",
-            )
-        if Actions.GET_HOMEKIT_SETTINGS.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.homekit_enabled.value,
-                "Paired": mesh.homekit_paired.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="HomeKit Settings",
-            )
-        if Actions.GET_UPNP_SETTINGS.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.upnp_enabled.value,
-                "allow_change_settings": mesh.upnp_allow_change_settings.value,
-                "allow_disable_internet": mesh.upnp_allow_disable_internet.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="UPnP Settings",
-            )
-        if Actions.GET_DEVICES.key in mesh_capabilities:
-            data_list: list[str | dict[str, Any]] = [n.name.value for n in mesh.nodes]
-            _display(
-                outfile,
-                pd.DataFrame(
-                    data_list,
-                    columns=["name"],
-                    index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
-                ),
-                index=True,
-                title="Nodes",
-            )
-        if Actions.GET_SPEEDTEST_RESULTS.key in mesh_capabilities:
-            _display(
-                outfile,
-                pd.DataFrame(
-                    mesh.speedtest_results.value,
-                    index=pd.RangeIndex(start=1, stop=len(mesh.speedtest_results) + 1),
-                ),
-                index=True,
-                title="Speedtest Results",
-            )
-        if Actions.GET_GUEST_NETWORK_INFO.key in mesh_capabilities:
-            data = {
-                "Enabled": mesh.guest_wifi_enabled.value,
-            }
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                index=True,
-                title="Guest Network Settings",
-            )
-            _display(
-                outfile,
-                pd.DataFrame.from_dict(cast(dict[str, Any], mesh.guest_wifi_details.value)),
-                title="# Networks",
-            )
-        if Actions.GET_STORAGE_PARTITIONS.key in mesh_capabilities:
-            _display(
-                outfile,
-                pd.DataFrame(mesh.storage_available.value),
-                title="File Shares",
-            )
-        if Actions.GET_DEVICES.key in mesh_capabilities:
-            data_list = [
-                {"name": d.name.value, "ip": d.adapter_info.value[0].ip if d.adapter_info else None}
-                for d in mesh.devices
-                if d.status.value
-            ]
-            _display(
-                outfile,
-                pd.DataFrame(
-                    data_list,
-                    index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
-                ),
-                index=True,
-                title="Online Devices",
-            )
-            data_list = [d.name.value for d in mesh.devices if not d.status.value]
-            _display(
-                outfile,
-                pd.DataFrame(
-                    data_list,
-                    columns=["name"],
-                    index=pd.RangeIndex(start=1, stop=(len(data_list) + 1)),
-                ),
-                index=True,
-                title="Offline Devices",
-            )
+
+        for section in MESH_DETAIL_SECTIONS:
+            if isinstance(section, MeshDetailGroup):
+                available_sections = tuple(
+                    subsection
+                    for subsection in section.sections
+                    if all(hasattr(mesh, property_name) for property_name in subsection.properties)
+                )
+                if available_sections:
+                    _output(outfile, f"\n## {section.title}\n")
+                    for subsection in available_sections:
+                        subsection.render(outfile, mesh, 3)
+            elif all(hasattr(mesh, property_name) for property_name in section.properties):
+                section.render(outfile, mesh, 2)
 
     await _with_mesh(ctx, _mesh_details)
 
@@ -1391,6 +1449,7 @@ def _display(
     *,
     index: bool = False,
     title: str = "",
+    heading_level: int = 2,
 ) -> None:
     """Display the given dataframe in a readable format."""
 
@@ -1401,7 +1460,7 @@ def _display(
         final_title: str = f" {title}" if not title.startswith("#") else title
         _output(
             dest,
-            f"\n##{final_title}\n\n",
+            f"\n{'#' * heading_level}{final_title}\n\n",
         )
 
     _output(
