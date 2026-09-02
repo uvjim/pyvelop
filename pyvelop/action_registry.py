@@ -512,6 +512,7 @@ Actions: ActionRegistry = ActionRegistry(
             "http://linksys.com/jnap/parentalcontrol/SetParentalControlSettings",
             "http://linksys.com/jnap/parentalcontrol/ParentalControl",
             purpose=ActionPurpose.SET,
+            scope=ActionScope.DEVICE,
         ),
         ActionDefinition(
             "SET_SCHEDULED_REBOOT_SETTINGS",
