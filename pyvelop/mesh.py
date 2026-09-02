@@ -532,8 +532,8 @@ class Mesh:
             user=username,
         )
 
-        self._mesh_capabilities: dict[ActionKey, MeshCapability] = copy.deepcopy(type(self)._DEF_MESH_CAPABILITIES)
-        for cap in self._mesh_capabilities.values():
+        self._capabilities: dict[ActionKey, MeshCapability] = copy.deepcopy(type(self)._DEF_MESH_CAPABILITIES)
+        for cap in self._capabilities.values():
             cap.set_mesh_details(self._mesh_details)
 
         self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
@@ -709,7 +709,7 @@ class Mesh:
                 cap_device: Mapping[ActionKey, MeshCapability] = MappingProxyType(
                     {
                         key: cap
-                        for key, cap in self._mesh_capabilities.items()
+                        for key, cap in self._capabilities.items()
                         if ActionScope.DEVICE in cap.action_definition.scope
                     }
                 )
@@ -718,7 +718,7 @@ class Mesh:
                 cap_node: Mapping[ActionKey, MeshCapability] = MappingProxyType(
                     {
                         key: cap
-                        for key, cap in self._mesh_capabilities.items()
+                        for key, cap in self._capabilities.items()
                         if ActionScope.NODE in cap.action_definition.scope
                     }
                 )
@@ -765,18 +765,25 @@ class Mesh:
 
         return tuple(ret)
 
-    def _get_mesh_capability(self, capability: ActionKey) -> MeshCapability:
-        """Retrieve the capability from the identified mesh capabilities.
+    def _find_capability(self, capability: ActionKey) -> MeshCapability | None:
+        """Find a mesh capability without raising an exception.
 
-        Raises ValueError if the capability isn't found.
-
-        :param capability: the capabality to retrieve.
-        :return: the MeshCapability object.
+        :param capability: The capability to look up.
+        :return: The matching MeshCapability, or None if it is not available.
         """
 
-        ret: MeshCapability | None = None
-        if cap := self._mesh_capabilities.get(capability):
-            ret = cap
+        return self._capabilities.get(capability)
+
+    def _get_capability(self, capability: ActionKey) -> MeshCapability:
+        """Retrieve a mesh capability.
+
+        Raises ValueError if the requested capability is not available.
+
+        :param capability: The capability to retrieve.
+        :return: The matching MeshCapability object.
+        :raises ValueError: If the capability is not available.
+        """
+        ret = self._find_capability(capability)
 
         if ret is None:
             raise ValueError(f"Unknown capability ({capability})")
@@ -966,11 +973,30 @@ class Mesh:
         """
 
         cap_remove: ActionKey | None = next(
-            (cap_key for cap_key, cap in self._mesh_capabilities.items() if cap.action_uri == action_uri), None
+            (cap_key for cap_key, cap in self._capabilities.items() if cap.action_uri == action_uri), None
         )
         if cap_remove is not None:
             _LOGGER_VERBOSE.debug("removing capability: %s", cap_remove)
-            self._mesh_capabilities.pop(cap_remove, None)
+            self._capabilities.pop(cap_remove, None)
+
+    def _require_mesh_capability(
+        self,
+        capability: ActionKey,
+        *,
+        attribute_name: str,
+    ) -> None:
+        """Require a mesh capability for a public attribute.
+
+        This helper is intended for properties whose availability depends on a
+        mesh capability. It raises AttributeError using the public attribute name
+        when the required capability is not available.
+
+        :param capability: The capability required by the attribute.
+        :param attribute_name: The public attribute name exposed by the property.
+        :raises AttributeError: If the required capability is not available.
+        """
+        if self._find_capability(capability) is None:
+            raise AttributeError(f"{type(self).__name__} has no attribute {attribute_name!r}")
 
     def _split_capability_into_scopes(self, capabilities: Iterable[MeshCapability]) -> CapabilityScopedGroups:
         """Group the given capabilities into scopes."""
@@ -998,7 +1024,7 @@ class Mesh:
         txn_payload: tuple[list[dict[str, Any]], ...] = self._build_transaction_payload(_required_capabilities)
         requests: list[Awaitable[JnapResponseTransaction]] = []
         for txn in txn_payload:
-            cap: MeshCapability = self._get_mesh_capability("TRANSACTION")
+            cap: MeshCapability = self._get_capability("TRANSACTION")
             requests.append(cap.async_execute(payload=txn))
 
         try:
@@ -1037,7 +1063,7 @@ class Mesh:
         # region #-- build and make the requests --#
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_START)
         for node in nodes:
-            cap: MeshCapability = self._get_mesh_capability("TRANSACTION")
+            cap: MeshCapability = self._get_capability("TRANSACTION")
             for txn in txn_payload:
                 requests.append(
                     cap.async_execute(
@@ -1119,7 +1145,7 @@ class Mesh:
         if result_ids is not None and not result_ids:
             return []
 
-        cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_RESULTS")
+        cap: MeshCapability = self._get_capability("GET_SPEEDTEST_RESULTS")
         payload: JnapPayloadSingle = {**cap.action_definition.payload}
         if count is not None:
             payload["lastNumberOfResults"] = count
@@ -1149,7 +1175,7 @@ class Mesh:
         Only a check is done.  The firmware isn't actually updated.
         """
 
-        cap: MeshCapability = self._get_mesh_capability("UPDATE_FIRMWARE")
+        cap: MeshCapability = self._get_capability("UPDATE_FIRMWARE")
         payload: JnapPayloadSingle = {
             "onlyCheck": True,
         }
@@ -1166,7 +1192,7 @@ class Mesh:
     async def async_clear_speedtest_results(self) -> None:
         """Clear the speedtest results."""
 
-        cap: MeshCapability = self._get_mesh_capability("CLEAR_SPEEDTEST_RESULTS")
+        cap: MeshCapability = self._get_capability("CLEAR_SPEEDTEST_RESULTS")
         await cap.async_execute()
 
     async def async_detect_capabilities(self) -> tuple[ActionKey, ...]:
@@ -1185,7 +1211,7 @@ class Mesh:
         # region #-- query the node for capabilities --#
         # Credentials are not required for this and are currently not set in the MeshDetails object.
         # Check the capabilities first so action versions can be determined.
-        cap = self._get_mesh_capability("GET_DEVICE_INFO")
+        cap = self._get_capability("GET_DEVICE_INFO")
         resp = await cap.async_execute()
         # endregion
 
@@ -1194,13 +1220,13 @@ class Mesh:
         for service_base, service_versions in self._group_sort_services(services).items():
             actions: tuple[ActionDefinition, ...] = _ACTION_BY_SERVICE.get(service_base, ())
             for action in actions:
-                if action.key not in self._mesh_capabilities:
-                    self._mesh_capabilities[action.key] = MeshCapability(
+                if action.key not in self._capabilities:
+                    self._capabilities[action.key] = MeshCapability(
                         action,
                         self._mesh_details,
                     )
-                self._mesh_capabilities[action.key].add_action_unknown_callback(self._remove_mesh_capability)
-                self._mesh_capabilities[action.key].service_versions = service_versions
+                self._capabilities[action.key].add_action_unknown_callback(self._remove_mesh_capability)
+                self._capabilities[action.key].service_versions = service_versions
         # endregion
 
         # region #-- test the credentials --#
@@ -1209,7 +1235,7 @@ class Mesh:
         # endregion
 
         # region #-- query for speedtest availablility --#
-        cap = self._get_mesh_capability("GET_SPEEDTEST_TYPES")
+        cap = self._get_capability("GET_SPEEDTEST_TYPES")
         resp = await cap.async_execute()
         _LOGGER_VERBOSE.debug("establishing if SpeedTest is really available")
         valid_speedtest: set[str] = {"SpeedTest"}
@@ -1228,7 +1254,7 @@ class Mesh:
 
         # region #-- query for bridge mode --#
         # tidying for bridge mode is based on https://support.linksys.com/kb/article/319-en/
-        cap = self._get_mesh_capability("GET_WAN_INFO")
+        cap = self._get_capability("GET_WAN_INFO")
         resp = await cap.async_execute()
         is_bridge_mode: bool = resp.get("detectedWANType", "").lower() == "bridge"
         if is_bridge_mode:
@@ -1243,13 +1269,11 @@ class Mesh:
 
         # region #-- cleanup the capabilities --#
         for cap_key in cap_to_remove:
-            self._mesh_capabilities.pop(cap_key, None)
+            self._capabilities.pop(cap_key, None)
         # endregion
 
         ret = sorted(
-            cap_key
-            for cap_key, cap in self._mesh_capabilities.items()
-            if cap.action_definition.purpose == ActionPurpose.GET
+            cap_key for cap_key, cap in self._capabilities.items() if cap.action_definition.purpose == ActionPurpose.GET
         )
         return tuple(ret)
 
@@ -1266,7 +1290,7 @@ class Mesh:
         else:
             track_time = True
             required_capabilities = (
-                cap for cap in self._mesh_capabilities.values() if cap.action_definition.purpose == ActionPurpose.GET
+                cap for cap in self._capabilities.values() if cap.action_definition.purpose == ActionPurpose.GET
             )
 
         capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(required_capabilities)
@@ -1294,7 +1318,7 @@ class Mesh:
         :return: dictionary containing the channel scan results
         """
 
-        cap: MeshCapability = self._get_mesh_capability("GET_CHANNEL_SCAN_STATUS")
+        cap: MeshCapability = self._get_capability("GET_CHANNEL_SCAN_STATUS")
         ret: JnapResponseSingle = await cap.async_execute()
 
         return ret
@@ -1321,7 +1345,7 @@ class Mesh:
         if force_refresh:
             device_capabilities: set[MeshCapability] = {
                 cap
-                for cap in self._mesh_capabilities.values()
+                for cap in self._capabilities.values()
                 if cap.action_definition.features is not None
                 and ActionFeatures.DEVICE_INFO in cap.action_definition.features
             }
@@ -1434,7 +1458,7 @@ class Mesh:
         """
 
         ret: SpeedtestResult | None = None
-        cap: MeshCapability = self._get_mesh_capability("GET_SPEEDTEST_STATUS")
+        cap: MeshCapability = self._get_capability("GET_SPEEDTEST_STATUS")
         result: JnapResponseSingle = await cap.async_execute()
         with contextlib.suppress(ValueError):
             ret = self._process_speedtest_results(result)
@@ -1447,7 +1471,7 @@ class Mesh:
         :return: True if still running, False if not
         """
 
-        cap: MeshCapability = self._get_mesh_capability("GET_UPDATE_FIRMWARE_STATE")
+        cap: MeshCapability = self._get_capability("GET_UPDATE_FIRMWARE_STATE")
         resp: JnapResponseSingle = await cap.async_execute()
         node_results = resp.get("firmwareUpdateStatus", [])
         all_states = ["pendingOperation" in node for node in node_results]
@@ -1462,7 +1486,7 @@ class Mesh:
         :return: dictionary containing information about the state of UPnP functionality
         """
 
-        cap: MeshCapability = self._get_mesh_capability("GET_UPNP_SETTINGS")
+        cap: MeshCapability = self._get_capability("GET_UPNP_SETTINGS")
         ret: JnapResponseSingle = await cap.async_execute()
 
         return ret
@@ -1476,7 +1500,7 @@ class Mesh:
         """
 
         # region #-- check that we're pointing to the primary node --#
-        cap = self._get_mesh_capability("GET_DEVICE_MODE")
+        cap = self._get_capability("GET_DEVICE_MODE")
         resp: JnapResponseSingle = await cap.async_execute()
         if resp.get("mode", "").lower() != "master":
             raise MeshNodeNotPrimary
@@ -1548,7 +1572,7 @@ class Mesh:
         """
 
         # get the current radio settings from the API; they may have changed
-        cap: MeshCapability = self._get_mesh_capability("GET_GUEST_NETWORK_INFO")
+        cap: MeshCapability = self._get_capability("GET_GUEST_NETWORK_INFO")
         resp: JnapResponseSingle = await cap.async_execute()
         radios = resp.get("radios", [])
 
@@ -1560,7 +1584,7 @@ class Mesh:
             "isGuestNetworkEnabled": state,
             "radios": radios,
         }
-        cap = self._get_mesh_capability("SET_GUEST_NETWORK")
+        cap = self._get_capability("SET_GUEST_NETWORK")
         await cap.async_execute(payload=payload)
 
     async def async_set_homekit_state(self, state: bool) -> None:
@@ -1571,7 +1595,7 @@ class Mesh:
         :return: None
         """
 
-        cap: MeshCapability = self._get_mesh_capability("SET_HOMEKIT_SETTINGS")
+        cap: MeshCapability = self._get_capability("SET_HOMEKIT_SETTINGS")
         await cap.async_execute(payload={"isEnabled": state})
 
     async def async_set_night_mode_state(self, state: NightModeState) -> None:
@@ -1593,7 +1617,7 @@ class Mesh:
                 payload["StartingTime"] = 20
                 payload["EndingTime"] = 8
 
-        cap: MeshCapability = self._get_mesh_capability("SET_LED_NIGHT_MODE")
+        cap: MeshCapability = self._get_capability("SET_LED_NIGHT_MODE")
         await cap.async_execute(payload=payload)
 
     async def async_set_parental_control_state(self, state: bool) -> None:
@@ -1604,7 +1628,7 @@ class Mesh:
         :return: None
         """
         # get the current rules from the API because they may be different
-        cap: MeshCapability = self._get_mesh_capability("GET_PARENTAL_CONTROL_INFO")
+        cap: MeshCapability = self._get_capability("GET_PARENTAL_CONTROL_INFO")
         resp: JnapResponseSingle = await cap.async_execute()
         rules = resp.get("rules", [])
 
@@ -1612,7 +1636,7 @@ class Mesh:
             "isParentalControlEnabled": state,
             "rules": rules,
         }
-        cap = self._get_mesh_capability("SET_PARENTAL_CONTROL_INFO")
+        cap = self._get_capability("SET_PARENTAL_CONTROL_INFO")
         await cap.async_execute(payload=payload)
 
     async def async_set_scheduled_reboot_interval(self, interval: ScheduledRebootInterval) -> None:
@@ -1627,7 +1651,7 @@ class Mesh:
             "isScheduledRebootEnabled": True,
             "rebootInterval": interval.value,
         }
-        cap: MeshCapability = self._get_mesh_capability("SET_SCHEDULED_REBOOT_SETTINGS")
+        cap: MeshCapability = self._get_capability("SET_SCHEDULED_REBOOT_SETTINGS")
         await cap.async_execute(payload=payload)
 
     async def async_set_scheduled_reboot_state(self, state: bool) -> None:
@@ -1639,7 +1663,7 @@ class Mesh:
         """
 
         # get the current interval from the API because they may be different
-        cap: MeshCapability = self._get_mesh_capability("GET_SCHEDULED_REBOOT_SETTINGS")
+        cap: MeshCapability = self._get_capability("GET_SCHEDULED_REBOOT_SETTINGS")
         resp: JnapResponseSingle = await cap.async_execute()
 
         interval: str | None = resp.get("rebootInterval")
@@ -1652,7 +1676,7 @@ class Mesh:
             "rebootInterval": interval,
         }
 
-        cap = self._get_mesh_capability("SET_SCHEDULED_REBOOT_SETTINGS")
+        cap = self._get_capability("SET_SCHEDULED_REBOOT_SETTINGS")
         await cap.async_execute(payload=payload)
 
     async def async_set_upnp_settings(
@@ -1672,7 +1696,7 @@ class Mesh:
             "canUsersConfigure": allow_change_settings,
             "canUsersDisableWANAccess": allow_disable_internet,
         }
-        cap: MeshCapability = self._get_mesh_capability("SET_UPNP_SETTINGS")
+        cap: MeshCapability = self._get_capability("SET_UPNP_SETTINGS")
         await cap.async_execute(payload=payload)
 
     async def async_set_wps_state(self, state: bool) -> None:
@@ -1682,14 +1706,14 @@ class Mesh:
         """
 
         payload: JnapPayloadSingle = {"enabled": state}
-        cap: MeshCapability = self._get_mesh_capability("SET_WPS_SERVER_SETTINGS")
+        cap: MeshCapability = self._get_capability("SET_WPS_SERVER_SETTINGS")
         await cap.async_execute(payload=payload)
 
     async def async_start_channel_scan(self) -> None:
         """Start a channel scan on the mesh."""
 
         try:
-            cap: MeshCapability = self._get_mesh_capability("START_CHANNEL_SCAN")
+            cap: MeshCapability = self._get_capability("START_CHANNEL_SCAN")
             await cap.async_execute()
         except MeshAlreadyInProgress as err:
             _LOGGER.debug("%s", err)
@@ -1730,7 +1754,7 @@ class Mesh:
         """
 
         # region #-- start the speedtest --#
-        cap: MeshCapability = self._get_mesh_capability("START_SPEEDTEST")
+        cap: MeshCapability = self._get_capability("START_SPEEDTEST")
         payload: JnapPayloadSingle = {
             "runHealthCheckModule": "SpeedTest",
         }
@@ -1790,14 +1814,14 @@ class Mesh:
         ret: bool = False
         payload: JnapPayloadSingle = {}
         cap: MeshCapability
-        if (cap := self._get_mesh_capability("GET_PASSWORD_AUTH_STATUS")) is not None:
+        if (cap := self._get_capability("GET_PASSWORD_AUTH_STATUS")) is not None:
             resp: JnapResponseSingle = await cap.async_execute()
             attempts_remaining = resp.get("attemptsRemaining")
 
         if attempts_remaining is not None and attempts_remaining <= 2:
             raise MeshInvalidCredentialsNoRetry()
 
-        cap = self._get_mesh_capability("CHECK_PASSWORD")
+        cap = self._get_capability("CHECK_PASSWORD")
         if cap.action_version not in cap.implemented_versions:
             raise MeshActionVersionNotImplemented(
                 f"{cap.action_definition.key} version {cap.action_version} has not been implemented"
@@ -1820,7 +1844,7 @@ class Mesh:
 
         ret: list[MappingProxyType[str, Any]] = []
         for cap_key, cap in sorted(
-            self._mesh_capabilities.items(),
+            self._capabilities.items(),
             key=lambda item: item[0],
         ):
             ret.append(
@@ -1846,14 +1870,18 @@ class Mesh:
         :return: True if checking
         """
 
-        node_results: list[dict[str, Any]] = self._mesh_attributes.get("GET_UPDATE_FIRMWARE_STATE", {}).get(
-            "firmwareUpdateStatus", []
+        cap_name: ActionKey = "GET_UPDATE_FIRMWARE_STATE"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="check_for_update_status",
         )
+
+        node_results: list[dict[str, Any]] = self._mesh_attributes.get(cap_name, {}).get("firmwareUpdateStatus", [])
 
         all_states = ["pendingOperation" in node for node in node_results]
         ret: bool = any(all_states)
 
-        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(Actions.GET_UPDATE_FIRMWARE_STATE.key, ret),))
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -1863,13 +1891,15 @@ class Mesh:
         :return: True if enabled, False otherwise.
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_TOPOLOGY_OPTIMISATION_SETTINGS", {}).get(
-            "isClientSteeringEnabled"
+        cap_name: ActionKey = "GET_TOPOLOGY_OPTIMISATION_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="client_steering_enabled",
         )
 
-        return MeshAttribute[bool | None](
-            attr, (AttributeAuditEntry(Actions.GET_TOPOLOGY_OPTIMISATION_SETTINGS.key, attr),)
-        )
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isClientSteeringEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     def connected_node(self) -> str:
@@ -1901,9 +1931,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_LAN_SETTINGS", {}).get("isDHCPEnabled")
+        cap_name: ActionKey = "GET_LAN_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="dhcp_enabled",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_LAN_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isDHCPEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -1912,11 +1948,18 @@ class Mesh:
 
         :return: list of DHCP reservation details
         """
+
+        cap_name: ActionKey = "GET_LAN_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="dhcp_reservations",
+        )
+
         ret: list[dict[str, str]] = []
         temp_dict: dict[str, str] = {}
 
         all_reservations: list[dict[str, Any]] = (
-            self._mesh_attributes.get("GET_LAN_SETTINGS", {}).get("dhcpSettings", {}).get("reservations", [])
+            self._mesh_attributes.get(cap_name, {}).get("dhcpSettings", {}).get("reservations", [])
         )
 
         for reservation in all_reservations:
@@ -1925,7 +1968,7 @@ class Mesh:
                 temp_dict[camel_to_snake(key)] = details
             ret.append(temp_dict)
 
-        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry("GET_LAN_SETTINGS", ret),))
+        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -1935,9 +1978,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_EXPRESS_FORWARDING", {}).get("isExpressForwardingEnabled")
+        cap_name: ActionKey = "GET_EXPRESS_FORWARDING"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="express_forwarding_enabled",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_EXPRESS_FORWARDING", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isExpressForwardingEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -1947,9 +1996,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_EXPRESS_FORWARDING", {}).get("isExpressForwardingSupported")
+        cap_name: ActionKey = "GET_EXPRESS_FORWARDING"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="express_forwarding_supported",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_EXPRESS_FORWARDING", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isExpressForwardingSupported")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -1959,12 +2014,18 @@ class Mesh:
         :return: Policy used for updating firmware on the Mesh.
         """
 
+        cap_name: ActionKey = "GET_UPDATE_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="firmware_update_setting",
+        )
+
         ret: FirmwareUpdatePolicy | None = None
-        attr: str | None = self._mesh_attributes.get("GET_UPDATE_SETTINGS", {}).get("updatePolicy")
+        attr: str | None = self._mesh_attributes.get(cap_name, {}).get("updatePolicy")
         if attr is not None:
             ret = FirmwareUpdatePolicy(attr)
 
-        return MeshAttribute[FirmwareUpdatePolicy | None](ret, (AttributeAuditEntry("GET_UPDATE_SETTINGS", ret),))
+        return MeshAttribute[FirmwareUpdatePolicy | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -1974,9 +2035,15 @@ class Mesh:
         :return: True if enabled
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_GUEST_NETWORK_INFO", {}).get("isGuestNetworkEnabled")
+        cap_name: ActionKey = "GET_GUEST_NETWORK_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="guest_wifi_enabled",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_GUEST_NETWORK_INFO", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isGuestNetworkEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -1986,7 +2053,13 @@ class Mesh:
         :return: A list of dictionaries containing the SSID and band for the networks
         """
 
-        radios: list[dict[str, str | bool]] = self._mesh_attributes.get("GET_GUEST_NETWORK_INFO", {}).get("radios", [])
+        cap_name: ActionKey = "GET_GUEST_NETWORK_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="guest_wifi_details",
+        )
+
+        radios: list[dict[str, str | bool]] = self._mesh_attributes.get(cap_name, {}).get("radios", [])
 
         ret: list[dict[str, str]] = [
             {
@@ -1995,7 +2068,7 @@ class Mesh:
             }
             for radio in radios
         ]
-        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry("GET_GUEST_NETWORK_INFO", ret),))
+        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     def has_initialised(self) -> bool:
@@ -2017,9 +2090,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_HOMEKIT_SETTINGS", {}).get("isEnabled")
+        cap_name: ActionKey = "GET_HOMEKIT_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="homekit_enabled",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_HOMEKIT_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2029,9 +2108,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_HOMEKIT_SETTINGS", {}).get("isPaired")
+        cap_name: ActionKey = "GET_HOMEKIT_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="homekit_paired",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_HOMEKIT_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isPaired")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2041,18 +2126,30 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_CHANNEL_SCAN_STATUS", {}).get("isRunning")
+        cap_name: ActionKey = "GET_CHANNEL_SCAN_STATUS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="is_channel_scan_running",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_CHANNEL_SCAN_STATUS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isRunning")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
     def is_in_bridge_mode(self) -> MeshAttribute[bool | None]:
         """Return whether the mesh is in bridge mode or not."""
 
-        attr: bool = self._mesh_attributes.get("GET_WAN_INFO", {}).get("detectedWANType", "").lower() == "bridge"
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="is_in_bridge_mode",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
+        attr: bool = self._mesh_attributes.get(cap_name, {}).get("detectedWANType", "").lower() == "bridge"
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     def last_gather_details(self) -> list[tuple[str, float]]:
@@ -2073,9 +2170,15 @@ class Mesh:
         :return: list of MAC addresses
         """
 
-        attr: list[str] = self._mesh_attributes.get("GET_MAC_FILTERING_SETTINGS", {}).get("macAddresses", [])
+        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="mac_filtering_addresses",
+        )
 
-        return MeshAttribute[list[str]](attr, (AttributeAuditEntry("GET_MAC_FILTERING_SETTINGS", attr),))
+        attr: list[str] = self._mesh_attributes.get(cap_name, {}).get("macAddresses", [])
+
+        return MeshAttribute[list[str]](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2085,11 +2188,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool = (
-            self._mesh_attributes.get("GET_MAC_FILTERING_SETTINGS", {}).get("macFilterMode", "").lower() != "disabled"
+        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="mac_filtering_enabled",
         )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_MAC_FILTERING_SETTINGS", attr),))
+        attr: bool = self._mesh_attributes.get(cap_name, {}).get("macFilterMode", "").lower() != "disabled"
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2099,12 +2206,18 @@ class Mesh:
         :return: string containing the filtering mode
         """
 
+        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="mac_filtering_mode",
+        )
+
         ret: MacFilteringMode | None = None
-        _mode: str | None = self._mesh_attributes.get("GET_MAC_FILTERING_SETTINGS", {}).get("macFilterMode")
+        _mode: str | None = self._mesh_attributes.get(cap_name, {}).get("macFilterMode")
         if _mode is not None:
             ret = MacFilteringMode(_mode)
 
-        return MeshAttribute[MacFilteringMode | None](ret, (AttributeAuditEntry("GET_MAC_FILTERING_SETTINGS", ret),))
+        return MeshAttribute[MacFilteringMode | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -2114,12 +2227,18 @@ class Mesh:
         :return: True if enabled, False if disabled and None if not supported.
         """
 
+        cap_name: ActionKey = "GET_MLO_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="mlo_state",
+        )
+
         ret: bool | None = None
-        attr: dict[str, bool] | None = self._mesh_attributes.get("GET_MLO_SETTINGS")
+        attr: dict[str, bool] | None = self._mesh_attributes.get(cap_name)
         if attr is not None:
             ret = attr.get("isMLOEnabled")
 
-        return MeshAttribute[bool | None](ret, (AttributeAuditEntry("GET_MLO_SETTINGS", ret),))
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -2129,8 +2248,14 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
+        cap_name: ActionKey = "GET_LED_NIGHT_MODE"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="night_mode",
+        )
+
         ret: NightModeState | None = None
-        attr: dict[str, bool | int] | None = self._mesh_attributes.get("GET_LED_NIGHT_MODE")
+        attr: dict[str, bool | int] | None = self._mesh_attributes.get(cap_name)
 
         if attr is not None:
             if not attr.get("Enable", False):
@@ -2141,7 +2266,7 @@ class Mesh:
                 elif attr.get("StartingTime") == 20 and attr.get("EndingTime") == 8:
                     ret = NightModeState.NIGHT_MODE
 
-        return MeshAttribute[NightModeState | None](ret, (AttributeAuditEntry("GET_LED_NIGHT_MODE", ret),))
+        return MeshAttribute[NightModeState | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -2151,11 +2276,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_TOPOLOGY_OPTIMISATION_SETTINGS", {}).get(
-            "isNodeSteeringEnabled"
+        cap_name: ActionKey = "GET_TOPOLOGY_OPTIMISATION_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="node_steering_enabled",
         )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_TOPOLOGY_OPTIMISATION_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isNodeSteeringEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2179,9 +2308,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_PARENTAL_CONTROL_INFO", {}).get("isParentalControlEnabled")
+        cap_name: ActionKey = "GET_PARENTAL_CONTROL_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="parental_control_enabled",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_PARENTAL_CONTROL_INFO", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isParentalControlEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2191,11 +2326,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_SCHEDULED_REBOOT_SETTINGS", {}).get(
-            "isScheduledRebootEnabled"
+        cap_name: ActionKey = "GET_SCHEDULED_REBOOT_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="scheduled_reboot_enabled",
         )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_SCHEDULED_REBOOT_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isScheduledRebootEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2205,14 +2344,18 @@ class Mesh:
         :return: value representing the interval
         """
 
+        cap_name: ActionKey = "GET_SCHEDULED_REBOOT_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="scheduled_reboot_interval",
+        )
+
         ret: ScheduledRebootInterval | None = None
-        attr: dict[str, Any] = self._mesh_attributes.get("GET_SCHEDULED_REBOOT_SETTINGS", {}).get("rebootInterval")
+        attr: dict[str, Any] = self._mesh_attributes.get(cap_name, {}).get("rebootInterval")
         if attr is not None:
             ret = ScheduledRebootInterval(attr)
 
-        return MeshAttribute[ScheduledRebootInterval | None](
-            ret, (AttributeAuditEntry("GET_SCHEDULED_REBOOT_SETTINGS", attr),)
-        )
+        return MeshAttribute[ScheduledRebootInterval | None](ret, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2222,26 +2365,36 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_ALG_SETTINGS", {}).get("isSIPEnabled")
+        cap_name: ActionKey = "GET_ALG_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="sip_enabled",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_ALG_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isSIPEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
     def speedtest_results(self) -> MeshAttribute[list[SpeedtestResult]]:
         """Return the available speedtest results."""
 
+        cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="speedtest_results",
+        )
+
         ret: list[SpeedtestResult] = []
 
-        speedtest_results: list[dict[str, Any]] = self._mesh_attributes.get("GET_SPEEDTEST_RESULTS", {}).get(
-            "healthCheckResults", []
-        )
+        speedtest_results: list[dict[str, Any]] = self._mesh_attributes.get(cap_name, {}).get("healthCheckResults", [])
         for res in speedtest_results:
             sres: SpeedtestResult | None = self._process_speedtest_results(res)
             if sres is not None:
                 ret.append(sres)
 
-        return MeshAttribute[list[SpeedtestResult]](ret, (AttributeAuditEntry("GET_SPEEDTEST_RESULTS", ret),))
+        return MeshAttribute[list[SpeedtestResult]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -2250,10 +2403,17 @@ class Mesh:
 
         :return: List of the available storage devices and their properties
         """
+
+        cap_name: ActionKey = "GET_STORAGE_PARTITIONS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="storage_available",
+        )
+
         ret: list[dict[str, Any]] = []
         node: NodeEntity | None
         device: dict[str, Any]
-        storage_available = self._mesh_attributes.get("GET_STORAGE_PARTITIONS", {})
+        storage_available = self._mesh_attributes.get(cap_name, {})
 
         for storage_node in storage_available.get("storageNodes", []):
             for device in storage_node.get("storageDevices", []):
@@ -2284,7 +2444,7 @@ class Mesh:
                             }
                         )
 
-        return MeshAttribute[list[dict[str, Any]]](ret, (AttributeAuditEntry("GET_STORAGE_PARTITIONS", ret),))
+        return MeshAttribute[list[dict[str, Any]]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -2294,11 +2454,17 @@ class Mesh:
         :return: dictionary of the storage settings
         """
 
-        attr: dict[str, Any] = self._mesh_attributes.get("GET_STORAGE_SMB_SERVER", {})
+        cap_name: ActionKey = "GET_STORAGE_SMB_SERVER"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="storage_settings",
+        )
+
+        attr: dict[str, Any] = self._mesh_attributes.get(cap_name, {})
 
         return MeshAttribute[dict[str, Any]](
             {"anonymous_access": attr.get("isAnonymousAccessEnabled")},
-            (AttributeAuditEntry("GET_STORAGE_SMB_SERVER", attr),),
+            (AttributeAuditEntry(cap_name, attr),),
         )
 
     @property
@@ -2329,9 +2495,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_UPNP_SETTINGS", {}).get("isUPnPEnabled")
+        cap_name: ActionKey = "GET_UPNP_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="upnp_enabled",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_UPNP_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isUPnPEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2341,9 +2513,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_UPNP_SETTINGS", {}).get("canUsersConfigure")
+        cap_name: ActionKey = "GET_UPNP_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="upnp_allow_change_settings",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_UPNP_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("canUsersConfigure")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2353,9 +2531,15 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_UPNP_SETTINGS", {}).get("canUsersDisableWANAccess")
+        cap_name: ActionKey = "GET_UPNP_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="upnp_allow_disable_internet",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_UPNP_SETTINGS", attr),))
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("canUsersDisableWANAccess")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2365,10 +2549,16 @@ class Mesh:
         :return: A list containing the IP addresses of the WAN DNS servers
         """
 
-        attr: dict[str, Any] = self._mesh_attributes.get("GET_WAN_INFO", {})
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="wan_dns",
+        )
+
+        attr: dict[str, Any] = self._mesh_attributes.get(cap_name, {})
         ret = [val for key, val in attr.get("wanConnection", {}).items() if key.startswith("dnsServer")]
 
-        return MeshAttribute[list[str]](ret, (AttributeAuditEntry("GET_WAN_INFO", ret),))
+        return MeshAttribute[list[str]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_initialise
@@ -2378,9 +2568,15 @@ class Mesh:
         :return: A string containing the IP address for the WAN
         """
 
-        attr = self._mesh_attributes.get("GET_WAN_INFO", {}).get("wanConnection", {}).get("ipAddress")
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="wan_ip",
+        )
 
-        return MeshAttribute[str | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
+        attr = self._mesh_attributes.get(cap_name, {}).get("wanConnection", {}).get("ipAddress")
+
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2390,9 +2586,15 @@ class Mesh:
         :return: A string containing the MAC address for the WAN adapter
         """
 
-        attr = self._mesh_attributes.get("GET_WAN_INFO", {}).get("macAddress")
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="wan_mac",
+        )
 
-        return MeshAttribute[str | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
+        attr = self._mesh_attributes.get(cap_name, {}).get("macAddress")
+
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2402,9 +2604,15 @@ class Mesh:
         :return: True if connected, False if not
         """
 
-        attr = self._mesh_attributes.get("GET_WAN_INFO", {}).get("wanStatus", "").lower() == "connected"
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="wan_status",
+        )
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry("GET_WAN_INFO", attr),))
+        attr = self._mesh_attributes.get(cap_name, {}).get("wanStatus", "").lower() == "connected"
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
@@ -2414,9 +2622,13 @@ class Mesh:
         :return: True if enabled, False otherwise
         """
 
-        attr: bool | None = self._mesh_attributes.get("GET_WPS_SERVER_SETTINGS", {}).get("enabled")
-        ret: MeshAttribute[bool | None] = MeshAttribute[bool | None](
-            attr, (AttributeAuditEntry("GET_WPS_SERVER_SETTINGS", attr),)
+        cap_name: ActionKey = "GET_WPS_SERVER_SETTINGS"
+        self._require_mesh_capability(
+            cap_name,
+            attribute_name="wps_state",
         )
+
+        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("enabled")
+        ret: MeshAttribute[bool | None] = MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
         return ret
