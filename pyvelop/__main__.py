@@ -41,6 +41,7 @@ from .mesh_entity import (
     NodeEntity,
     NodeType,
     ParentalControl,
+    UiType,
     Weekdays,
 )
 
@@ -805,7 +806,7 @@ async def device_rename(ctx: click.Context, /, device_id: str, new_name: str, **
 @device_group.command(cls=StandardCommand, name="set_icon")
 @click.pass_context
 @click.argument("device_id")
-@click.argument("icon")
+@click.argument("icon", type=click.Choice((icon.value for icon in UiType), case_sensitive=False))
 async def device_set_icon(ctx: click.Context, /, device_id: str, icon: str, **_: Any) -> None:
     """Set the icon for the given device."""
 
