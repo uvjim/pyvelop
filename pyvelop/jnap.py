@@ -18,6 +18,7 @@ from .exceptions import (
     MeshAlreadyInProgress,
     MeshCannotDeleteDevice,
     MeshConnectionError,
+    MeshCredentialCheckDelayed,
     MeshDeviceDbFailure,
     MeshException,
     MeshInvalidCredentials,
@@ -344,6 +345,14 @@ class Response:
                     )
                 elif resp.get(self.RESULT_KEY) == "ErrorInvalidWANSchedule":
                     err = MeshInvalidInput("Invalid WAN Schedule")
+                elif resp.get(self.RESULT_KEY) == "ErrorPasswordCheckDelayed":
+                    err_details = resp.get(self.DATA_KEY_SINGLE, {})
+                    err = MeshCredentialCheckDelayed(
+                        details={
+                            "attempts_remaining": err_details.get("attemptsRemaining"),
+                            "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
+                        }
+                    )
                 elif resp.get(self.RESULT_KEY) == "ErrorRulesOverlap":
                     err = MeshInvalidInput("Rules Overlap")
                 elif resp.get(self.RESULT_KEY) == "ErrorUnknownDevice":
