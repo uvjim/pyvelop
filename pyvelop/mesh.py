@@ -1785,8 +1785,8 @@ class Mesh:
         attempts_remaining: int | None = None
         ret: bool = False
         payload: JnapPayloadSingle = {}
-        cap: MeshCapability
-        if (cap := self._get_capability("GET_PASSWORD_AUTH_STATUS")) is not None:
+        cap: MeshCapability | None = self._find_capability("GET_PASSWORD_AUTH_STATUS")
+        if cap is not None:
             resp: JnapResponseSingle = await cap.async_execute()
             attempts_remaining = resp.get("attemptsRemaining")
 
