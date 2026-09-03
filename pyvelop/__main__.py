@@ -371,10 +371,11 @@ def _display_table(
     heading_level: int = 2,
 ) -> None:
     """Display one table."""
+    frame_index = None if not index else range(1, len(data) + 1)
     frame = (
         pd.DataFrame.from_dict(dict(data), orient="index", columns=[""])
         if isinstance(data, Mapping)
-        else pd.DataFrame(data)
+        else pd.DataFrame(data, index=frame_index)
     )
     _display(outfile, frame, index=index, title=title, heading_level=heading_level)
 
@@ -408,6 +409,7 @@ def _render_device_parental_control(outfile: str | None, device: DeviceEntity, h
             blocked_access_rows,
             title="Blocked Internet Access Schedule",
             heading_level=heading_level,
+            index=False,
         )
 
 
@@ -491,6 +493,55 @@ def _render_mac_filtering(outfile: str | None, mesh: Mesh, heading_level: int = 
 
 def _render_night_mode(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
     _display_table(outfile, {"Night mode": str(mesh.night_mode)}, title="Night mode", heading_level=heading_level)
+
+
+def _render_node_backhaul(outfile: str | None, node: NodeEntity, heading_level: int = 2) -> None:
+
+    if node.type.value == NodeType.SECONDARY:
+        data: dict[str, Any] = {
+            "Parent": f"{node.parent_name} ({node.parent_ip})",
+            **cast(BackhaulInfo, node.backhaul.value).to_dict(),
+        }
+        _display_table(outfile, data, index=True, title="Backhaul")
+
+
+def _render_node_connected_devices(outfile: str | None, node: NodeEntity, heading_level: int = 2) -> None:
+    _display_table(outfile, [{"name": n.name.value} for n in node.connected_devices], title="Connected Devices")
+
+
+def _render_node_connections(outfile: str | None, node: NodeEntity, heading_level: int = 2) -> None:
+    _display_table(outfile, node.adapter_info.value, title="Adapater Information", heading_level=heading_level)
+
+
+def _render_node_firmware_details(outfile: str | None, node: NodeEntity, heading_level: int = 2) -> None:
+    data: dict[str, Any] = {
+        "Last checked": node.last_update_check.value,
+        "Current version": node.firmware.get("version"),
+        "Firmware date": node.firmware.get("date"),
+        "Latest version": node.firmware.get("latest_version"),
+        "Latest firmware date": node.firmware.get("latest_date"),
+    }
+    _display_table(outfile, data, title="Firmware Details", heading_level=heading_level)
+
+
+def _render_node_summary(outfile: str | None, node: NodeEntity, heading_level: int = 2) -> None:
+    data: dict[str, Any] = {
+        "Queried at": (
+            dt.datetime.fromtimestamp(node.results_time).replace(tzinfo=dt.UTC)
+            if node.results_time is not None
+            else None
+        ),
+        "Device ID": node.unique_id.value,
+        "Online": node.status.value,
+        "Uptime": node.uptime.value,
+        "Last reboot": node.last_reboot.value,
+        "Parent": node.parent_name.value,
+        "Manufacturer": node.manufacturer.value,
+        "Model": node.model.value,
+        "Description": node.description.value,
+        "Serial #": node.serial.value,
+    }
+    _display_table(outfile, data, title="Overview", heading_level=heading_level)
 
 
 def _render_nodes(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
@@ -586,6 +637,39 @@ def _render_wps(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None
     _display_table(outfile, {"Enabled": mesh.wps_state.value}, title="WPS Settings", heading_level=heading_level)
 
 
+DEVICE_DETAIL_SECTIONS: tuple[MeshDetailSection[DeviceEntity] | MeshDetailGroup[DeviceEntity], ...] = (
+    MeshDetailGroup(
+        "General",
+        (
+            MeshDetailSection(
+                (
+                    "results_time",
+                    "unique_id",
+                    "status",
+                    "parent_name",
+                    "manufacturer",
+                    "model",
+                    "description",
+                    "operating_system",
+                    "serial",
+                    "ui_type",
+                    "name",
+                ),
+                _render_device_summary,
+            ),
+        ),
+    ),
+    MeshDetailGroup(
+        "Adapter Information",
+        (MeshDetailSection(("adapter_info",), _render_device_connections),),
+    ),
+    MeshDetailGroup(
+        "Parental Control",
+        (MeshDetailSection(("parental_control_schedule",), _render_device_parental_control),),
+    ),
+)
+
+
 MESH_DETAIL_SECTIONS: tuple[MeshDetailSection[Mesh] | MeshDetailGroup[Mesh], ...] = (
     MeshDetailGroup(
         "Overview",
@@ -633,36 +717,40 @@ MESH_DETAIL_SECTIONS: tuple[MeshDetailSection[Mesh] | MeshDetailGroup[Mesh], ...
     ),
 )
 
-
-DEVICE_DETAIL_SECTIONS: tuple[MeshDetailSection[DeviceEntity] | MeshDetailGroup[DeviceEntity], ...] = (
-    MeshDetailGroup(
-        "General",
+NODE_DETAIL_SECTIONS: tuple[MeshDetailSection[NodeEntity] | MeshDetailGroup[NodeEntity], ...] = (
+    MeshDetailSection(
         (
-            MeshDetailSection(
-                (
-                    "results_time",
-                    "unique_id",
-                    "status",
-                    "parent_name",
-                    "manufacturer",
-                    "model",
-                    "description",
-                    "operating_system",
-                    "serial",
-                    "ui_type",
-                    "name",
-                ),
-                _render_device_summary,
-            ),
+            "results_time",
+            "unique_id",
+            "status",
+            "uptime",
+            "last_reboot",
+            "parent_name",
+            "manufacturer",
+            "model",
+            "description",
+            "serial",
         ),
+        _render_node_summary,
     ),
-    MeshDetailGroup(
-        "Adapter Information",
-        (MeshDetailSection(("adapter_info",), _render_device_connections),),
+    MeshDetailSection(
+        (
+            "firmware",
+            "last_update_check",
+        ),
+        _render_node_firmware_details,
     ),
-    MeshDetailGroup(
-        "Parental Control",
-        (MeshDetailSection(("parental_control_schedule",), _render_device_parental_control),),
+    MeshDetailSection(
+        ("backhaul",),
+        _render_node_backhaul,
+    ),
+    MeshDetailSection(
+        ("adapter_info",),
+        _render_node_connections,
+    ),
+    MeshDetailSection(
+        ("connected_devices",),
+        _render_node_connected_devices,
     ),
 )
 
@@ -915,12 +1003,7 @@ async def diagnostics(
                 }
                 for d in ret_devices
             ]
-            _display(
-                None,
-                pd.DataFrame(ret, index=pd.RangeIndex(start=1, stop=len(ret) + 1)),
-                index=True,
-                title="Devices Without a Parent",
-            )
+            _display_table(None, ret, index=True, title="Devices Without a Parent", heading_level=1)
 
     await _with_mesh(ctx, _diagnostics)
 
@@ -1134,73 +1217,19 @@ async def node_details(
                 click.echo("Node not found")
             else:
                 _output(outfile, f"# Node: {node_name}\n")
-                data: dict[str, Any] = {
-                    "Queried at": (
-                        dt.datetime.fromtimestamp(found_node.results_time).replace(tzinfo=dt.UTC)
-                        if found_node.results_time
-                        else None
-                    ),
-                    "Device ID": found_node.unique_id.value,
-                    "Online": found_node.status.value,
-                    "Uptime": found_node.uptime.value,
-                    "Last reboot": found_node.last_reboot,
-                    "Node type": found_node.type.value.title(),
-                    "Manufacturer": found_node.manufacturer.value,
-                    "Model": found_node.model.value,
-                    "Hardware version": found_node.hardware_version.value,
-                    "Serial #": found_node.serial.value,
-                    "Icon type": found_node.ui_type.value,
-                }
-                _display(
-                    outfile,
-                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                    index=True,
-                )
-                data: dict[str, Any] = {
-                    "Last Checked": found_node.last_update_check.value,
-                }
-                _display(
-                    outfile,
-                    pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                    index=True,
-                    title="Firmware details",
-                )
-                _display(
-                    outfile,
-                    pd.DataFrame([found_node.firmware.value]),
-                )
-                _display(
-                    outfile,
-                    pd.DataFrame(
-                        found_node.adapter_info.value,
-                        index=list(range(len(found_node.adapter_info))),
-                    ),
-                    title="Connections",
-                )
-                if found_node.type.value == NodeType.SECONDARY:
-                    data: dict[str, Any] = {
-                        "parent": f"{found_node.parent_name} ({found_node.parent_ip})",
-                        **cast(BackhaulInfo, found_node.backhaul.value).to_dict(),
-                    }
-                    _display(
-                        outfile,
-                        pd.DataFrame.from_dict(data, orient="index", columns=[""]),
-                        index=True,
-                        title="Backhaul",
-                    )
-                _display(
-                    outfile,
-                    pd.DataFrame(
-                        [d.name.value for d in found_node.connected_devices],
-                        columns=["device"],
-                        index=pd.RangeIndex(
-                            start=1,
-                            stop=(len(found_node.connected_devices) + 1),
-                        ),
-                    ),
-                    index=True,
-                    title="Connected Devices",
-                )
+                for section in NODE_DETAIL_SECTIONS:
+                    if isinstance(section, MeshDetailGroup):
+                        available_sections = tuple(
+                            subsection
+                            for subsection in section.sections
+                            if all(hasattr(found_node, property_name) for property_name in subsection.properties)
+                        )
+                        if available_sections:
+                            _output(outfile, f"\n## {section.title}\n")
+                            for subsection in available_sections:
+                                subsection.render(outfile, found_node, 3)
+                    elif all(hasattr(found_node, property_name) for property_name in section.properties):
+                        section.render(outfile, found_node, 2)
 
     await _with_mesh(ctx, _node_details)
 
@@ -1275,12 +1304,12 @@ async def parental_schedule_group() -> None:
 async def ps_all_blocked() -> None:
     """Display the all unblocked binary code."""
 
-    ret = ParentalControl.all_paused_schedule()
-    _display(
+    _display_table(
         None,
-        pd.DataFrame.from_dict(ret, orient="index", columns=["binary_string"]),
-        index=True,
+        ParentalControl.all_paused_schedule(),
         title="All Blocked",
+        index=True,
+        heading_level=1,
     )
 
 
@@ -1288,13 +1317,7 @@ async def ps_all_blocked() -> None:
 async def ps_all_unblocked() -> None:
     """Display the all unblocked binary code."""
 
-    ret = ParentalControl.all_allowed_schedule()
-    _display(
-        None,
-        pd.DataFrame.from_dict(ret, orient="index", columns=["binary_string"]),
-        index=True,
-        title="All Unblocked",
-    )
+    _display_table(None, ParentalControl.all_allowed_schedule(), title="All Blocked", index=True)
 
 
 @parental_schedule_group.command(name="decode")
@@ -1321,7 +1344,9 @@ async def ps_decode(
         day.name.lower(): (locals().get(day.name.lower()) if locals().get(day.name.lower()) else None)
         for day in Weekdays
     }
+
     decoded: str | dict[str, Any] = ParentalControl.binary_to_human_readable(dict_to_encode)
+
     if isinstance(decoded, dict):
         num_columns: int = -1
         for day in Weekdays:
@@ -1329,12 +1354,15 @@ async def ps_decode(
                 ret[day.name.lower()] = decoded.get(day.name.lower())
                 if len(ret[day.name.lower()]) > num_columns:
                     num_columns = len(ret[day.name.lower()])
-
-    _display(
-        None,
-        pd.DataFrame.from_dict(ret, orient="index", columns=["" for _ in range(0, num_columns)]),
-        index=True,
-    )
+        _display_table(
+            None,
+            [{"day": day, "blocked_times": ", ".join(times)} for day, times in ret.items()],
+            title="Decoded",
+            index=False,
+            heading_level=1,
+        )
+    else:
+        click.echo(decoded)
 
 
 @parental_schedule_group.command(name="encode")
@@ -1366,12 +1394,15 @@ async def ps_encode(
         for day in Weekdays:
             if locals().get(day.name.lower()) is not None:
                 ret[day.name.lower()] = encoded.get(day.name.lower())
-
-    _display(
-        None,
-        pd.DataFrame.from_dict(ret, orient="index", columns=["binary_string"]),
-        index=True,
-    )
+        _display_table(
+            None,
+            [{"day": day, "binary": times} for day, times in ret.items()],
+            title="Encoded",
+            index=False,
+            heading_level=1,
+        )
+    else:
+        click.echo(encoded)
 
 
 @parental_schedule_group.command(name="encode_for_backup")
@@ -1504,12 +1535,10 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
     _output(None, f"{json.dumps(_sanitise_display(_display_val))}\n")
 
     if isinstance(attr, MeshAttribute):
-        _display(
+        _display_table(
             None,
-            pd.DataFrame(
-                [{**ae, **{"value": json.dumps(ae.get("value"))}} for ae in _attr_json_display.get("audit", [])],
-            ),
-            index=True,
+            [{**ae, **{"value": json.dumps(ae.get("value"))}} for ae in _attr_json_display.get("audit", [])],
+            index=False,
             title="Audit History",
         )
 
