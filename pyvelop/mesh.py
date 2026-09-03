@@ -2582,9 +2582,12 @@ class Mesh:
             attribute_name="wan_status",
         )
 
-        attr = self._mesh_attributes.get(cap_name, {}).get("wanStatus", "").lower() == "connected"
+        ret: bool | None = None
+        attr = self._mesh_attributes.get(cap_name, {}).get("wanStatus")
+        if attr:
+            ret = attr.lower() == "connected"
 
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, attr),))
 
     @property
     @needs_initialise
