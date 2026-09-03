@@ -9,7 +9,6 @@ import contextlib
 import datetime as dt
 import logging
 from abc import ABC, abstractmethod
-from collections import namedtuple
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum, auto
@@ -312,16 +311,26 @@ class BackhaulInfo:
 class ParentalControl:
     """Class to manage parental control schedules."""
 
-    BINARY_LENGTH: int = 48
+    SLOTS_PER_HOUR: int = 2
+    HOURS_PER_DAY: int = 24
+    BINARY_LENGTH: int = HOURS_PER_DAY * SLOTS_PER_HOUR
     DEFAULT_DESCRIPTION: str = "default description"
 
-    ALL_ALLOWED_SCHEDULE: Callable[..., dict[str, Any]] = lambda: {
-        day.name.lower(): ParentalControlActionType.UNBLOCKED.value * ParentalControl.BINARY_LENGTH for day in Weekdays
-    }
+    @staticmethod
+    def all_allowed_schedule() -> dict[str, str]:
+        """Return a schedule that allows internet access all day."""
+        return {
+            day.name.lower(): ParentalControlActionType.UNBLOCKED.value * ParentalControl.BINARY_LENGTH
+            for day in Weekdays
+        }
 
-    ALL_PAUSED_SCHEDULE: Callable[..., dict[str, Any]] = lambda: {
-        day.name.lower(): ParentalControlActionType.BLOCKED.value * ParentalControl.BINARY_LENGTH for day in Weekdays
-    }
+    @staticmethod
+    def all_paused_schedule() -> dict[str, str]:
+        """Return a schedule that blocks internet access all day."""
+        return {
+            day.name.lower(): ParentalControlActionType.BLOCKED.value * ParentalControl.BINARY_LENGTH
+            for day in Weekdays
+        }
 
     def __init__(self, rule: dict[str, Any]) -> None:
         """Initialise.
@@ -340,7 +349,7 @@ class ParentalControl:
             while idx < ParentalControl.BINARY_LENGTH:
                 block_start: int | None = (
                     sched.index(ParentalControlActionType.BLOCKED.value, idx)
-                    if sched is not None and ParentalControlActionType.BLOCKED.value in sched[idx + 1 :]
+                    if sched is not None and ParentalControlActionType.BLOCKED.value in sched[idx:]
                     else None
                 )
                 if block_start is None:
@@ -369,6 +378,29 @@ class ParentalControl:
                     idx = ParentalControl.BINARY_LENGTH
 
         return ret
+
+    @staticmethod
+    def _time_block_offsets(start: dt.datetime, end: dt.datetime) -> tuple[int, int]:
+        """Return the half-hour offsets covered by a time block."""
+        if ParentalControl._is_full_day_block(start, end):
+            return 0, ParentalControl.BINARY_LENGTH
+        if ParentalControl._is_wrapping_block(start, end):
+            raise ValueError(f"Time block cannot wrap across midnight: {start:%H:%M}-{end:%H:%M}")
+
+        offset_start = start.hour * 2 + (1 if start.minute >= 30 else 0)
+        offset_end = (end.hour if end.hour != 0 or start.hour == 0 else 24) * 2 + (1 if end.minute >= 30 else 0)
+        return offset_start, offset_end
+
+    @staticmethod
+    def _is_full_day_block(start: dt.datetime, end: dt.datetime) -> bool:
+        """Return whether a block covers the full day explicitly."""
+        midnight = dt.time(0, 0)
+        return start == end and start.time() == midnight
+
+    @staticmethod
+    def _is_wrapping_block(start: dt.datetime, end: dt.datetime) -> bool:
+        """Return whether a block wraps past midnight without ending at midnight."""
+        return end < start and end.time() != dt.time(0, 0)
 
     @staticmethod
     def backup_to_binary(schedule: str) -> dict[str, str]:
@@ -438,45 +470,27 @@ class ParentalControl:
 
         ret_dict: dict[str, str] = {}
         for day, schedule in to_process.items():
-            default_binary = [ParentalControlActionType.UNBLOCKED.value] * ParentalControl.BINARY_LENGTH
+            binary_schedule = [ParentalControlActionType.UNBLOCKED.value] * ParentalControl.BINARY_LENGTH
             if schedule is not None:
                 time_schedules: list[str] = schedule.split(",")
-                TimeBlock = namedtuple("TimeBlock", ["start", "end"])
                 for schedule in time_schedules:
                     times: list[str] = schedule.split("-")
-                    time_block: TimeBlock = TimeBlock(
-                        dt.datetime.strptime(times[0].strip(), "%H:%M"),
-                        dt.datetime.strptime(times[1].strip(), "%H:%M"),
+                    start = dt.datetime.strptime(times[0].strip(), "%H:%M")
+                    end = dt.datetime.strptime(times[1].strip(), "%H:%M")
+                    offset_start, offset_end = ParentalControl._time_block_offsets(
+                        start,
+                        end,
                     )
-                    if (  # midnight to midnight
-                        time_block.start == time_block.end
-                        and time_block.start.hour == 0
-                        and time_block.start.minute == 0
-                    ):
-                        offset_start = 0
-                        offset_end = ParentalControl.BINARY_LENGTH
-                    elif (  # time wrapping
-                        time_block.end < time_block.start and str(time_block.end.time()) != "00:00:00"
-                    ):
-                        offset_start = 0
-                        offset_end = ParentalControl.BINARY_LENGTH
-                    else:  # normal time
-                        offset_start = time_block.start.hour * 2 + (1 if time_block.start.minute >= 30 else 0)
-                        offset_end = (  # extend to end if midnight is the end time
-                            time_block.end.hour
-                            if time_block.end.hour != 0 or (time_block.end.hour == 0 and time_block.start.hour == 0)
-                            else 24
-                        ) * 2 + (1 if time_block.end.minute >= 30 else 0)
 
                     for idx in range(offset_start, offset_end):
-                        default_binary[idx] = ParentalControlActionType.BLOCKED.value
+                        binary_schedule[idx] = ParentalControlActionType.BLOCKED.value
 
                     if all(  # break out early if all blocked
-                        val == ParentalControlActionType.BLOCKED.value for val in default_binary
+                        value == ParentalControlActionType.BLOCKED.value for value in binary_schedule
                     ):
                         break
 
-            ret_dict[day] = "".join(default_binary)
+            ret_dict[day] = "".join(binary_schedule)
 
         if isinstance(to_encode, str):
             return ret_dict[fake_day]
@@ -487,13 +501,12 @@ class ParentalControl:
     def binary_to_human_readable(
         to_decode: str | dict[str, str],
     ) -> str | dict[str, list[str]]:
-        """Decode the binary format string to humand readble form."""
+        """Decode the binary format string to human-readable form."""
         ret: str | dict[str, list[str]]
         if isinstance(to_decode, str):
             fake_day: str = "sunday"
-            fake_obj = {fake_day: to_decode}
-            fake_ret = ParentalControl._human_readable(fake_obj)
-            ret = ",".join(fake_ret[fake_day])
+            single_day_schedule = ParentalControl._human_readable({fake_day: to_decode})
+            ret = ",".join(single_day_schedule[fake_day])
         else:
             ret = ParentalControl._human_readable(to_decode)
 
@@ -522,7 +535,7 @@ class ParentalControl:
     @property
     def is_paused(self) -> bool:
         """Return whether the rule is all blocking."""
-        return self.schedule == ParentalControl.ALL_PAUSED_SCHEDULE()
+        return self.schedule == ParentalControl.all_paused_schedule()
 
     @property
     def mac_addresses(self) -> list[str]:
@@ -1144,7 +1157,7 @@ class DeviceEntity(MeshEntity):
             "remove": [],
             "modify": [],
         }
-        if schedule == ParentalControl.ALL_ALLOWED_SCHEDULE() and not urls:
+        if schedule == ParentalControl.all_allowed_schedule() and not urls:
             ret["remove"].extend(
                 [
                     DeviceProperty.ACTUAL_WAN_SCHEDULE.value,
@@ -1154,12 +1167,12 @@ class DeviceEntity(MeshEntity):
             )
 
         if (
-            schedule != ParentalControl.ALL_ALLOWED_SCHEDULE()
-            or schedule == ParentalControl.ALL_ALLOWED_SCHEDULE()
+            schedule != ParentalControl.all_allowed_schedule()
+            or schedule == ParentalControl.all_allowed_schedule()
             and urls
         ):
             ret["modify"].append({"name": DeviceProperty.SHOW_IN_PC_LIST.value, "value": "true"})
-            if schedule == ParentalControl.ALL_PAUSED_SCHEDULE():
+            if schedule == ParentalControl.all_paused_schedule():
                 ret["modify"].append({"name": DeviceProperty.BLOCK_ALL_MANUALLY.value, "value": "true"})
             else:
                 ret["remove"].append(DeviceProperty.BLOCK_ALL_MANUALLY.value)
@@ -1263,7 +1276,7 @@ class DeviceEntity(MeshEntity):
 
         cached_schedule: str | None = self._get_user_property(DeviceProperty.ACTUAL_WAN_SCHEDULE)
         new_rule = ParentalControl.human_readable_to_binary(rules)
-        if new_rule != ParentalControl.ALL_ALLOWED_SCHEDULE():
+        if new_rule != ParentalControl.all_allowed_schedule():
             _LOGGER.debug("adding new rules")
             if this_device_rules:
                 this_device_rules[0]["wanSchedule"] = new_rule
@@ -1312,7 +1325,7 @@ class DeviceEntity(MeshEntity):
             urls=(this_device_rules[0].get("blockedURLs", []) if this_device_rules else []),
         )
 
-        if new_rule == ParentalControl.ALL_PAUSED_SCHEDULE():
+        if new_rule == ParentalControl.all_paused_schedule():
             if current_schedule:
                 device_properties["modify"].append(
                     {
@@ -1393,7 +1406,7 @@ class DeviceEntity(MeshEntity):
                 ParentalControl.create_rule(
                     blocked_urls=list(set(urls)),
                     mac_address=device_mac,
-                    schedule=ParentalControl.ALL_ALLOWED_SCHEDULE(),
+                    schedule=ParentalControl.all_allowed_schedule(),
                     schedule_to_binary=False,
                 )
             )
