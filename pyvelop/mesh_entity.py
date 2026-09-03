@@ -595,7 +595,7 @@ class MeshEntity(ABC):
         """
 
         ret: MeshCapability | None = None
-        if cap := self._capabilities.get(capability):
+        if (cap := self._capabilities.get(capability)) and cap.is_valid is not False:
             ret = cap
 
         if ret is None:
@@ -1576,9 +1576,9 @@ class NodeEntity(MeshEntity):
         self,
         *,
         force: bool = False,
+        timeout: float = 300.0,
         wait: bool = False,
         wait_for: Callable[[], Awaitable[bool]] | None = None,
-        timeout: float = 300.0,
     ) -> bool:
         """Reboot the node.
 
@@ -1589,10 +1589,10 @@ class NodeEntity(MeshEntity):
         reboot the primary node, set the `force` parameter to `True`
 
         :param force: `True` to acknowledge the primary node, ignored for everything else
+        :param timeout: Maximum time in seconds to wait for the readiness probe.
         :param wait: `True` to wait for the reboot to complete before returning
         :param wait_for: Probe function that returns `True` when the node is reachable again.
         Defaults to an internal check of reachability.
-        :param timeout: Maximum time in seconds to wait for the readiness probe.
         """
         _LOGGER_VERBOSE.debug("entered, force: %s", force)
 
