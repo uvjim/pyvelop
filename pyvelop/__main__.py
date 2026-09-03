@@ -775,7 +775,7 @@ async def device_internet_access(
                         None
                         if not block
                         else ParentalControl.binary_to_human_readable(
-                            ParentalControl.ALL_PAUSED_SCHEDULE().get(weekday.name.lower(), "")
+                            ParentalControl.all_paused_schedule().get(weekday.name.lower(), "")
                         )
                     )
                 await found_device.async_set_parental_control_rules(
@@ -1275,7 +1275,7 @@ async def parental_schedule_group() -> None:
 async def ps_all_blocked() -> None:
     """Display the all unblocked binary code."""
 
-    ret = ParentalControl.ALL_PAUSED_SCHEDULE()
+    ret = ParentalControl.all_paused_schedule()
     _display(
         None,
         pd.DataFrame.from_dict(ret, orient="index", columns=["binary_string"]),
@@ -1288,7 +1288,7 @@ async def ps_all_blocked() -> None:
 async def ps_all_unblocked() -> None:
     """Display the all unblocked binary code."""
 
-    ret = ParentalControl.ALL_ALLOWED_SCHEDULE()
+    ret = ParentalControl.all_allowed_schedule()
     _display(
         None,
         pd.DataFrame.from_dict(ret, orient="index", columns=["binary_string"]),
