@@ -125,6 +125,7 @@ class ScheduledRebootInterval(StrEnum):
 class SpeedtestExitCode(StrEnum):
     """Possible exit codes for speedtest."""
 
+    ABORTED = "AbortedByUser"
     EXCECUTION_ERROR = "SpeedTestExecutionError"
     SUCCESS = "Success"
     UNAVAILABLE = "Unavailable"
@@ -1556,7 +1557,12 @@ class Mesh:
     async def async_initialise(self) -> None:
         """Initialise the connection to the Mesh.
 
-        Probes for capabilities and retrieves details for the discovered capabilities.
+        Probes for capabilities, attempts login and retrieves details for the discovered capabilities.
+
+        :raises MeshInvalidCredentials: The password is invalid
+        :raises MeshInvalidCredentialsNoRetry: The number of attempts is lower than the boundary for retries
+        :raises MeshInvalidCredentialsWithDelay: The mesh has informed the password is incorrect but a delay should be used before retrying.
+        :raises MeshNodeNotPrimary: The specified node reports that it is not the primary node.
         """
 
         # region #-- check that we're pointing to the primary node --#
@@ -1851,7 +1857,8 @@ class Mesh:
         :return: `True` if valid
         :raises MeshActionVersionNotImplemented: If the specified version is not implemented
         :raises MeshInvalidCredentials: If the password is invalid
-        :raises MeshInvalidCrednetialsWithDelay: If the mesh has informed the password is incorrect but
+        :raises MeshInvalidCredentialsNoRetry: If the number of attempts is lower than the boundary for retries
+        :raises MeshInvalidCredentialsWithDelay: If the mesh has informed the password is incorrect but
         a delay should be used before retrying.
         """
 
