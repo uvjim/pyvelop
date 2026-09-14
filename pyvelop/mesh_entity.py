@@ -411,7 +411,7 @@ class ParentalControl:
         for chunk in decoded:
             sorted_schedule += f"{int(chunk):08b}"
 
-        for daily_schedule in range(0, len(list(Weekdays))):
+        for daily_schedule in range(len(list(Weekdays))):
             start = daily_schedule * ParentalControl.BINARY_LENGTH
             ret[Weekdays(daily_schedule).name.lower()] = sorted_schedule[start : start + ParentalControl.BINARY_LENGTH]
 
@@ -475,8 +475,8 @@ class ParentalControl:
                 time_schedules: list[str] = schedule.split(",")
                 for schedule in time_schedules:
                     times: list[str] = schedule.split("-")
-                    start = dt.datetime.strptime(times[0].strip(), "%H:%M")
-                    end = dt.datetime.strptime(times[1].strip(), "%H:%M")
+                    start = dt.datetime.strptime(times[0].strip(), "%H:%M").astimezone(dt.UTC)
+                    end = dt.datetime.strptime(times[1].strip(), "%H:%M").astimezone(dt.UTC)
                     offset_start, offset_end = ParentalControl._time_block_offsets(
                         start,
                         end,
@@ -809,10 +809,7 @@ class MeshEntity(ABC):
 
             props_wifi_type: dict[str, ConnectionType] = {}
             # weird state where the device is listed as wired but has wifi info so change to wireless
-            if adapter_conn_type == ConnectionType.WIRED and props_wifi:
-                props_wifi_type = {"type": ConnectionType.WIRELESS}
-            # unknown but we have wifi info so assume wireless
-            elif adapter_conn_type == ConnectionType.UNKNOWN and props_wifi:
+            if adapter_conn_type in (ConnectionType.WIRED, ConnectionType.UNKNOWN) and props_wifi:
                 props_wifi_type = {"type": ConnectionType.WIRELESS}
             if props_wifi_type:
                 audit_history.append(
@@ -908,9 +905,16 @@ class MeshEntity(ABC):
                     )
                 )
                 props.update(props_wifi_state)
-            if not props.get("connected", False) and nnc:
-                if props.get("type") == ConnectionType.WIRED or (
-                    props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless", {}).get("signalDecibels")
+                if (
+                    not props.get("connected", False)
+                    and nnc
+                    and (
+                        props.get("type") == ConnectionType.WIRED
+                        or (
+                            props.get("type") == ConnectionType.WIRELESS
+                            and nnc.get("wireless", {}).get("signalDecibels")
+                        )
+                    )
                 ):
                     props_nnc_state: dict[str, bool] = {
                         "connected": True,
@@ -1549,7 +1553,7 @@ class NodeEntity(MeshEntity):
         try:
             await self.async_execute_action("GET_SYSTEM_STATS", timeout=2)
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     async def async_execute_action(self, action_key: ActionKey, *, timeout: float | None = None) -> JnapResponseSingle:
@@ -1706,17 +1710,15 @@ class NodeEntity(MeshEntity):
         if backhaul:
             signal_strength_raw: int | None = backhaul.get("wirelessConnectionInfo", {}).get("stationRSSI")
             ret = BackhaulInfo(
-                **{
-                    "connection": ConnectionType(backhaul.get("connectionType", "unknown")),
-                    "last_checked": (
-                        dt.datetime.fromisoformat(backhaul.get("timestamp"))
-                        if backhaul.get("timestamp") is not None
-                        else None
-                    ),
-                    "speed_mbps": speed_mbps,
-                    "rssi_dbm": signal_strength_raw,
-                    "signal_strength": self._signal_strength_to_text(signal_strength_raw),
-                }
+                connection=ConnectionType(backhaul.get("connectionType", "unknown")),
+                last_checked=(
+                    dt.datetime.fromisoformat(backhaul.get("timestamp"))
+                    if backhaul.get("timestamp") is not None
+                    else None
+                ),
+                speed_mbps=speed_mbps,
+                rssi_dbm=signal_strength_raw,
+                signal_strength=self._signal_strength_to_text(signal_strength_raw),
             )
 
         return MeshAttribute[BackhaulInfo | None](ret, (AttributeAuditEntry(EntityDataProperties.BACKHAUL.value, ret),))

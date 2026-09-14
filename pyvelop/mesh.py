@@ -17,8 +17,8 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum, auto
-from types import MappingProxyType
-from typing import Any, Final, Literal, NamedTuple, cast, overload
+from types import MappingProxyType, TracebackType
+from typing import Any, Final, Literal, NamedTuple, Self, cast, overload
 
 import aiohttp
 from aiohttp import ClientSession
@@ -500,7 +500,7 @@ class Mesh:
 
     # set the default capabilities, these should be set for capabilities that are used early (typically without auth requirements)
     # and for those capabilities where multiple implemented versions exist.
-    _BOOTSTRAP_CAPABILITIES: dict[ActionKey, MeshCapability] = {
+    _BOOTSTRAP_CAPABILITIES: Mapping[ActionKey, MeshCapability] = {
         "CHECK_PASSWORD": MeshCapability(
             Actions.CHECK_PASSWORD,
             implemented_versions=(1, 2, 3),
@@ -577,7 +577,7 @@ class Mesh:
             user=username,
         )
 
-        self._capabilities: dict[ActionKey, MeshCapability] = copy.deepcopy(type(self)._BOOTSTRAP_CAPABILITIES)
+        self._capabilities: Mapping[ActionKey, MeshCapability] = copy.deepcopy(type(self)._BOOTSTRAP_CAPABILITIES)
         for cap in self._capabilities.values():
             cap.set_mesh_details(self._mesh_details)
 
@@ -600,7 +600,7 @@ class Mesh:
             self._mesh_details.request_timeout,
         )
 
-    async def __aenter__(self) -> Mesh:
+    async def __aenter__(self) -> Self:
         """Asynchronous enter magic method."""
         return self
 
@@ -608,7 +608,7 @@ class Mesh:
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
-        traceback: Any,
+        traceback: TracebackType | None,
     ) -> None:
         """Asynchronous exit magic method."""
         await self.async_close()
@@ -1666,7 +1666,7 @@ class Mesh:
         """
 
         payload: JnapPayloadSingle = {
-            "Enabled": True if state != NightModeState.OFF else False,
+            "Enabled": state != NightModeState.OFF,
         }
         if state != NightModeState.OFF:
             if state == NightModeState.ALWAYS:

@@ -62,8 +62,10 @@ class Logger:
 
         return self._logger
 
-    def redact(self, data: dict[str, Any], to_redact: set[str] = set()) -> dict[str, Any]:
+    def redact(self, data: dict[str, Any], to_redact: set[str] | None = None) -> dict[str, Any]:
         """Redact sensitive data in a dict. Dotted paths may traverse dicts and lists."""
+        if to_redact is None:
+            to_redact = set()
         ret: dict[str, Any] = copy.deepcopy(data)
 
         def apply_redaction(obj: Any, parts: list[str]) -> None:
