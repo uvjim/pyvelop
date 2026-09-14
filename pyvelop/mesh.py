@@ -42,7 +42,7 @@ from .exceptions import (
     MeshException,
     MeshInvalidCredentialsNoRetry,
     MeshInvalidOutput,
-    MeshNeedsInitialise,
+    MeshNeedsAuthAndRefresh,
     MeshNodeNotPrimary,
 )
 from .jnap import (
@@ -466,14 +466,14 @@ class SpeedtestResult:
         return ret
 
 
-def needs_initialise[F: Callable[..., Any]](func: F) -> F:
-    """Ensure that async_initialise has been executed."""
+def needs_auth_and_refresh[F: Callable[..., Any]](func: F) -> F:
+    """Ensure that async_authenticate_and_refresh has been executed."""
 
     @functools.wraps(func)
     def wrapper(self: Mesh, *args: Any, **kwargs: Any) -> Any:
         """Wrap the required function."""
         if not self.has_initialised:
-            raise MeshNeedsInitialise from None
+            raise MeshNeedsAuthAndRefresh from None
         return func(self, *args, **kwargs)
 
     return cast(F, wrapper)
@@ -493,7 +493,7 @@ _ACTION_BY_SERVICE: Final[Mapping[str, tuple[ActionDefinition, ...]]] = MappingP
 class Mesh:
     """Representation of the Velop Mesh.
 
-    **All properties are point in time from when the last async_gather_details was executed.**
+    **All properties are point in time from when the last async_authenticate_and_refresh was executed.**
 
     If you need live information then call the corresponding method.
     """
@@ -1223,6 +1223,38 @@ class Mesh:
 
         return ret
 
+    async def async_authenticate_and_refresh(self) -> None:
+        """Test credentials and refresh the data.
+
+        Probes for capabilities, attempts login and retrieves details for the discovered capabilities.
+
+        :raises MeshInvalidCredentials: The password is invalid
+        :raises MeshInvalidCredentialsNoRetry: The number of attempts is lower than the boundary for retries
+        :raises MeshInvalidCredentialsWithDelay: The mesh has informed the password is incorrect but a delay should be used before retrying.
+        :raises MeshNodeNotPrimary: The specified node reports that it is not the primary node.
+        """
+
+        # region #-- check that we're pointing to the primary node --#
+        cap = self._get_capability("GET_DEVICE_MODE")
+        resp: JnapResponseSingle = await cap.async_execute()
+        if resp.get("mode", "").lower() != "master":
+            raise MeshNodeNotPrimary
+        # endregion
+
+        # region #-- detect available capabilities --#
+        await self.async_detect_capabilities()
+        # endregion
+
+        # flag here so that async_gather_details will run
+        self._initialise_executed = True
+
+        # region #-- retrieve mesh data and prepare the mesh entities --#
+        self._mesh_attributes = await self.async_gather_details()
+        ret_mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, self._mesh_attributes)
+        _remediated_devices: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(True, ret_mesh_entities)
+        self._mesh_entities = _remediated_devices
+        # endregion
+
     async def async_check_for_updates(self) -> None:
         """Ask the mesh to look for new versions of firmware for the nodes.
 
@@ -1314,7 +1346,7 @@ class Mesh:
                     if cap is not None:
                         cap.mark_as_invalid()
 
-    @needs_initialise
+    @needs_auth_and_refresh
     async def async_gather_details(
         self, required_capabilities: Iterable[MeshCapability] | None = None
     ) -> dict[ActionKey, Any]:
@@ -1386,7 +1418,7 @@ class Mesh:
 
         return ret
 
-    @needs_initialise
+    @needs_auth_and_refresh
     async def async_get_devices(
         self,
         identity: tuple[str, ...] | None = None,
@@ -1482,7 +1514,7 @@ class Mesh:
 
         return tuple(ret)
 
-    @needs_initialise
+    @needs_auth_and_refresh
     async def async_get_speedtest_result_by_id(self, result_ids: Sequence[int]) -> tuple[SpeedtestResult, ...]:
         """Retrieve speedtest results by ID.
 
@@ -1492,7 +1524,7 @@ class Mesh:
 
         return tuple(await self._async_get_speedtest_results(result_ids=result_ids))
 
-    @needs_initialise
+    @needs_auth_and_refresh
     async def async_get_speedtest_results(
         self,
         count: int = 10,
@@ -1512,7 +1544,7 @@ class Mesh:
 
         return tuple(results)
 
-    @needs_initialise
+    @needs_auth_and_refresh
     async def async_get_speedtest_status(self) -> SpeedtestResult | None:
         """Return details about the current stage of a Speedtest.
 
@@ -1553,38 +1585,6 @@ class Mesh:
         ret: JnapResponseSingle = await cap.async_execute()
 
         return ret
-
-    async def async_initialise(self) -> None:
-        """Initialise the connection to the Mesh.
-
-        Probes for capabilities, attempts login and retrieves details for the discovered capabilities.
-
-        :raises MeshInvalidCredentials: The password is invalid
-        :raises MeshInvalidCredentialsNoRetry: The number of attempts is lower than the boundary for retries
-        :raises MeshInvalidCredentialsWithDelay: The mesh has informed the password is incorrect but a delay should be used before retrying.
-        :raises MeshNodeNotPrimary: The specified node reports that it is not the primary node.
-        """
-
-        # region #-- check that we're pointing to the primary node --#
-        cap = self._get_capability("GET_DEVICE_MODE")
-        resp: JnapResponseSingle = await cap.async_execute()
-        if resp.get("mode", "").lower() != "master":
-            raise MeshNodeNotPrimary
-        # endregion
-
-        # region #-- detect available capabilities --#
-        await self.async_detect_capabilities()
-        # endregion
-
-        # flag here so that async_gather_details will run
-        self._initialise_executed = True
-
-        # region #-- retrieve mesh data and prepare the mesh entities --#
-        self._mesh_attributes = await self.async_gather_details()
-        ret_mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, self._mesh_attributes)
-        _remediated_devices: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(True, ret_mesh_entities)
-        self._mesh_entities = _remediated_devices
-        # endregion
 
     async def async_ping(self) -> str | None:
         """Test to see if the mesh is reachable.
@@ -1785,7 +1785,7 @@ class Mesh:
         callback_func: SpeedtestStateCallback | None = None,
     ) -> SpeedtestResult: ...
 
-    @needs_initialise
+    @needs_auth_and_refresh
     async def async_start_speedtest(
         self,
         *,
@@ -1887,7 +1887,7 @@ class Mesh:
         return ret
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def capabilities(self) -> tuple[Mapping[str, Any], ...]:
         """Get the list of capabilities that the Mesh supports.
 
@@ -1914,7 +1914,7 @@ class Mesh:
         return tuple(ret)
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def check_for_update_status(self) -> MeshAttribute[bool | None]:
         """Get the state of checking for an update as at the last time details were gathered.
 
@@ -1937,7 +1937,7 @@ class Mesh:
         return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def client_steering_enabled(self) -> MeshAttribute[bool | None]:
         """Return if client steering is enabled.
 
@@ -1963,7 +1963,7 @@ class Mesh:
         return self._mesh_details.host
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def devices(self) -> tuple[DeviceEntity, ...]:
         """Get the devices in the mesh.
 
@@ -1977,7 +1977,7 @@ class Mesh:
         return tuple(ret)
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def dhcp_enabled(self) -> MeshAttribute[bool | None]:
         """Return if DHCP is enabled.
 
@@ -1995,7 +1995,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def dhcp_reservations(self) -> MeshAttribute[list[dict[str, str]]]:
         """Return the DHCP reservations.
 
@@ -2024,7 +2024,7 @@ class Mesh:
         return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def express_forwarding_enabled(self) -> MeshAttribute[bool | None]:
         """Return whether Express Forwarding is enabled.
 
@@ -2042,7 +2042,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def express_forwarding_supported(self) -> MeshAttribute[bool | None]:
         """Return whether Express Forwarding is supported.
 
@@ -2060,7 +2060,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def firmware_update_setting(self) -> MeshAttribute[FirmwareUpdatePolicy | None]:
         """Get the current setting for firmware updates.
 
@@ -2081,7 +2081,7 @@ class Mesh:
         return MeshAttribute[FirmwareUpdatePolicy | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def guest_wifi_enabled(self) -> MeshAttribute[bool | None]:
         """Get the state of the guest Wi-Fi.
 
@@ -2099,7 +2099,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def guest_wifi_details(self) -> MeshAttribute[list[dict[str, str]]]:
         """Get the guest network Wi-Fi details.
 
@@ -2136,7 +2136,7 @@ class Mesh:
         return self._initialise_executed
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def homekit_enabled(self) -> MeshAttribute[bool | None]:
         """Return if the HomeKit integration is enabled.
 
@@ -2154,7 +2154,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def homekit_paired(self) -> MeshAttribute[bool | None]:
         """Return if the HomeKit integration is paired.
 
@@ -2172,7 +2172,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def is_channel_scan_running(self) -> MeshAttribute[bool | None]:
         """Get the current state of channel scanning.
 
@@ -2190,7 +2190,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def is_in_bridge_mode(self) -> MeshAttribute[bool | None]:
         """Return whether the mesh is in bridge mode or not."""
 
@@ -2216,7 +2216,7 @@ class Mesh:
         return ret
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def mac_filtering_addresses(self) -> MeshAttribute[list[str]]:
         """Get addresses that are configured for MAC filtering.
 
@@ -2234,7 +2234,7 @@ class Mesh:
         return MeshAttribute[list[str]](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def mac_filtering_enabled(self) -> MeshAttribute[bool | None]:
         """Return if MAC filtering is enabled.
 
@@ -2252,7 +2252,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def mac_filtering_mode(self) -> MeshAttribute[MacFilteringMode | None]:
         """Return the MAC filtering mode.
 
@@ -2273,7 +2273,7 @@ class Mesh:
         return MeshAttribute[MacFilteringMode | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def mlo_state(self) -> MeshAttribute[bool | None]:
         """Retrieve the state of MLO.
 
@@ -2294,7 +2294,7 @@ class Mesh:
         return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def night_mode(self) -> MeshAttribute[NightModeState | None]:
         """Return whether night mode is enabled.
 
@@ -2322,7 +2322,7 @@ class Mesh:
         return MeshAttribute[NightModeState | None](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def node_steering_enabled(self) -> MeshAttribute[bool | None]:
         """Return if node steering is enabled.
 
@@ -2340,7 +2340,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def nodes(self) -> tuple[NodeEntity, ...]:
         """Get the nodes in the mesh.
 
@@ -2354,7 +2354,7 @@ class Mesh:
         return tuple(ret)
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def parental_control_enabled(self) -> MeshAttribute[bool | None]:
         """Get the state of the Parental Control feature.
 
@@ -2372,7 +2372,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def scheduled_reboot_enabled(self) -> MeshAttribute[bool | None]:
         """Get the state of the Scheduled Reboot feature.
 
@@ -2390,7 +2390,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def scheduled_reboot_interval(self) -> MeshAttribute[ScheduledRebootInterval | None]:
         """Get the interval for the Scheduled Reboot feature.
 
@@ -2411,7 +2411,7 @@ class Mesh:
         return MeshAttribute[ScheduledRebootInterval | None](ret, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def sip_enabled(self) -> MeshAttribute[bool | None]:
         """Return whether SIP is enabled.
 
@@ -2429,7 +2429,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def speedtest_results(self) -> MeshAttribute[list[SpeedtestResult]]:
         """Return the available speedtest results."""
 
@@ -2450,7 +2450,7 @@ class Mesh:
         return MeshAttribute[list[SpeedtestResult]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def storage_available(self) -> MeshAttribute[list[dict[str, Any]]]:
         """Get available shared partitions.
 
@@ -2500,7 +2500,7 @@ class Mesh:
         return MeshAttribute[list[dict[str, Any]]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def storage_settings(self) -> MeshAttribute[dict[str, Any]]:
         """Get the settings for shared partitions.
 
@@ -2539,7 +2539,7 @@ class Mesh:
         self._mesh_details.request_timeout = value
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def upnp_enabled(self) -> MeshAttribute[bool | None]:
         """Return whether UPnP is enabled.
 
@@ -2557,7 +2557,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def upnp_allow_change_settings(self) -> MeshAttribute[bool | None]:
         """Return whether users can change settings when UPnP is enabled.
 
@@ -2575,7 +2575,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def upnp_allow_disable_internet(self) -> MeshAttribute[bool | None]:
         """Return whether users can change disable the Internet when UPnP is enabled.
 
@@ -2593,7 +2593,7 @@ class Mesh:
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def wan_dns(self) -> MeshAttribute[list[str]]:
         """Get the WAN DNS servers.
 
@@ -2612,7 +2612,7 @@ class Mesh:
         return MeshAttribute[list[str]](ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def wan_ip(self) -> MeshAttribute[str | None]:
         """Get the WAN IP address.
 
@@ -2630,7 +2630,7 @@ class Mesh:
         return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def wan_mac(self) -> MeshAttribute[str | None]:
         """Get the WAN MAC.
 
@@ -2648,7 +2648,7 @@ class Mesh:
         return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def wan_status(self) -> MeshAttribute[bool | None]:
         """Get the status of the WAN.
 
@@ -2669,7 +2669,7 @@ class Mesh:
         return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    @needs_initialise
+    @needs_auth_and_refresh
     def wps_state(self) -> MeshAttribute[bool | None]:
         """Return if WPS is enabled or not.
 

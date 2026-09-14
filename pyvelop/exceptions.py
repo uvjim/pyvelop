@@ -125,7 +125,7 @@ class MeshInvalidOutput(MeshException):
         super().__init__(str(info) if info is not None else "Invalid Output")
 
 
-class MeshNeedsInitialise(MeshException):
+class MeshNeedsAuthAndRefresh(MeshException):
     """Must run the async_initialise method first."""
 
     def __init__(self) -> None:
