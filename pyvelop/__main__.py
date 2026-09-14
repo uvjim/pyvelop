@@ -1447,7 +1447,7 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             supplementary_redactions=supplementary_redactions,
         )
         try:
-            await mesh_object.async_initialise()
+            await mesh_object.async_authenticate_and_refresh()
         except MeshConnectionError:
             msg = f"Unable to connect to {ctx.params.get('primary_node')}"
         except MeshInvalidCredentials as exc:
