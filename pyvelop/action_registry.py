@@ -240,7 +240,7 @@ Actions: ActionRegistry = ActionRegistry(
         ActionDefinition(
             "GET_DEVICE_MODE",
             "http://linksys.com/jnap/nodes/smartmode/GetDeviceMode",
-            "https://www.linksys.com/jnap/nodes/smartmode/SmartMode",
+            "http://linksys.com/jnap/nodes/smartmode/SmartMode",
             requires_auth=False,
         ),
         ActionDefinition(
