@@ -127,7 +127,7 @@ class ActionDefinition:
 class ActionRegistry(Mapping[ActionKey, ActionDefinition]):
     """Read-only registry of known actions for the API."""
 
-    __slots__ = "_storage"
+    __slots__: tuple[str, ...] = ("_storage",)
 
     def __init__(self, actions: Iterable[ActionDefinition]) -> None:
         """Initialise the action registry and mark as read-only.

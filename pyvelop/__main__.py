@@ -170,25 +170,24 @@ class StandardCommand(click.Command):
 
         def _setup_logging(_: click.Context, param: click.Option, value: Any) -> None:
             """Handle logging."""
-            if param.name == "verbose":
-                if value:
-                    logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s:%(message)s")
-                    _LOGGER.setLevel(logging.DEBUG)
-                    _LOGGER.debug("args: %s", sys.argv[1:])
-                    _LOGGER.debug("Setting up logging")
-                    if value > 1:
-                        logging.getLogger(__package__).setLevel(logging.DEBUG)
-                        logging.getLogger(f"{__package__}.jnap").setLevel(logging.WARNING)
-                        logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.WARNING)
-                        logging.getLogger(f"{__package__}.mesh.verbose").setLevel(logging.WARNING)
-                        logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.WARNING)
-                        if value > 2:
-                            logging.getLogger(f"{__package__}.mesh.verbose").setLevel(logging.DEBUG)
-                            logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.DEBUG)
-                            if value > 3:
-                                logging.getLogger(f"{__package__}.jnap").setLevel(logging.DEBUG)
-                                if value > 4:
-                                    logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.DEBUG)
+            if param.name == "verbose" and value:
+                logging.basicConfig(format="%(levelname)s:%(asctime)s:%(name)s:%(message)s")
+                _LOGGER.setLevel(logging.DEBUG)
+                _LOGGER.debug("args: %s", sys.argv[1:])
+                _LOGGER.debug("Setting up logging")
+                if value > 1:
+                    logging.getLogger(__package__).setLevel(logging.DEBUG)
+                    logging.getLogger(f"{__package__}.jnap").setLevel(logging.WARNING)
+                    logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.WARNING)
+                    logging.getLogger(f"{__package__}.mesh.verbose").setLevel(logging.WARNING)
+                    logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.WARNING)
+                    if value > 2:
+                        logging.getLogger(f"{__package__}.mesh.verbose").setLevel(logging.DEBUG)
+                        logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.DEBUG)
+                        if value > 3:
+                            logging.getLogger(f"{__package__}.jnap").setLevel(logging.DEBUG)
+                            if value > 4:
+                                logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.DEBUG)
 
         standard_options: list[click.Option] = [
             click.Option(
@@ -416,9 +415,7 @@ def _render_device_parental_control(outfile: str | None, device: DeviceEntity, h
 def _render_device_summary(outfile: str | None, device: DeviceEntity, heading_level: int = 2) -> None:
     data: dict[str, Any] = {
         "Queried at": (
-            dt.datetime.fromtimestamp(device.results_time).replace(tzinfo=dt.UTC)
-            if device.results_time is not None
-            else None
+            dt.datetime.fromtimestamp(device.results_time, tz=dt.UTC) if device.results_time is not None else None
         ),
         "Device ID": device.unique_id.value,
         "Online": device.status.value,
@@ -527,9 +524,7 @@ def _render_node_firmware_details(outfile: str | None, node: NodeEntity, heading
 def _render_node_summary(outfile: str | None, node: NodeEntity, heading_level: int = 2) -> None:
     data: dict[str, Any] = {
         "Queried at": (
-            dt.datetime.fromtimestamp(node.results_time).replace(tzinfo=dt.UTC)
-            if node.results_time is not None
-            else None
+            dt.datetime.fromtimestamp(node.results_time, tz=dt.UTC) if node.results_time is not None else None
         ),
         "Device ID": node.unique_id.value,
         "Online": node.status.value,
@@ -581,7 +576,7 @@ def _render_storage(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> 
 
 def _render_timings(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
     data: dict[str, dt.datetime | float] = {
-        k: dt.datetime.fromtimestamp(v).replace(tzinfo=dt.UTC) for k, v in mesh.last_gather_details
+        k: dt.datetime.fromtimestamp(v, tz=dt.UTC) for k, v in mesh.last_gather_details
     }
     data.update(
         {
@@ -868,7 +863,7 @@ async def device_internet_access(
                     )
                 await found_device.async_set_parental_control_rules(
                     rules=rules_to_apply,
-                    force_enable=True if block else False,
+                    force_enable=bool(block),
                 )
             except MeshDeviceNotFoundResponse as err:
                 _LOGGER.error("Device not found: %s", err.devices[0])
@@ -1352,8 +1347,7 @@ async def ps_decode(
         for day in Weekdays:
             if locals().get(day.name.lower()) is not None:
                 ret[day.name.lower()] = decoded.get(day.name.lower())
-                if len(ret[day.name.lower()]) > num_columns:
-                    num_columns = len(ret[day.name.lower()])
+                num_columns = max(num_columns, len(ret[day.name.lower()]))
         _display_table(
             None,
             [{"day": day, "blocked_times": ", ".join(times)} for day, times in ret.items()],
@@ -1537,7 +1531,7 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
     if isinstance(attr, MeshAttribute):
         _display_table(
             None,
-            [{**ae, **{"value": json.dumps(ae.get("value"))}} for ae in _attr_json_display.get("audit", [])],
+            [{**ae, "value": json.dumps(ae.get("value"))} for ae in _attr_json_display.get("audit", [])],
             index=False,
             title="Audit History",
         )
