@@ -19,7 +19,7 @@ from .action_registry import ActionKey, Actions
 from .exceptions import MeshException, MeshInvalidInput, MeshTimeoutError
 from .logger import Logger
 from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
-from .timeouts import wait_for_predicate
+from .timeouts import wait_until
 
 if TYPE_CHECKING:
     from .jnap import JnapPayloadSingle, JnapResponseSingle
@@ -1621,8 +1621,8 @@ class NodeEntity(MeshEntity):
             probe = wait_for or self._is_node_reachable
             interval: float = 10.0
             # wait (or timeout waiting) for the node to be reachable again
-            await wait_for_predicate(
-                probe=probe,
+            await wait_until(
+                condition=probe,
                 timeout=timeout,
                 interval=interval,
                 exc_cls=MeshTimeoutError,
