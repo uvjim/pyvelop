@@ -52,8 +52,8 @@ async def poll_with_yield[T](
         await asyncio.sleep(min(interval, remaining))
 
 
-async def wait_for_predicate(
-    probe: Callable[[], Awaitable[bool]],
+async def wait_until(
+    condition: Callable[[], Awaitable[bool]],
     *,
     timeout: float = 300.0,
     interval: float = 5.0,
@@ -63,7 +63,7 @@ async def wait_for_predicate(
     deadline = time.monotonic() + timeout
 
     while time.monotonic() < deadline:
-        if await probe():
+        if await condition():
             return
         await asyncio.sleep(interval)
 
