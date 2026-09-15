@@ -1624,6 +1624,15 @@ class Mesh:
 
         await found_node.async_reboot(force=True, wait=wait)
 
+    @needs_auth_and_refresh
+    async def async_refresh(self) -> None:
+        """Refresh the details after the initial gather."""
+
+        self._mesh_attributes = await self.async_gather_details()
+        ret_mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, self._mesh_attributes)
+        _remediated_devices: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(True, ret_mesh_entities)
+        self._mesh_entities = _remediated_devices
+
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
 
