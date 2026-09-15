@@ -282,8 +282,7 @@ class MeshCapability:
 
                     action_uri: str | None = response_payload.get("action")
                     if (
-                        node_address is None
-                        and action_uri is not None
+                        action_uri is not None
                         and capabilities_by_uri is not None
                         and (cap := capabilities_by_uri.get(action_uri)) is not None
                     ):
@@ -292,8 +291,7 @@ class MeshCapability:
                     ret_list.append(response_data)
 
                 ret = cast(JnapResponseTransaction, ret_list)
-            if node_address is None:
-                self.mark_as_valid()
+            self.mark_as_valid()
         except MeshActionUnknown as exc:
             _LOGGER_VERBOSE.debug("unknown action found: %s", exc.action)
             if exc.action == self.action_uri:  # singlular request
