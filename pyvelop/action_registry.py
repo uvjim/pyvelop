@@ -325,6 +325,8 @@ Actions: ActionRegistry = ActionRegistry(
             redactions={
                 "connections.macAddress",
                 "connections.wireless.bssid",
+                "macAddress",
+                "wireless.bssid",
             },
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
