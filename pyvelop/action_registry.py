@@ -375,7 +375,7 @@ Actions: ActionRegistry = ActionRegistry(
             payload={
                 "healthCheckModule": "SpeedTest",
                 "includeModuleResults": True,
-                "lastNumberOfResults": 1,
+                "lastNumberOfResults": 10,
             },
         ),
         ActionDefinition(

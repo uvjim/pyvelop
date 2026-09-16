@@ -127,8 +127,8 @@ class SpeedtestExitCode(StrEnum):
 
     ABORTED = "AbortedByUser"
     EXCECUTION_ERROR = "SpeedTestExecutionError"
+    NOT_AVAILABLE = "NotAvailable"
     SUCCESS = "Success"
-    UNAVAILABLE = "Unavailable"
 
 
 class SpeedtestStatus(StrEnum):
@@ -444,7 +444,7 @@ class SpeedtestResult:
         """Derive a friendly status from the available results."""
 
         _friendly_status: SpeedtestStatus = SpeedtestStatus.UNKNOWN
-        if self.exit_code == SpeedtestExitCode.UNAVAILABLE:
+        if self.exit_code == SpeedtestExitCode.NOT_AVAILABLE:
             if self.server_id == "0":
                 _friendly_status = SpeedtestStatus.DETECTING_SERVER
             elif self.latency == 0:
@@ -914,7 +914,9 @@ class Mesh:
         result_set: dict[str, Any] = results.get("speedTestResult", {})
         props: dict[str, Any] = {
             "download_bandwidth": result_set.get("downloadBandwidth"),
-            "exit_code": SpeedtestExitCode(result_set.get("exitCode")),
+            "exit_code": SpeedtestExitCode(
+                result_set.get("exitCode") if result_set.get("exitCode") != "Unavailable" else "NotAvailable"
+            ),
             "latency": result_set.get("latency"),
             "result_id": result_set.get("resultID"),
             "server_id": result_set.get("serverID"),
@@ -1539,7 +1541,7 @@ class Mesh:
 
         results = await self._async_get_speedtest_results(count=count)
         if only_completed:
-            results = [result for result in results if result.exit_code != SpeedtestExitCode.UNAVAILABLE]
+            results = [result for result in results if result.exit_code != SpeedtestExitCode.NOT_AVAILABLE]
 
         return tuple(results)
 
@@ -1847,7 +1849,7 @@ class Mesh:
                     await callback_result
 
             # must be finished
-            if state.exit_code != SpeedtestExitCode.UNAVAILABLE:
+            if state.exit_code != SpeedtestExitCode.NOT_AVAILABLE:
                 break
         # endregion
 
