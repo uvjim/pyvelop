@@ -457,7 +457,7 @@ class SpeedtestResult:
 
         object.__setattr__(self, "friendly_status", _friendly_status)
 
-    def as_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Representation of the class."""
 
         ret: dict[str, Any] = asdict(self)
@@ -2437,24 +2437,46 @@ class Mesh:
 
     @property
     @needs_auth_and_refresh
-    def speedtest_results(self) -> MeshAttribute[list[SpeedtestResult]]:
+    def speedtest_latest_complete(
+        self,
+    ) -> MeshAttribute[SpeedtestResult | None]:
+        """Return the most recent completed speedtest result."""
+
+        cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
+        results = self.speedtest_results.value
+
+        latest_result = max(
+            results,
+            key=lambda result: result.timestamp,
+            default=None,
+        )
+
+        return MeshAttribute(latest_result, (AttributeAuditEntry(cap_name, latest_result),))
+
+    @property
+    @needs_auth_and_refresh
+    def speedtest_results(self) -> MeshAttribute[tuple[SpeedtestResult, ...]]:
         """Return the available speedtest results."""
 
         cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
+
         self._require_capability(
             cap_name,
             attribute_name="speedtest_results",
         )
 
-        ret: list[SpeedtestResult] = []
+        raw_results: list[dict[str, Any]] = self._mesh_attributes.get(cap_name, {}).get("healthCheckResults", [])
 
-        speedtest_results: list[dict[str, Any]] = self._mesh_attributes.get(cap_name, {}).get("healthCheckResults", [])
-        for res in speedtest_results:
-            sres: SpeedtestResult | None = self._process_speedtest_results(res)
-            if sres is not None:
-                ret.append(sres)
+        results: list[SpeedtestResult] = []
 
-        return MeshAttribute[list[SpeedtestResult]](ret, (AttributeAuditEntry(cap_name, ret),))
+        for raw_result in raw_results:
+            result = self._process_speedtest_results(raw_result)
+            if result is not None:
+                results.append(result)
+
+        ret = tuple(results)
+
+        return MeshAttribute(ret, (AttributeAuditEntry(cap_name, ret),))
 
     @property
     @needs_auth_and_refresh
