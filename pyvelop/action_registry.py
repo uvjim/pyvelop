@@ -542,6 +542,7 @@ Actions: ActionRegistry = ActionRegistry(
             "START_SPEEDTEST",
             "http://linksys.com/jnap/healthcheck/RunHealthCheck",
             "http://linksys.com/jnap/healthcheck/HealthCheckManager",
+            features=ActionFeatures.SPEEDTEST,
             purpose=ActionPurpose.INVOKE,
         ),
         ActionDefinition(
