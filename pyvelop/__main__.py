@@ -335,9 +335,11 @@ def json_default(obj: Any) -> Any:
     """
 
     if isinstance(obj, SpeedtestResult):
-        return obj.as_dict()
+        return obj.to_dict()
     elif isinstance(obj, MappingProxyType):
         return obj.copy()
+    elif isinstance(obj, dt.datetime):
+        return obj.isoformat()
 
     return obj.__repr__
 
@@ -1517,7 +1519,9 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
         return obj
 
     _output(None, f"# `{attr_name}` Details\n\n")
-    _attr_json: str = json.dumps(attr.to_dict(include_audit=True) if isinstance(attr, MeshAttribute) else attr)
+    _attr_json: str = json.dumps(
+        attr.to_dict(include_audit=True) if isinstance(attr, MeshAttribute) else attr, default=json_default
+    )
     _attr_json_display = json.loads(_attr_json)
 
     _display_val = (
@@ -1531,7 +1535,10 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
     if isinstance(attr, MeshAttribute):
         _display_table(
             None,
-            [{**ae, "value": json.dumps(ae.get("value"))} for ae in _attr_json_display.get("audit", [])],
+            [
+                {**ae, "value": json.dumps(ae.get("value"), default=json_default)}
+                for ae in _attr_json_display.get("audit", [])
+            ],
             index=False,
             title="Audit History",
         )
