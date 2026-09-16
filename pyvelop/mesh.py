@@ -444,16 +444,17 @@ class SpeedtestResult:
         """Derive a friendly status from the available results."""
 
         _friendly_status: SpeedtestStatus = SpeedtestStatus.UNKNOWN
-        if self.exit_code == SpeedtestExitCode.SUCCESS:
+        if self.exit_code == SpeedtestExitCode.UNAVAILABLE:
+            if self.server_id == "0":
+                _friendly_status = SpeedtestStatus.DETECTING_SERVER
+            elif self.latency == 0:
+                _friendly_status = SpeedtestStatus.CHECKING_LATENCY
+            elif self.download_bandwidth == 0:
+                _friendly_status = SpeedtestStatus.CHECKING_DOWNLOAD_SPEED
+            elif self.upload_bandwidth == 0:
+                _friendly_status = SpeedtestStatus.CHECKING_UPLOAD_SPEED
+        else:
             _friendly_status = SpeedtestStatus.NOT_RUNNING
-        elif self.server_id == "0":
-            _friendly_status = SpeedtestStatus.DETECTING_SERVER
-        elif self.latency == 0:
-            _friendly_status = SpeedtestStatus.CHECKING_LATENCY
-        elif self.download_bandwidth == 0:
-            _friendly_status = SpeedtestStatus.CHECKING_DOWNLOAD_SPEED
-        elif self.upload_bandwidth == 0:
-            _friendly_status = SpeedtestStatus.CHECKING_UPLOAD_SPEED
 
         object.__setattr__(self, "friendly_status", _friendly_status)
 
