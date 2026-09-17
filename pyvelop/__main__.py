@@ -30,6 +30,7 @@ from .exceptions import (
 from .logger import Logger
 from .mesh import (
     Mesh,
+    MeshSnapshot,
     NightModeState,
     ScheduledRebootInterval,
     SpeedtestResult,
@@ -52,7 +53,7 @@ class MeshWorkflows:
     """Namespaced CLI workflows for the mesh."""
 
     @staticmethod
-    async def channel_scan_info(mesh: Mesh) -> dict[str, Any]:
+    async def channel_scan_info(mesh: Mesh) -> MappingProxyType[str, Any]:
         """Rerieve the channel scan information.
 
         :return: details about the last channel scan.
@@ -60,13 +61,12 @@ class MeshWorkflows:
         return await mesh.async_get_channel_scan_info()
 
     @staticmethod
-    async def detect_capabilities(mesh: Mesh) -> tuple[Mapping[str, Any], ...]:
+    async def detect_capabilities(mesh: Mesh) -> tuple[Mapping[str, Any], ...] | None:
         """Retrieve the mesh capabilities from the last time they were discovered.
 
         :return: the capabilities that were discovered on the mesh.
         """
-        ret = mesh.capabilities
-        return ret
+        return await mesh._async_detect_capabilities()
 
     @staticmethod
     async def channel_scan_start(mesh: Mesh) -> None:
@@ -381,7 +381,7 @@ def _display_table(
     _display(outfile, frame, index=index, title=title, heading_level=heading_level)
 
 
-def _render_capabilities(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_capabilities(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(outfile, mesh.capabilities, title="Capabilities", heading_level=heading_level)
 
 
@@ -432,7 +432,7 @@ def _render_device_summary(outfile: str | None, device: DeviceEntity, heading_le
     _display_table(outfile, data, title="Overview", heading_level=heading_level)
 
 
-def _render_devices(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_devices(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     online = [
         {"name": device.name.value, "ip": device.adapter_info.value[0].ip if device.adapter_info else None}
         for device in mesh.devices
@@ -443,25 +443,35 @@ def _render_devices(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> 
     _display_table(outfile, offline, title="Offline Devices", heading_level=heading_level)
 
 
-def _render_express_forwarding(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_express_forwarding(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
         outfile,
-        {"Supported": mesh.express_forwarding_supported.value, "Enabled": mesh.express_forwarding_enabled.value},
+        {
+            "Supported": mesh.express_forwarding_supported.value,
+            "Enabled": mesh.express_forwarding_enabled.value,
+        },
         title="Express Forwarding",
         heading_level=heading_level,
     )
 
 
-def _render_guest_network(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_guest_network(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
-        outfile, {"Enabled": mesh.guest_wifi_enabled.value}, title="Guest Network Settings", heading_level=heading_level
+        outfile,
+        {"Enabled": mesh.guest_wifi_enabled.value},
+        title="Guest Network Settings",
+        heading_level=heading_level,
     )
     _display_table(
-        outfile, mesh.guest_wifi_details.value, title="Networks", index=False, heading_level=heading_level + 1
+        outfile,
+        mesh.guest_wifi_details.value,
+        title="Networks",
+        index=False,
+        heading_level=heading_level + 1,
     )
 
 
-def _render_homekit(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_homekit(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
         outfile,
         {"Enabled": mesh.homekit_enabled.value, "Paired": mesh.homekit_paired.value},
@@ -470,27 +480,30 @@ def _render_homekit(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> 
     )
 
 
-def _render_lan(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_lan(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
-        outfile, {"DHCP enabled": mesh.dhcp_enabled.value}, title="LAN Settings", heading_level=heading_level
+        outfile,
+        {"DHCP enabled": mesh.dhcp_enabled.value},
+        title="LAN Settings",
+        heading_level=heading_level,
     )
     _display_table(outfile, mesh.dhcp_reservations.value, title="DHCP Reservations", heading_level=heading_level)
 
 
-def _render_mac_filtering(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_mac_filtering(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
         outfile,
         {
             "Enabled": mesh.mac_filtering_enabled.value,
             "Mode": str(mesh.mac_filtering_mode),
-            "Filters": mesh.mac_filtering_addresses.value if len(mesh.mac_filtering_addresses) > 0 else None,
+            "Filters": (mesh.mac_filtering_addresses.value if len(mesh.mac_filtering_addresses) > 0 else None),
         },
         title="MAC Filtering",
         heading_level=heading_level,
     )
 
 
-def _render_night_mode(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_night_mode(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(outfile, {"Night mode": str(mesh.night_mode)}, title="Night mode", heading_level=heading_level)
 
 
@@ -541,42 +554,51 @@ def _render_node_summary(outfile: str | None, node: NodeEntity, heading_level: i
     _display_table(outfile, data, title="Overview", heading_level=heading_level)
 
 
-def _render_nodes(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_nodes(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     names = [node.name.value for node in mesh.nodes]
     _display_table(outfile, [{"name": name} for name in names], title="Nodes", heading_level=heading_level)
 
 
-def _render_parental_control(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_parental_control(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
-        outfile, {"Enabled": mesh.parental_control_enabled.value}, title="Parental Control", heading_level=heading_level
+        outfile,
+        {"Enabled": mesh.parental_control_enabled.value},
+        title="Parental Control",
+        heading_level=heading_level,
     )
 
 
-def _render_scheduled_reboot(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_scheduled_reboot(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
         outfile,
         {
             "Enabled": mesh.scheduled_reboot_enabled.value,
-            "Interval": str(mesh.scheduled_reboot_interval) if mesh.scheduled_reboot_interval else None,
+            "Interval": (str(mesh.scheduled_reboot_interval) if mesh.scheduled_reboot_interval else None),
         },
         title="Scheduled Reboot Settings",
         heading_level=heading_level,
     )
 
 
-def _render_sip(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_sip(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(outfile, {"Enabled": mesh.sip_enabled.value}, title="SIP Settings", heading_level=heading_level)
 
 
-def _render_speedtest(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_speedtest(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(outfile, mesh.speedtest_results.value, title="Speedtest Results", heading_level=heading_level)
 
 
-def _render_storage(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
-    _display_table(outfile, mesh.storage_available.value, title="File Shares", index=False, heading_level=heading_level)
+def _render_storage(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
+    _display_table(
+        outfile,
+        mesh.storage_available.value,
+        title="File Shares",
+        index=False,
+        heading_level=heading_level,
+    )
 
 
-def _render_timings(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_timings(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     data: dict[str, dt.datetime | float] = {
         k: dt.datetime.fromtimestamp(v, tz=dt.UTC) for k, v in mesh.last_gather_details
     }
@@ -590,20 +612,20 @@ def _render_timings(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> 
     _display_table(outfile, data, title="Timings")
 
 
-def _render_topology(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_topology(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
         outfile,
         {
             "Client steering enabled": mesh.client_steering_enabled.value,
             "Node steering enabled": mesh.node_steering_enabled.value,
-            "Multi-Link Operation (MLO)": mesh.mlo_state.value if mesh.mlo_state.value is not None else "Unsupported",
+            "Multi-Link Operation (MLO)": (mesh.mlo_state.value if mesh.mlo_state.value is not None else "Unsupported"),
         },
         title="Topology Optimisation Settings",
         heading_level=heading_level,
     )
 
 
-def _render_upnp(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_upnp(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
         outfile,
         {
@@ -616,7 +638,7 @@ def _render_upnp(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> Non
     )
 
 
-def _render_wan(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_wan(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(
         outfile,
         {
@@ -630,7 +652,7 @@ def _render_wan(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None
     )
 
 
-def _render_wps(outfile: str | None, mesh: Mesh, heading_level: int = 2) -> None:
+def _render_wps(outfile: str | None, mesh: MeshSnapshot, heading_level: int = 2) -> None:
     _display_table(outfile, {"Enabled": mesh.wps_state.value}, title="WPS Settings", heading_level=heading_level)
 
 
@@ -666,8 +688,7 @@ DEVICE_DETAIL_SECTIONS: tuple[MeshDetailSection[DeviceEntity] | MeshDetailGroup[
     ),
 )
 
-
-MESH_DETAIL_SECTIONS: tuple[MeshDetailSection[Mesh] | MeshDetailGroup[Mesh], ...] = (
+MESH_DETAIL_SECTIONS: tuple[MeshDetailSection[MeshSnapshot] | MeshDetailGroup[MeshSnapshot], ...] = (
     MeshDetailGroup(
         "Overview",
         (
@@ -983,7 +1004,10 @@ async def diagnostics(
     """Execute some diagnostics tests on the mesh results."""
 
     async def _diagnostics(mesh: Mesh) -> None:
-        devices: tuple[DeviceEntity, ...] = mesh.devices
+        if mesh.latest_snapshot is None:
+            return
+
+        devices: tuple[DeviceEntity, ...] = mesh.latest_snapshot.devices
 
         if check == AllowedChecks.NETWORK_DETAILS:
             ret_devices: set[DeviceEntity] = {d for d in devices if d.status}
@@ -1067,7 +1091,7 @@ async def mesh_action(
 
 
 @mesh_group.command(cls=StandardCommand, name="attribute")
-@click.argument("attribute", type=click.Choice(tuple(get_properties(Mesh)), case_sensitive=False))
+@click.argument("attribute", type=click.Choice(tuple(get_properties(MeshSnapshot)), case_sensitive=False))
 @click.pass_context
 async def mesh_attr(
     ctx: click.Context,
@@ -1078,7 +1102,11 @@ async def mesh_attr(
     """Retrieve details about a specific mesh attribute."""
 
     async def _mesh_attr(mesh: Mesh) -> None:
-        attr: Any = getattr(mesh, attribute, None)
+        mesh_snapshot = mesh.latest_snapshot
+        if mesh_snapshot is None:
+            return
+
+        attr: Any = getattr(mesh_snapshot, attribute, None)
         _display_attribute(attribute, attr)
 
     await _with_mesh(ctx, _mesh_attr)
@@ -1098,19 +1126,23 @@ async def mesh_details(
     async def _mesh_details(mesh: Mesh) -> None:
         _output(outfile, "# Mesh Details\n")
 
+        mesh_snapshot = mesh.latest_snapshot
+        if mesh_snapshot is None:
+            return
+
         for section in MESH_DETAIL_SECTIONS:
             if isinstance(section, MeshDetailGroup):
                 available_sections = tuple(
                     subsection
                     for subsection in section.sections
-                    if all(hasattr(mesh, property_name) for property_name in subsection.properties)
+                    if all(hasattr(mesh_snapshot, property_name) for property_name in subsection.properties)
                 )
                 if available_sections:
                     _output(outfile, f"\n## {section.title}\n")
                     for subsection in available_sections:
-                        subsection.render(outfile, mesh, 3)
-            elif all(hasattr(mesh, property_name) for property_name in section.properties):
-                section.render(outfile, mesh, 2)
+                        subsection.render(outfile, mesh_snapshot, 3)
+            elif all(hasattr(mesh_snapshot, property_name) for property_name in section.properties):
+                section.render(outfile, mesh_snapshot, 2)
 
     await _with_mesh(ctx, _mesh_details)
 
@@ -1177,7 +1209,10 @@ async def node_attr(
     """Retrieve details about a specific mesh attribute."""
 
     async def _node_attr(mesh: Mesh) -> None:
-        nodes: tuple[NodeEntity, ...] = mesh.nodes
+        if mesh.latest_snapshot is None:
+            return
+
+        nodes: tuple[NodeEntity, ...] = mesh.latest_snapshot.nodes
         if not nodes:
             click.echo("No nodes found")
         else:
@@ -1205,7 +1240,10 @@ async def node_details(
     """Get details about a node on the Mesh."""
 
     async def _node_details(mesh: Mesh) -> None:
-        nodes: tuple[NodeEntity, ...] = mesh.nodes
+        if mesh.latest_snapshot is None:
+            return
+
+        nodes: tuple[NodeEntity, ...] = mesh.latest_snapshot.nodes
         if not nodes:
             click.echo("No nodes found")
         else:
@@ -1250,7 +1288,10 @@ async def node_execute(
     """Execute the given action against the node."""
 
     async def _node_execute(mesh: Mesh):
-        nodes: tuple[NodeEntity, ...] = mesh.nodes
+        if mesh.latest_snapshot is None:
+            return
+
+        nodes: tuple[NodeEntity, ...] = mesh.latest_snapshot.nodes
         if not nodes:
             click.echo("No nodes found")
         else:
@@ -1278,7 +1319,10 @@ async def node_restart(
     """Restart a node on the Mesh."""
 
     async def _node_restart(mesh: Mesh):
-        nodes = mesh.nodes
+        if mesh.latest_snapshot is None:
+            return
+
+        nodes = mesh.latest_snapshot.nodes
         if not nodes:
             click.echo("No nodes found")
         else:
@@ -1563,10 +1607,9 @@ async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> tu
 
     async def _fetch_devices(mesh: Mesh) -> tuple[DeviceEntity, ...]:
         device_qry: tuple[str, ...] | None = None
-        refresh: bool = True
         if device:
             device_qry = tuple(filter(lambda d: not d.startswith("${input:"), device))
-        return await mesh.async_get_devices(device_qry, force_refresh=refresh)
+        return await mesh.async_get_devices(device_qry)
 
     return await _with_mesh(ctx, _fetch_devices)
 
