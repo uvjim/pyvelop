@@ -2745,6 +2745,14 @@ class Mesh:
         return ret
 
     @property
+    def connected_node(self) -> str:
+        """Get the node in the mesh that we are connected to.
+
+        :return: A string containing the node IP address
+        """
+        return self.__mesh_details.host
+
+    @property
     def latest_snapshot(self) -> MeshSnapshot | None:
         """Return the latest snapshot information.
 
@@ -2755,3 +2763,21 @@ class Mesh:
         """
 
         return self._last_snapshot
+
+    @property
+    def timeout(self) -> float:
+        """Get the timeout for API requests.
+
+        :return: the current timeout applied to requests
+        """
+
+        return self.__mesh_details.request_timeout
+
+    @timeout.setter
+    def timeout(self, value: float) -> None:
+        """Set the timeout for API requests.
+
+        :param value: value to set for the timeout
+        """
+
+        self.__mesh_details.request_timeout = value
