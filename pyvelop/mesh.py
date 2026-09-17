@@ -465,13 +465,38 @@ class SpeedtestResult:
         return ret
 
 
+def _process_speedtest_results(results: dict[str, Any]) -> SpeedtestResult:
+    """Build a SpeedtestResult object from the provisded results."""
+
+    if "speedTestResult" not in results:
+        raise ValueError
+
+    result_set: dict[str, Any] = results.get("speedTestResult", {})
+    props: dict[str, Any] = {
+        "download_bandwidth": result_set.get("downloadBandwidth"),
+        "exit_code": SpeedtestExitCode(
+            result_set.get("exitCode") if result_set.get("exitCode") != "Unavailable" else "NotAvailable"
+        ),
+        "latency": result_set.get("latency"),
+        "result_id": result_set.get("resultID"),
+        "server_id": result_set.get("serverID"),
+        "timestamp": (
+            dt.datetime.fromisoformat(results.get("timestamp", ""))
+            if results.get("timestamp") is not None
+            else dt.datetime.min.replace(tzinfo=dt.UTC)
+        ),
+        "upload_bandwidth": result_set.get("uploadBandwidth"),
+    }
+    return SpeedtestResult(**props)
+
+
 def needs_auth_and_refresh[F: Callable[..., Any]](func: F) -> F:
     """Ensure that async_authenticate_and_refresh has been executed."""
 
     @functools.wraps(func)
     def wrapper(self: Mesh, *args: Any, **kwargs: Any) -> Any:
         """Wrap the required function."""
-        if not self.has_initialised:
+        if not getattr(self, "_Mesh__initialise_executed", None):
             raise MeshNeedsAuthAndRefresh from None
         return func(self, *args, **kwargs)
 
@@ -489,13 +514,840 @@ _ACTION_BY_SERVICE: Final[Mapping[str, tuple[ActionDefinition, ...]]] = MappingP
 )
 
 
+@dataclass(frozen=True)
+class MeshSnapshot:
+    """Point in time properties of the Mesh."""
+
+    __capabilities: MappingProxyType[ActionKey, MeshCapability] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    __discovered_devices: tuple[DeviceEntity | NodeEntity, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    __gather_timings: MappingProxyType[str, float] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    __values: MappingProxyType[ActionKey, Any] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __init__(
+        self,
+        available_capabilities: Mapping[ActionKey, MeshCapability],
+        gathered_details: Mapping[ActionKey, Any],
+        discovered_devices: tuple[DeviceEntity | NodeEntity, ...],
+        gather_timings: Mapping[str, float],
+    ) -> None:
+        object.__setattr__(
+            self,
+            "_MeshSnapshot__capabilities",
+            MappingProxyType(dict(available_capabilities)),
+        )
+        object.__setattr__(
+            self,
+            "_MeshSnapshot__discovered_devices",
+            discovered_devices,
+        )
+        object.__setattr__(
+            self,
+            "_MeshSnapshot__gather_timings",
+            gather_timings,
+        )
+        object.__setattr__(
+            self,
+            "_MeshSnapshot__values",
+            MappingProxyType(dict(gathered_details)),
+        )
+
+    def __find_capability(self, capability: ActionKey) -> MeshCapability | None:
+        """Find a mesh capability without raising an exception.
+
+        :param capability: The capability to look up.
+        :return: The matching MeshCapability, or None if it is not available.
+        """
+
+        ret: MeshCapability | None = None
+        capability_value: MeshCapability | None = self.__capabilities.get(capability)
+        if capability_value is not None:
+            ret = capability_value if capability_value.is_valid is not False else None
+
+        return ret
+
+    def __require_capability(
+        self,
+        capability: ActionKey,
+        *,
+        attribute_name: str,
+    ) -> None:
+        """Require a mesh capability for a public attribute.
+
+        This helper is intended for properties whose availability depends on a
+        mesh capability. It raises AttributeError using the public attribute name
+        when the required capability is not available.
+
+        :param capability: The capability required by the attribute.
+        :param attribute_name: The public attribute name exposed by the property.
+        :raises AttributeError: If the required capability is not available.
+        """
+        if self.__find_capability(capability) is None:
+            raise AttributeError(f"{type(self).__name__} has no attribute {attribute_name!r}")
+
+    @property
+    def capabilities(self) -> tuple[Mapping[str, Any], ...]:
+        """Get the list of capabilities that the Mesh supports.
+
+        :return: mesh capabilities
+        """
+
+        ret: list[MappingProxyType[str, Any]] = []
+        for cap_key, cap in sorted(
+            self.__capabilities.items(),
+            key=lambda item: item[0],
+        ):
+            ret.append(
+                MappingProxyType(
+                    {
+                        "key": cap_key,
+                        "action_version": cap.action_version,
+                        "fallback_action": cap.is_fallback_action,
+                        "fallback_service": cap.is_fallback_service,
+                        "is_valid": cap.is_valid,
+                    }
+                )
+            )
+
+        return tuple(ret)
+
+    @property
+    def check_for_update_status(self) -> MeshAttribute[bool | None]:
+        """Get the state of checking for an update as at the last time details were gathered.
+
+        If you need the live state then use the async_get_update_state to re-query the API.
+
+        :return: True if checking
+        """
+
+        cap_name: ActionKey = "GET_UPDATE_FIRMWARE_STATE"
+        self.__require_capability(
+            cap_name,
+            attribute_name="check_for_update_status",
+        )
+
+        node_results: list[dict[str, Any]] = self.__values.get(cap_name, {}).get("firmwareUpdateStatus", [])
+
+        all_states = ["pendingOperation" in node for node in node_results]
+        ret: bool = any(all_states)
+
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def client_steering_enabled(self) -> MeshAttribute[bool | None]:
+        """Return if client steering is enabled.
+
+        :return: True if enabled, False otherwise.
+        """
+
+        cap_name: ActionKey = "GET_TOPOLOGY_OPTIMISATION_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="client_steering_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isClientSteeringEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def devices(self) -> tuple[DeviceEntity, ...]:
+        """Get the devices in the mesh.
+
+        The list will be returned in alphabetical order based on the device name.
+        N.B. this will not include the nodes.
+
+        :return: A list containing Device objects
+        """
+        ret: list[DeviceEntity] = [device for device in self.__discovered_devices if isinstance(device, DeviceEntity)]
+        ret = sorted(ret, key=lambda device: str(device.name))
+        return tuple(ret)
+
+    @property
+    def dhcp_enabled(self) -> MeshAttribute[bool | None]:
+        """Return if DHCP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_LAN_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="dhcp_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isDHCPEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def dhcp_reservations(self) -> MeshAttribute[tuple[Mapping[str, str], ...]]:
+        """Return the DHCP reservations.
+
+        :return: list of DHCP reservation details
+        """
+
+        cap_name: ActionKey = "GET_LAN_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="dhcp_reservations",
+        )
+
+        ret: list[dict[str, str]] = []
+        temp_dict: dict[str, str] = {}
+
+        all_reservations: list[dict[str, Any]] = (
+            self.__values.get(cap_name, {}).get("dhcpSettings", {}).get("reservations", [])
+        )
+
+        for reservation in all_reservations:
+            temp_dict = {}
+            for key, details in reservation.items():
+                temp_dict[camel_to_snake(key)] = details
+            ret.append(temp_dict)
+
+        return MeshAttribute[tuple[Mapping[str, str], ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def express_forwarding_enabled(self) -> MeshAttribute[bool | None]:
+        """Return whether Express Forwarding is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_EXPRESS_FORWARDING"
+        self.__require_capability(
+            cap_name,
+            attribute_name="express_forwarding_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isExpressForwardingEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def express_forwarding_supported(self) -> MeshAttribute[bool | None]:
+        """Return whether Express Forwarding is supported.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_EXPRESS_FORWARDING"
+        self.__require_capability(
+            cap_name,
+            attribute_name="express_forwarding_supported",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isExpressForwardingSupported")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def firmware_update_setting(self) -> MeshAttribute[FirmwareUpdatePolicy | None]:
+        """Get the current setting for firmware updates.
+
+        :return: Policy used for updating firmware on the Mesh.
+        """
+
+        cap_name: ActionKey = "GET_UPDATE_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="firmware_update_setting",
+        )
+
+        ret: FirmwareUpdatePolicy | None = None
+        attr: str | None = self.__values.get(cap_name, {}).get("updatePolicy")
+        if attr is not None:
+            ret = FirmwareUpdatePolicy(attr)
+
+        return MeshAttribute[FirmwareUpdatePolicy | None](ret, (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def guest_wifi_enabled(self) -> MeshAttribute[bool | None]:
+        """Get the state of the guest Wi-Fi.
+
+        :return: True if enabled
+        """
+
+        cap_name: ActionKey = "GET_GUEST_NETWORK_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="guest_wifi_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isGuestNetworkEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def guest_wifi_details(self) -> MeshAttribute[tuple[Mapping[str, str], ...]]:
+        """Get the guest network Wi-Fi details.
+
+        :return: A list of dictionaries containing the SSID and band for the networks
+        """
+
+        cap_name: ActionKey = "GET_GUEST_NETWORK_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="guest_wifi_details",
+        )
+
+        radios: list[dict[str, str | bool]] = self.__values.get(cap_name, {}).get("radios", [])
+
+        ret: list[dict[str, str]] = [
+            {
+                "ssid": cast(str, radio.get("guestSSID")),
+                "band": cast(str, radio.get("radioID", "")).split("_")[-1],
+            }
+            for radio in radios
+        ]
+        return MeshAttribute[tuple[Mapping[str, str], ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def homekit_enabled(self) -> MeshAttribute[bool | None]:
+        """Return if the HomeKit integration is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_HOMEKIT_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="homekit_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def homekit_paired(self) -> MeshAttribute[bool | None]:
+        """Return if the HomeKit integration is paired.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_HOMEKIT_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="homekit_paired",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isPaired")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def is_channel_scan_running(self) -> MeshAttribute[bool | None]:
+        """Get the current state of channel scanning.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_CHANNEL_SCAN_STATUS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="is_channel_scan_running",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isRunning")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def is_in_bridge_mode(self) -> MeshAttribute[bool | None]:
+        """Return whether the mesh is in bridge mode or not."""
+
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="is_in_bridge_mode",
+        )
+
+        attr: bool = self.__values.get(cap_name, {}).get("detectedWANType", "").lower() == "bridge"
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def last_gather_details(self) -> tuple[tuple[str, float], ...]:
+        """Return some timings about when the details were gathered.
+
+        All times are epoch and are approximate.
+        """
+
+        ret: list[tuple[str, float]] = list(self.__gather_timings.items())
+        ret = sorted(ret, key=lambda itm: itm[1])
+        return tuple(ret)
+
+    @property
+    def mac_filtering_addresses(self) -> MeshAttribute[tuple[str, ...]]:
+        """Get addresses that are configured for MAC filtering.
+
+        :return: list of MAC addresses
+        """
+
+        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="mac_filtering_addresses",
+        )
+
+        attr: list[str] = self.__values.get(cap_name, {}).get("macAddresses", [])
+
+        return MeshAttribute[tuple[str, ...]](tuple(attr), (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def mac_filtering_enabled(self) -> MeshAttribute[bool | None]:
+        """Return if MAC filtering is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="mac_filtering_enabled",
+        )
+
+        attr: bool = self.__values.get(cap_name, {}).get("macFilterMode", "").lower() != "disabled"
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def mac_filtering_mode(self) -> MeshAttribute[MacFilteringMode | None]:
+        """Return the MAC filtering mode.
+
+        :return: string containing the filtering mode
+        """
+
+        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="mac_filtering_mode",
+        )
+
+        ret: MacFilteringMode | None = None
+        _mode: str | None = self.__values.get(cap_name, {}).get("macFilterMode")
+        if _mode is not None:
+            ret = MacFilteringMode(_mode)
+
+        return MeshAttribute[MacFilteringMode | None](ret, (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def mlo_state(self) -> MeshAttribute[bool | None]:
+        """Retrieve the state of MLO.
+
+        :return: True if enabled, False if disabled and None if not supported.
+        """
+
+        cap_name: ActionKey = "GET_MLO_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="mlo_state",
+        )
+
+        ret: bool | None = None
+        attr: dict[str, bool] | None = self.__values.get(cap_name)
+        if attr is not None:
+            ret = attr.get("isMLOEnabled")
+
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def night_mode(self) -> MeshAttribute[NightModeState | None]:
+        """Return whether night mode is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_LED_NIGHT_MODE"
+        self.__require_capability(
+            cap_name,
+            attribute_name="night_mode",
+        )
+
+        ret: NightModeState | None = None
+        attr: dict[str, bool | int] | None = self.__values.get(cap_name)
+
+        if attr is not None:
+            if not attr.get("Enable", False):
+                ret = NightModeState.OFF
+            else:
+                if attr.get("StartingTime") == 0 and attr.get("EndingTime") == 24:
+                    ret = NightModeState.ALWAYS
+                elif attr.get("StartingTime") == 20 and attr.get("EndingTime") == 8:
+                    ret = NightModeState.NIGHT_MODE
+
+        return MeshAttribute[NightModeState | None](ret, (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def node_steering_enabled(self) -> MeshAttribute[bool | None]:
+        """Return if node steering is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_TOPOLOGY_OPTIMISATION_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="node_steering_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isNodeSteeringEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def nodes(self) -> tuple[NodeEntity, ...]:
+        """Get the nodes in the mesh.
+
+        The return is sorted in alphabetical order based on node name.
+
+        :return: A tuple of NodeEntity objects
+        """
+        ret: list[NodeEntity] = [node for node in self.__discovered_devices if isinstance(node, NodeEntity)]
+
+        ret = sorted(ret, key=lambda node: str(node.name))
+        return tuple(ret)
+
+    @property
+    def parental_control_enabled(self) -> MeshAttribute[bool | None]:
+        """Get the state of the Parental Control feature.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_PARENTAL_CONTROL_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="parental_control_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isParentalControlEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def scheduled_reboot_enabled(self) -> MeshAttribute[bool | None]:
+        """Get the state of the Scheduled Reboot feature.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_SCHEDULED_REBOOT_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="scheduled_reboot_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isScheduledRebootEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def scheduled_reboot_interval(self) -> MeshAttribute[ScheduledRebootInterval | None]:
+        """Get the interval for the Scheduled Reboot feature.
+
+        :return: value representing the interval
+        """
+
+        cap_name: ActionKey = "GET_SCHEDULED_REBOOT_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="scheduled_reboot_interval",
+        )
+
+        ret: ScheduledRebootInterval | None = None
+        attr: dict[str, Any] = self.__values.get(cap_name, {}).get("rebootInterval")
+        if attr is not None:
+            ret = ScheduledRebootInterval(attr)
+
+        return MeshAttribute[ScheduledRebootInterval | None](ret, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def sip_enabled(self) -> MeshAttribute[bool | None]:
+        """Return whether SIP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_ALG_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="sip_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isSIPEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def speedtest_latest_complete(self) -> MeshAttribute[SpeedtestResult | None]:
+        """Return the most recent completed speedtest result."""
+
+        cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
+        results = self.speedtest_results.value
+
+        latest_result = max(
+            results,
+            key=lambda result: result.timestamp,
+            default=None,
+        )
+
+        return MeshAttribute(latest_result, (AttributeAuditEntry(cap_name, latest_result),))
+
+    @property
+    def speedtest_results(self) -> MeshAttribute[tuple[SpeedtestResult, ...]]:
+        """Return the available speedtest results."""
+
+        cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
+
+        self.__require_capability(
+            cap_name,
+            attribute_name="speedtest_results",
+        )
+
+        raw_results: list[dict[str, Any]] = self.__values.get(cap_name, {}).get("healthCheckResults", [])
+
+        results: list[SpeedtestResult] = []
+
+        for raw_result in raw_results:
+            result = _process_speedtest_results(raw_result)
+            if result is not None:
+                results.append(result)
+
+        ret = tuple(results)
+
+        return MeshAttribute(ret, (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def storage_available(self) -> MeshAttribute[tuple[Mapping[str, Any], ...]]:
+        """Get available shared partitions.
+
+        :return: List of the available storage devices and their properties
+        """
+
+        cap_name: ActionKey = "GET_STORAGE_PARTITIONS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="storage_available",
+        )
+
+        ret: list[dict[str, Any]] = []
+        node: NodeEntity | None
+        device: dict[str, Any]
+        storage_available = self.__values.get(cap_name, {})
+
+        for storage_node in storage_available.get("storageNodes", []):
+            for device in storage_node.get("storageDevices", []):
+                for partition in device.get("partitions", []):
+                    if (
+                        node := next(
+                            (_n for _n in self.nodes if _n.unique_id == storage_node.get("deviceID")),
+                            None,
+                        )
+                    ) is not None:
+                        used_percent: int | None = None
+                        with contextlib.suppress(ZeroDivisionError):
+                            used_percent = round(
+                                (partition.get("usedKB") / partition.get("availableKB")) * 100,
+                                2,
+                            )
+                        ret.append(
+                            {
+                                "available_kb": partition.get("availableKB"),
+                                "ip": next(
+                                    (adapter.ip for adapter in node.adapter_info.value if adapter.ip),
+                                    None,
+                                ),
+                                "label": partition.get("label"),
+                                "last_checked": storage_node.get("timestamp"),
+                                "used_kb": partition.get("usedKB"),
+                                "used_percent": used_percent,
+                            }
+                        )
+
+        return MeshAttribute[tuple[Mapping[str, Any], ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def storage_settings(self) -> MeshAttribute[dict[str, Any]]:
+        """Get the settings for shared partitions.
+
+        :return: dictionary of the storage settings
+        """
+
+        cap_name: ActionKey = "GET_STORAGE_SMB_SERVER"
+        self.__require_capability(
+            cap_name,
+            attribute_name="storage_settings",
+        )
+
+        attr: dict[str, Any] = self.__values.get(cap_name, {})
+
+        return MeshAttribute[dict[str, Any]](
+            {"anonymous_access": attr.get("isAnonymousAccessEnabled")},
+            (AttributeAuditEntry(cap_name, attr),),
+        )
+
+    @property
+    def upnp_enabled(self) -> MeshAttribute[bool | None]:
+        """Return whether UPnP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_UPNP_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="upnp_enabled",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("isUPnPEnabled")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def upnp_allow_change_settings(self) -> MeshAttribute[bool | None]:
+        """Return whether users can change settings when UPnP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_UPNP_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="upnp_allow_change_settings",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("canUsersConfigure")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def upnp_allow_disable_internet(self) -> MeshAttribute[bool | None]:
+        """Return whether users can change disable the Internet when UPnP is enabled.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_UPNP_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="upnp_allow_disable_internet",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("canUsersDisableWANAccess")
+
+        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def wan_dns(self) -> MeshAttribute[tuple[str, ...]]:
+        """Get the WAN DNS servers.
+
+        :return: A list containing the IP addresses of the WAN DNS servers
+        """
+
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="wan_dns",
+        )
+
+        attr: dict[str, Any] = self.__values.get(cap_name, {})
+        ret = [val for key, val in attr.get("wanConnection", {}).items() if key.startswith("dnsServer")]
+
+        return MeshAttribute[tuple[str, ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
+
+    @property
+    def wan_ip(self) -> MeshAttribute[str | None]:
+        """Get the WAN IP address.
+
+        :return: A string containing the IP address for the WAN
+        """
+
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="wan_ip",
+        )
+
+        attr = self.__values.get(cap_name, {}).get("wanConnection", {}).get("ipAddress")
+
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def wan_mac(self) -> MeshAttribute[str | None]:
+        """Get the WAN MAC.
+
+        :return: A string containing the MAC address for the WAN adapter
+        """
+
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="wan_mac",
+        )
+
+        attr = self.__values.get(cap_name, {}).get("macAddress")
+
+        return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def wan_status(self) -> MeshAttribute[bool | None]:
+        """Get the status of the WAN.
+
+        :return: True if connected, False if not
+        """
+
+        cap_name: ActionKey = "GET_WAN_INFO"
+        self.__require_capability(
+            cap_name,
+            attribute_name="wan_status",
+        )
+
+        ret: bool | None = None
+        attr = self.__values.get(cap_name, {}).get("wanStatus")
+        if attr:
+            ret = attr.lower() == "connected"
+
+        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
+    def wps_state(self) -> MeshAttribute[bool | None]:
+        """Return if WPS is enabled or not.
+
+        :return: True if enabled, False otherwise
+        """
+
+        cap_name: ActionKey = "GET_WPS_SERVER_SETTINGS"
+        self.__require_capability(
+            cap_name,
+            attribute_name="wps_state",
+        )
+
+        attr: bool | None = self.__values.get(cap_name, {}).get("enabled")
+        ret: MeshAttribute[bool | None] = MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+        return ret
+
+
 class Mesh:
-    """Representation of the Velop Mesh.
-
-    **All properties are point in time from when the last async_authenticate_and_refresh was executed.**
-
-    If you need live information then call the corresponding method.
-    """
+    """Representation of the Velop Mesh."""
 
     # set the default capabilities, these should be set for capabilities that are used early (typically without auth requirements)
     # and for those capabilities where multiple implemented versions exist.
@@ -560,27 +1412,27 @@ class Mesh:
         :param username: username to use; default admin
         """
 
+        self._capabilities: Mapping[ActionKey, MeshCapability] = copy.deepcopy(type(self)._BOOTSTRAP_CAPABILITIES)
         self._disable_redaction: bool = disable_redaction
-        self._initialise_executed: bool = False
-        self._last_gather_details: dict[str, float] = {}
-        self._mesh_attributes: dict[ActionKey, Any] = {}
-        self._mesh_entities: list[DeviceEntity | NodeEntity] = []
+        self._last_snapshot: MeshSnapshot | None = None
         self._password: str = password
-        _session: ClientSession = session if session is not None else self.__create_session()
-        self._mesh_details: MeshDetails = MeshDetails(
+        self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
+
+        __session: ClientSession = session if session is not None else self.__create_session()
+        self.__mesh_details: MeshDetails = MeshDetails(
             host=node,
             redact=not disable_redaction,
             request_timeout=request_timeout,
-            session=_session,
+            session=__session,
             supplementary_redactions=supplementary_redactions,
             user=username,
         )
 
-        self._capabilities: Mapping[ActionKey, MeshCapability] = copy.deepcopy(type(self)._BOOTSTRAP_CAPABILITIES)
         for cap in self._capabilities.values():
-            cap.set_mesh_details(self._mesh_details)
+            cap.set_mesh_details(self.__mesh_details)
 
-        self._supplementary_redactions: dict[str, set[str]] | None = supplementary_redactions
+        self.__initialise_executed: bool = False
+        self.__last_gather_details: dict[str, float] = {}
         self.__passed_session: bool = isinstance(session, ClientSession)
 
         _LOGGER.debug(
@@ -595,8 +1447,8 @@ class Mesh:
         )
         _LOGGER.debug(
             "initialised mesh for %s with request timeout %ss",
-            self._mesh_details.host,
-            self._mesh_details.request_timeout,
+            self.__mesh_details.host,
+            self.__mesh_details.request_timeout,
         )
 
     async def __aenter__(self) -> Self:
@@ -617,7 +1469,7 @@ class Mesh:
 
         :return: Uses the class name and the node we're connected to for the representation
         """
-        return f"{self.__class__.__name__}: {self._mesh_details.host}"
+        return f"{self.__class__.__name__}: {self.__mesh_details.host}"
 
     def __create_session(self) -> ClientSession:
         """Initialise a session and ensure that errors are raised based on the HTTP status codes."""
@@ -688,7 +1540,7 @@ class Mesh:
             # entity_data will be used to store all the information needed to build the appropriate MeshEntity object.
             entity_data: dict[str, Any] = {}
             # stamp the gather time into each entity
-            entity_data[EntityDataProperties.RESULTS_TIME] = self._last_gather_details.get(
+            entity_data[EntityDataProperties.RESULTS_TIME] = self.__last_gather_details.get(
                 ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_START.value
             )
             # all details as per the API response get added
@@ -903,31 +1755,7 @@ class Mesh:
         """Stamp the time into the tracking object."""
 
         if enabled:
-            self._last_gather_details[name.value] = time.time()
-
-    def _process_speedtest_results(self, results: dict[str, Any]) -> SpeedtestResult:
-        """Build a SpeedtestResult object from the provisded results."""
-
-        if "speedTestResult" not in results:
-            raise ValueError
-
-        result_set: dict[str, Any] = results.get("speedTestResult", {})
-        props: dict[str, Any] = {
-            "download_bandwidth": result_set.get("downloadBandwidth"),
-            "exit_code": SpeedtestExitCode(
-                result_set.get("exitCode") if result_set.get("exitCode") != "Unavailable" else "NotAvailable"
-            ),
-            "latency": result_set.get("latency"),
-            "result_id": result_set.get("resultID"),
-            "server_id": result_set.get("serverID"),
-            "timestamp": (
-                dt.datetime.fromisoformat(results.get("timestamp", ""))
-                if results.get("timestamp") is not None
-                else dt.datetime.min.replace(tzinfo=dt.UTC)
-            ),
-            "upload_bandwidth": result_set.get("uploadBandwidth"),
-        }
-        return SpeedtestResult(**props)
+            self.__last_gather_details[name.value] = time.time()
 
     def _remediate_mesh_entities(
         self, track_time: bool, entity_details: list[DeviceEntity | NodeEntity]
@@ -1070,6 +1898,142 @@ class Mesh:
                 node.append(cap)
 
         return CapabilityScopedGroups(tuple(mesh), tuple(node))
+
+    async def _async_detect_capabilities(self) -> None:
+        """Attempt to detect the capabilities of the Mesh.
+
+        This will read the services from the mesh and then build up the available capabilities.
+        """
+        bootstrap_capability: MeshCapability = self._get_capability("GET_DEVICE_INFO")
+        device_info: JnapResponseSingle = await bootstrap_capability.async_execute()
+        services: list[str] = [service for service in device_info.get("services", []) if isinstance(service, str)]
+
+        detected: dict[ActionKey, MeshCapability] = {}
+        for service_base, service_versions in self._group_sort_services(services).items():
+            actions: tuple[ActionDefinition, ...] = _ACTION_BY_SERVICE.get(service_base, ())
+            for action in actions:
+                default_capability: MeshCapability | None = self._capabilities.get(action.key)
+                implemented_versions: tuple[int, ...] = (
+                    default_capability.implemented_versions if default_capability is not None else (1,)
+                )
+                capability = self._capabilities.get(action.key)
+                if capability is None:
+                    capability = MeshCapability(
+                        action,
+                        self.__mesh_details,
+                        implemented_versions=implemented_versions,
+                    )
+                capability.service_versions = service_versions
+                detected[action.key] = capability
+
+        transaction = self._find_capability(Actions.TRANSACTION.key) or MeshCapability(
+            Actions.TRANSACTION, self.__mesh_details
+        )
+        detected.setdefault(transaction.action_definition.key, transaction)
+
+        self._capabilities = detected
+
+        self.__mesh_details.password = self._password
+        await self.async_test_credentials()
+
+        speedtest_capability: MeshCapability | None = self._find_capability("GET_SPEEDTEST_TYPES")
+        if speedtest_capability is not None:
+            speedtest_info: JnapResponseSingle = await speedtest_capability.async_execute()
+            healthcheck_modules: set[str] = {
+                module for module in speedtest_info.get("supportedHealthCheckModules", []) if isinstance(module, str)
+            }
+            if "SpeedTest" not in healthcheck_modules:
+                for act in (
+                    action
+                    for action in Actions.values()
+                    if action.features is not None and ActionFeatures.SPEEDTEST in action.features
+                ):
+                    cap = self._find_capability(act.key)
+                    if cap is not None:
+                        cap.mark_as_invalid()
+
+        wan_capability: MeshCapability | None = self._find_capability("GET_WAN_INFO")
+        if wan_capability is not None:
+            wan_info: JnapResponseSingle = await wan_capability.async_execute()
+            if wan_info.get("detectedWANType", "").lower() == "bridge":
+                for act in (
+                    action
+                    for action in Actions.values()
+                    if action.features is not None and ActionFeatures.PARENTAL_CONTROL in action.features
+                ):
+                    cap = self._find_capability(act.key)
+                    if cap is not None:
+                        cap.mark_as_invalid()
+
+    async def _async_gather_details(
+        self, required_capabilities: Iterable[MeshCapability] | None = None
+    ) -> dict[ActionKey, Any]:
+        """Retrieve all the details for the specified capabilities."""
+
+        ret_mesh_details: dict[ActionKey, Any] = {}
+        previous_primary_node: NodeEntity | None = None
+        track_time: bool = False
+        if required_capabilities:
+            required_capabilities = tuple(required_capabilities)
+        else:
+            snapshot = self._last_snapshot
+            if snapshot is not None:
+                previous_primary_node = next(
+                    (
+                        node
+                        for node in snapshot.nodes
+                        if self._last_snapshot is not None and node.type == NodeType.PRIMARY
+                    ),
+                    None,
+                )
+
+            track_time = True
+            required_capabilities = (
+                cap for cap in self._capabilities.values() if cap.action_definition.purpose == ActionPurpose.GET
+            )
+
+        capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(required_capabilities)
+
+        # region #-- gather the details for the mesh scoped capabilities --#
+        mesh_details: dict[ActionKey, Any] = await self._async_gather_mesh_details(
+            track_time, capability_scope_groups.mesh
+        )
+        ret_mesh_details.update(mesh_details)
+        # endregion
+
+        # region #-- action per node requests --#
+        nodes: list[dict[str, str]] = self._get_nodes_from_raw(ret_mesh_details)
+        node_details: dict[ActionKey, Any] = await self._async_gather_node_details(
+            track_time, nodes, capability_scope_groups.node
+        )
+        ret_mesh_details.update(node_details)
+        # endregion
+
+        # region #-- check if we need to reset capability validity --#
+        # this is based on either a reboot or firmware version change.
+        if previous_primary_node is not None:
+            current_primary_node: NodeEntity | None = next(
+                (
+                    device
+                    for device in self._build_mesh_entities(False, ret_mesh_details)
+                    if isinstance(device, NodeEntity) and device.type == NodeType.PRIMARY
+                ),
+                None,
+            )
+            if current_primary_node is not None:
+                _LOGGER_VERBOSE.debug("determining if capabilities need revalidating")
+                current_uptime: int = current_primary_node.uptime.value or 0
+                current_firmware: str = current_primary_node.firmware.value.get("version", "")
+                previous_uptime: int = previous_primary_node.uptime.value or 0
+                previous_firmware: str = previous_primary_node.firmware.value.get("version", "")
+
+                if current_uptime < previous_uptime or current_firmware != previous_firmware:
+                    self._reset_capability_validity()
+                else:
+                    _LOGGER_VERBOSE.debug("no revalidation required")
+        # endregion
+
+        return ret_mesh_details
 
     async def _async_gather_mesh_details(
         self, track_time: bool, capabilities: Iterable[MeshCapability]
@@ -1216,7 +2180,7 @@ class Mesh:
         ret: list[SpeedtestResult] = []
         for raw_result in raw_results:
             try:
-                result = self._process_speedtest_results(raw_result)
+                result = _process_speedtest_results(raw_result)
             except ValueError:
                 pass
             else:
@@ -1224,7 +2188,7 @@ class Mesh:
 
         return ret
 
-    async def async_authenticate_and_refresh(self) -> None:
+    async def async_authenticate_and_refresh(self) -> MeshSnapshot:
         """Test credentials and refresh the data.
 
         Probes for capabilities, attempts login and retrieves details for the discovered capabilities.
@@ -1235,27 +2199,21 @@ class Mesh:
         :raises MeshNodeNotPrimary: The specified node reports that it is not the primary node.
         """
 
-        # region #-- check that we're pointing to the primary node --#
+        # check that we're pointing to the primary node
         cap = self._get_capability("GET_DEVICE_MODE")
         resp: JnapResponseSingle = await cap.async_execute()
         if resp.get("mode", "").lower() != "master":
             raise MeshNodeNotPrimary
-        # endregion
 
-        # region #-- detect available capabilities --#
-        await self.async_detect_capabilities()
-        # endregion
+        # detect available capabilities
+        await self._async_detect_capabilities()
 
-        # flag here so that async_gather_details will run
-        self._initialise_executed = True
+        # set the flag so that the refresh will work as expected
+        self.__initialise_executed = True
 
-        # region #-- retrieve mesh data and prepare the mesh entities --#
-        self._mesh_attributes = await self.async_gather_details()
-        ret_mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, self._mesh_attributes)
-        _remediated_devices: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(True, ret_mesh_entities)
-        self._mesh_entities = _remediated_devices
-        # endregion
+        return await self.async_refresh()
 
+    @needs_auth_and_refresh
     async def async_check_for_updates(self) -> None:
         """Ask the mesh to look for new versions of firmware for the nodes.
 
@@ -1271,144 +2229,17 @@ class Mesh:
     async def async_close(self) -> None:
         """Close the session to the mesh."""
         if not self.__passed_session:
-            await self._mesh_details.session.close()
+            await self.__mesh_details.session.close()
 
+    @needs_auth_and_refresh
     async def async_clear_speedtest_results(self) -> None:
         """Clear the speedtest results."""
 
         cap: MeshCapability = self._get_capability("CLEAR_SPEEDTEST_RESULTS")
         await cap.async_execute()
 
-    async def async_detect_capabilities(self) -> None:
-        """Attempt to detect the capabilities of the Mesh.
-
-        This will read the services from the mesh and then build up the available capabilities.
-
-        :return: capability keys for the mesh.
-        """
-        bootstrap_capability: MeshCapability = self._get_capability("GET_DEVICE_INFO")
-        device_info: JnapResponseSingle = await bootstrap_capability.async_execute()
-        services: list[str] = [service for service in device_info.get("services", []) if isinstance(service, str)]
-
-        detected: dict[ActionKey, MeshCapability] = {}
-        for service_base, service_versions in self._group_sort_services(services).items():
-            actions: tuple[ActionDefinition, ...] = _ACTION_BY_SERVICE.get(service_base, ())
-            for action in actions:
-                default_capability: MeshCapability | None = self._capabilities.get(action.key)
-                implemented_versions: tuple[int, ...] = (
-                    default_capability.implemented_versions if default_capability is not None else (1,)
-                )
-                capability = self._capabilities.get(action.key)
-                if capability is None:
-                    capability = MeshCapability(
-                        action,
-                        self._mesh_details,
-                        implemented_versions=implemented_versions,
-                    )
-                capability.service_versions = service_versions
-                detected[action.key] = capability
-
-        transaction = self._find_capability(Actions.TRANSACTION.key) or MeshCapability(
-            Actions.TRANSACTION, self._mesh_details
-        )
-        detected.setdefault(transaction.action_definition.key, transaction)
-
-        self._capabilities = detected
-
-        self._mesh_details.password = self._password
-        await self.async_test_credentials()
-
-        speedtest_capability: MeshCapability | None = self._find_capability("GET_SPEEDTEST_TYPES")
-        if speedtest_capability is not None:
-            speedtest_info: JnapResponseSingle = await speedtest_capability.async_execute()
-            healthcheck_modules: set[str] = {
-                module for module in speedtest_info.get("supportedHealthCheckModules", []) if isinstance(module, str)
-            }
-            if "SpeedTest" not in healthcheck_modules:
-                for act in (
-                    action
-                    for action in Actions.values()
-                    if action.features is not None and ActionFeatures.SPEEDTEST in action.features
-                ):
-                    cap = self._find_capability(act.key)
-                    if cap is not None:
-                        cap.mark_as_invalid()
-
-        wan_capability: MeshCapability | None = self._find_capability("GET_WAN_INFO")
-        if wan_capability is not None:
-            wan_info: JnapResponseSingle = await wan_capability.async_execute()
-            if wan_info.get("detectedWANType", "").lower() == "bridge":
-                for act in (
-                    action
-                    for action in Actions.values()
-                    if action.features is not None and ActionFeatures.PARENTAL_CONTROL in action.features
-                ):
-                    cap = self._find_capability(act.key)
-                    if cap is not None:
-                        cap.mark_as_invalid()
-
     @needs_auth_and_refresh
-    async def async_gather_details(
-        self, required_capabilities: Iterable[MeshCapability] | None = None
-    ) -> dict[ActionKey, Any]:
-        """Retrieve all the details for the specified capabilities."""
-
-        ret_mesh_details: dict[ActionKey, Any] = {}
-        previous_primary_node: NodeEntity | None = None
-        track_time: bool = False
-        if required_capabilities:
-            required_capabilities = tuple(required_capabilities)
-        else:
-            previous_primary_node = next((node for node in self.nodes if node.type == NodeType.PRIMARY), None)
-            track_time = True
-            required_capabilities = (
-                cap for cap in self._capabilities.values() if cap.action_definition.purpose == ActionPurpose.GET
-            )
-
-        capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(required_capabilities)
-
-        # region #-- gather the details for the mesh scoped capabilities --#
-        mesh_details: dict[ActionKey, Any] = await self._async_gather_mesh_details(
-            track_time, capability_scope_groups.mesh
-        )
-        ret_mesh_details.update(mesh_details)
-        # endregion
-
-        # region #-- action per node requests --#
-        nodes: list[dict[str, str]] = self._get_nodes_from_raw(ret_mesh_details)
-        node_details: dict[ActionKey, Any] = await self._async_gather_node_details(
-            track_time, nodes, capability_scope_groups.node
-        )
-        ret_mesh_details.update(node_details)
-        # endregion
-
-        # region #-- check if we need to reset capability validity --#
-        # this is based on either a reboot or firmware version change.
-        if previous_primary_node is not None:
-            current_primary_node: NodeEntity | None = next(
-                (
-                    device
-                    for device in self._build_mesh_entities(False, ret_mesh_details)
-                    if isinstance(device, NodeEntity) and device.type == NodeType.PRIMARY
-                ),
-                None,
-            )
-            if current_primary_node is not None:
-                _LOGGER_VERBOSE.debug("determining if capabilities need revalidating")
-                current_uptime: int = current_primary_node.uptime.value or 0
-                current_firmware: str = current_primary_node.firmware.value.get("version", "")
-                previous_uptime: int = previous_primary_node.uptime.value or 0
-                previous_firmware: str = previous_primary_node.firmware.value.get("version", "")
-
-                if current_uptime < previous_uptime or current_firmware != previous_firmware:
-                    self._reset_capability_validity()
-                else:
-                    _LOGGER_VERBOSE.debug("no revalidation required")
-        # endregion
-
-        return ret_mesh_details
-
-    async def async_get_channel_scan_info(self) -> dict[str, Any]:
+    async def async_get_channel_scan_info(self) -> MappingProxyType[str, Any]:
         """Get the current state of the channel scan.
 
         :return: dictionary containing the channel scan results
@@ -1417,14 +2248,13 @@ class Mesh:
         cap: MeshCapability = self._get_capability("GET_CHANNEL_SCAN_STATUS")
         ret: JnapResponseSingle = await cap.async_execute()
 
-        return ret
+        return MappingProxyType(ret)
 
     @needs_auth_and_refresh
     async def async_get_devices(
         self,
         identity: tuple[str, ...] | None = None,
         *,
-        force_refresh: bool = False,
         raise_for_missing: bool = True,
     ) -> tuple[DeviceEntity, ...]:
         """Get matching devices if identity is specified, or all devices.
@@ -1432,25 +2262,22 @@ class Mesh:
         To be used only if needing to query devices and get the details returned.
         Returns the devices in alphabetical order based on the name.
 
-        :return: List of device objects
+        :return: Device objects
         """
 
         all_devices: list[DeviceEntity] = []
         ret: list[DeviceEntity] = []
 
-        if force_refresh:
-            device_capabilities: set[MeshCapability] = {
-                cap
-                for cap in self._capabilities.values()
-                if cap.action_definition.features is not None
-                and ActionFeatures.DEVICE_INFO in cap.action_definition.features
-            }
-            device_details: dict[ActionKey, Any] = await self.async_gather_details(device_capabilities)
-            device_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(False, device_details)
-            device_entities: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(False, device_entities)
-            all_devices = [dev for dev in device_entities if isinstance(dev, DeviceEntity)]
-        else:
-            all_devices = list(self.devices)
+        device_capabilities: set[MeshCapability] = {
+            cap
+            for cap in self._capabilities.values()
+            if cap.action_definition.features is not None
+            and ActionFeatures.DEVICE_INFO in cap.action_definition.features
+        }
+        device_details: dict[ActionKey, Any] = await self._async_gather_details(device_capabilities)
+        device_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(False, device_details)
+        device_entities: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(False, device_entities)
+        all_devices = [dev for dev in device_entities if isinstance(dev, DeviceEntity)]
 
         if identity is None:
             ret = all_devices
@@ -1557,10 +2384,11 @@ class Mesh:
         cap: MeshCapability = self._get_capability("GET_SPEEDTEST_STATUS")
         result: JnapResponseSingle = await cap.async_execute()
         with contextlib.suppress(ValueError):
-            ret = self._process_speedtest_results(result)
+            ret = _process_speedtest_results(result)
 
         return ret
 
+    @needs_auth_and_refresh
     async def async_get_update_state(self) -> bool:
         """Get the state of the running check for updates.
 
@@ -1576,7 +2404,8 @@ class Mesh:
 
         return ret
 
-    async def async_get_upnp_state(self) -> dict[str, bool]:
+    @needs_auth_and_refresh
+    async def async_get_upnp_state(self) -> MappingProxyType[str, bool]:
         """Retrieve the current state of UPnP.
 
         :return: dictionary containing information about the state of UPnP functionality
@@ -1585,7 +2414,7 @@ class Mesh:
         cap: MeshCapability = self._get_capability("GET_UPNP_SETTINGS")
         ret: JnapResponseSingle = await cap.async_execute()
 
-        return ret
+        return MappingProxyType(ret)
 
     async def async_ping(self) -> str | None:
         """Test to see if the mesh is reachable.
@@ -1597,8 +2426,8 @@ class Mesh:
         with contextlib.suppress(
             TimeoutError, asyncio.TimeoutError, aiohttp.ClientConnectionError, aiohttp.ClientConnectorError
         ):
-            resp = await self._mesh_details.session.head(
-                api.jnap_url(self._mesh_details.host),
+            resp = await self.__mesh_details.session.head(
+                api.jnap_url(self.__mesh_details.host),
                 raise_for_status=False,
                 timeout=2,  # pyright:ignore[reportArgumentType] if float is passed it's classed as total
             )
@@ -1609,16 +2438,22 @@ class Mesh:
 
         return ret
 
+    @needs_auth_and_refresh
     async def async_reboot_mesh(self, wait: bool = False) -> None:
         """Reboot the mesh.
 
         :param wait: `True` to wait for the reboot process to complete.
         """
 
-        found_node: NodeEntity | None = next(
-            (node for node in self.nodes if node.type == NodeType.PRIMARY),
-            None,
-        )
+        snapshot = self._last_snapshot
+        if snapshot is None:
+            raise MeshDeviceNotFoundResponse
+
+        found_node = None
+        for node in snapshot.nodes:
+            if node.type == NodeType.PRIMARY:
+                found_node = node
+                break
 
         if found_node is None:
             raise MeshDeviceNotFoundResponse
@@ -1626,14 +2461,19 @@ class Mesh:
         await found_node.async_reboot(force=True, wait=wait)
 
     @needs_auth_and_refresh
-    async def async_refresh(self) -> None:
+    async def async_refresh(self) -> MeshSnapshot:
         """Refresh the details after the initial gather."""
 
-        self._mesh_attributes = await self.async_gather_details()
-        ret_mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, self._mesh_attributes)
-        _remediated_devices: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(True, ret_mesh_entities)
-        self._mesh_entities = _remediated_devices
+        mesh_details: dict[ActionKey, Any] = await self._async_gather_details()
+        mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, mesh_details)
+        mesh_entities = self._remediate_mesh_entities(True, mesh_entities)
+        self._last_snapshot = MeshSnapshot(
+            self._capabilities, mesh_details, tuple(mesh_entities), self.__last_gather_details
+        )
 
+        return self._last_snapshot
+
+    @needs_auth_and_refresh
     async def async_set_guest_wifi_state(self, state: bool) -> None:
         """Set the state of the guest Wi-Fi.
 
@@ -1660,6 +2500,7 @@ class Mesh:
         cap = self._get_capability("SET_GUEST_NETWORK")
         await cap.async_execute(payload=payload)
 
+    @needs_auth_and_refresh
     async def async_set_homekit_state(self, state: bool) -> None:
         """Set the state of the HomeKit feature.
 
@@ -1669,6 +2510,7 @@ class Mesh:
         cap: MeshCapability = self._get_capability("SET_HOMEKIT_SETTINGS")
         await cap.async_execute(payload={"isEnabled": state})
 
+    @needs_auth_and_refresh
     async def async_set_night_mode_state(self, state: NightModeState) -> None:
         """Set the state of the the night mode functionality.
 
@@ -1689,6 +2531,7 @@ class Mesh:
         cap: MeshCapability = self._get_capability("SET_LED_NIGHT_MODE")
         await cap.async_execute(payload=payload)
 
+    @needs_auth_and_refresh
     async def async_set_parental_control_state(self, state: bool) -> None:
         """Set the state of the Parental Control feature. Rules are left intact.
 
@@ -1706,6 +2549,7 @@ class Mesh:
         cap = self._get_capability("SET_PARENTAL_CONTROL_INFO")
         await cap.async_execute(payload=payload)
 
+    @needs_auth_and_refresh
     async def async_set_scheduled_reboot_interval(self, interval: ScheduledRebootInterval) -> None:
         """Set the reboot interval for the Scheduled Reboot feature and enable it.
 
@@ -1719,6 +2563,7 @@ class Mesh:
         cap: MeshCapability = self._get_capability("SET_SCHEDULED_REBOOT_SETTINGS")
         await cap.async_execute(payload=payload)
 
+    @needs_auth_and_refresh
     async def async_set_scheduled_reboot_state(self, state: bool) -> None:
         """Set the state of the Scheduled Reboot feature. Interval is left intact.
 
@@ -1742,6 +2587,7 @@ class Mesh:
         cap = self._get_capability("SET_SCHEDULED_REBOOT_SETTINGS")
         await cap.async_execute(payload=payload)
 
+    @needs_auth_and_refresh
     async def async_set_upnp_settings(
         self, enabled: bool, allow_change_settings: bool, allow_disable_internet: bool
     ) -> None:
@@ -1760,6 +2606,7 @@ class Mesh:
         cap: MeshCapability = self._get_capability("SET_UPNP_SETTINGS")
         await cap.async_execute(payload=payload)
 
+    @needs_auth_and_refresh
     async def async_set_wps_state(self, state: bool) -> None:
         """Set the state of the WPS feature.
 
@@ -1770,6 +2617,7 @@ class Mesh:
         cap: MeshCapability = self._get_capability("SET_WPS_SERVER_SETTINGS")
         await cap.async_execute(payload=payload)
 
+    @needs_auth_and_refresh
     async def async_start_channel_scan(self) -> None:
         """Start a channel scan on the mesh."""
 
@@ -1897,824 +2745,13 @@ class Mesh:
         return ret
 
     @property
-    @needs_auth_and_refresh
-    def capabilities(self) -> tuple[Mapping[str, Any], ...]:
-        """Get the list of capabilities that the Mesh supports.
+    def latest_snapshot(self) -> MeshSnapshot | None:
+        """Return the latest snapshot information.
 
-        :return: mesh capabilities
+        This is a convienience property because the data is also returned by the 2 methods
+        that can be used to retrieve data.
+
+        :return: `MeshSnapshot` object.
         """
 
-        ret: list[MappingProxyType[str, Any]] = []
-        for cap_key, cap in sorted(
-            self._capabilities.items(),
-            key=lambda item: item[0],
-        ):
-            ret.append(
-                MappingProxyType(
-                    {
-                        "key": cap_key,
-                        "action_version": cap.action_version,
-                        "fallback_action": cap.is_fallback_action,
-                        "fallback_service": cap.is_fallback_service,
-                        "is_valid": cap.is_valid,
-                    }
-                )
-            )
-
-        return tuple(ret)
-
-    @property
-    @needs_auth_and_refresh
-    def check_for_update_status(self) -> MeshAttribute[bool | None]:
-        """Get the state of checking for an update as at the last time details were gathered.
-
-        If you need the live state then use the async_get_update_state to re-query the API.
-
-        :return: True if checking
-        """
-
-        cap_name: ActionKey = "GET_UPDATE_FIRMWARE_STATE"
-        self._require_capability(
-            cap_name,
-            attribute_name="check_for_update_status",
-        )
-
-        node_results: list[dict[str, Any]] = self._mesh_attributes.get(cap_name, {}).get("firmwareUpdateStatus", [])
-
-        all_states = ["pendingOperation" in node for node in node_results]
-        ret: bool = any(all_states)
-
-        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def client_steering_enabled(self) -> MeshAttribute[bool | None]:
-        """Return if client steering is enabled.
-
-        :return: True if enabled, False otherwise.
-        """
-
-        cap_name: ActionKey = "GET_TOPOLOGY_OPTIMISATION_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="client_steering_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isClientSteeringEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    def connected_node(self) -> str:
-        """Get the node in the mesh that we are connected to.
-
-        :return: A string containing the node IP address
-        """
-        return self._mesh_details.host
-
-    @property
-    @needs_auth_and_refresh
-    def devices(self) -> tuple[DeviceEntity, ...]:
-        """Get the devices in the mesh.
-
-        The list will be returned in alphabetical order based on the device name.
-        N.B. this will not include the nodes.
-
-        :return: A list containing Device objects
-        """
-        ret: list[DeviceEntity] = [device for device in self._mesh_entities if isinstance(device, DeviceEntity)]
-        ret = sorted(ret, key=lambda device: str(device.name))
-        return tuple(ret)
-
-    @property
-    @needs_auth_and_refresh
-    def dhcp_enabled(self) -> MeshAttribute[bool | None]:
-        """Return if DHCP is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_LAN_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="dhcp_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isDHCPEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def dhcp_reservations(self) -> MeshAttribute[list[dict[str, str]]]:
-        """Return the DHCP reservations.
-
-        :return: list of DHCP reservation details
-        """
-
-        cap_name: ActionKey = "GET_LAN_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="dhcp_reservations",
-        )
-
-        ret: list[dict[str, str]] = []
-        temp_dict: dict[str, str] = {}
-
-        all_reservations: list[dict[str, Any]] = (
-            self._mesh_attributes.get(cap_name, {}).get("dhcpSettings", {}).get("reservations", [])
-        )
-
-        for reservation in all_reservations:
-            temp_dict = {}
-            for key, details in reservation.items():
-                temp_dict[camel_to_snake(key)] = details
-            ret.append(temp_dict)
-
-        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def express_forwarding_enabled(self) -> MeshAttribute[bool | None]:
-        """Return whether Express Forwarding is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_EXPRESS_FORWARDING"
-        self._require_capability(
-            cap_name,
-            attribute_name="express_forwarding_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isExpressForwardingEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def express_forwarding_supported(self) -> MeshAttribute[bool | None]:
-        """Return whether Express Forwarding is supported.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_EXPRESS_FORWARDING"
-        self._require_capability(
-            cap_name,
-            attribute_name="express_forwarding_supported",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isExpressForwardingSupported")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def firmware_update_setting(self) -> MeshAttribute[FirmwareUpdatePolicy | None]:
-        """Get the current setting for firmware updates.
-
-        :return: Policy used for updating firmware on the Mesh.
-        """
-
-        cap_name: ActionKey = "GET_UPDATE_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="firmware_update_setting",
-        )
-
-        ret: FirmwareUpdatePolicy | None = None
-        attr: str | None = self._mesh_attributes.get(cap_name, {}).get("updatePolicy")
-        if attr is not None:
-            ret = FirmwareUpdatePolicy(attr)
-
-        return MeshAttribute[FirmwareUpdatePolicy | None](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def guest_wifi_enabled(self) -> MeshAttribute[bool | None]:
-        """Get the state of the guest Wi-Fi.
-
-        :return: True if enabled
-        """
-
-        cap_name: ActionKey = "GET_GUEST_NETWORK_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="guest_wifi_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isGuestNetworkEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def guest_wifi_details(self) -> MeshAttribute[list[dict[str, str]]]:
-        """Get the guest network Wi-Fi details.
-
-        :return: A list of dictionaries containing the SSID and band for the networks
-        """
-
-        cap_name: ActionKey = "GET_GUEST_NETWORK_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="guest_wifi_details",
-        )
-
-        radios: list[dict[str, str | bool]] = self._mesh_attributes.get(cap_name, {}).get("radios", [])
-
-        ret: list[dict[str, str]] = [
-            {
-                "ssid": cast(str, radio.get("guestSSID")),
-                "band": cast(str, radio.get("radioID", "")).split("_")[-1],
-            }
-            for radio in radios
-        ]
-        return MeshAttribute[list[dict[str, str]]](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    def has_initialised(self) -> bool:
-        """Return whether the mesh has been initialised or not.
-
-        Initialising allows establishing the capabilities that are available as
-        well as populating the necessary details for immediate use.
-
-        :return: True if the mesh has been initialise, False otherwise
-        """
-
-        return self._initialise_executed
-
-    @property
-    @needs_auth_and_refresh
-    def homekit_enabled(self) -> MeshAttribute[bool | None]:
-        """Return if the HomeKit integration is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_HOMEKIT_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="homekit_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def homekit_paired(self) -> MeshAttribute[bool | None]:
-        """Return if the HomeKit integration is paired.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_HOMEKIT_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="homekit_paired",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isPaired")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def is_channel_scan_running(self) -> MeshAttribute[bool | None]:
-        """Get the current state of channel scanning.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_CHANNEL_SCAN_STATUS"
-        self._require_capability(
-            cap_name,
-            attribute_name="is_channel_scan_running",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isRunning")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def is_in_bridge_mode(self) -> MeshAttribute[bool | None]:
-        """Return whether the mesh is in bridge mode or not."""
-
-        cap_name: ActionKey = "GET_WAN_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="is_in_bridge_mode",
-        )
-
-        attr: bool = self._mesh_attributes.get(cap_name, {}).get("detectedWANType", "").lower() == "bridge"
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    def last_gather_details(self) -> list[tuple[str, float]]:
-        """Return some timings about when the details were gathered.
-
-        All times are epoch and are approximate.
-        """
-
-        ret: list[tuple[str, float]] = list(self._last_gather_details.items())
-        ret = sorted(ret, key=lambda itm: itm[1])
-        return ret
-
-    @property
-    @needs_auth_and_refresh
-    def mac_filtering_addresses(self) -> MeshAttribute[list[str]]:
-        """Get addresses that are configured for MAC filtering.
-
-        :return: list of MAC addresses
-        """
-
-        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="mac_filtering_addresses",
-        )
-
-        attr: list[str] = self._mesh_attributes.get(cap_name, {}).get("macAddresses", [])
-
-        return MeshAttribute[list[str]](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def mac_filtering_enabled(self) -> MeshAttribute[bool | None]:
-        """Return if MAC filtering is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="mac_filtering_enabled",
-        )
-
-        attr: bool = self._mesh_attributes.get(cap_name, {}).get("macFilterMode", "").lower() != "disabled"
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def mac_filtering_mode(self) -> MeshAttribute[MacFilteringMode | None]:
-        """Return the MAC filtering mode.
-
-        :return: string containing the filtering mode
-        """
-
-        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="mac_filtering_mode",
-        )
-
-        ret: MacFilteringMode | None = None
-        _mode: str | None = self._mesh_attributes.get(cap_name, {}).get("macFilterMode")
-        if _mode is not None:
-            ret = MacFilteringMode(_mode)
-
-        return MeshAttribute[MacFilteringMode | None](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def mlo_state(self) -> MeshAttribute[bool | None]:
-        """Retrieve the state of MLO.
-
-        :return: True if enabled, False if disabled and None if not supported.
-        """
-
-        cap_name: ActionKey = "GET_MLO_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="mlo_state",
-        )
-
-        ret: bool | None = None
-        attr: dict[str, bool] | None = self._mesh_attributes.get(cap_name)
-        if attr is not None:
-            ret = attr.get("isMLOEnabled")
-
-        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def night_mode(self) -> MeshAttribute[NightModeState | None]:
-        """Return whether night mode is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_LED_NIGHT_MODE"
-        self._require_capability(
-            cap_name,
-            attribute_name="night_mode",
-        )
-
-        ret: NightModeState | None = None
-        attr: dict[str, bool | int] | None = self._mesh_attributes.get(cap_name)
-
-        if attr is not None:
-            if not attr.get("Enable", False):
-                ret = NightModeState.OFF
-            else:
-                if attr.get("StartingTime") == 0 and attr.get("EndingTime") == 24:
-                    ret = NightModeState.ALWAYS
-                elif attr.get("StartingTime") == 20 and attr.get("EndingTime") == 8:
-                    ret = NightModeState.NIGHT_MODE
-
-        return MeshAttribute[NightModeState | None](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def node_steering_enabled(self) -> MeshAttribute[bool | None]:
-        """Return if node steering is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_TOPOLOGY_OPTIMISATION_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="node_steering_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isNodeSteeringEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def nodes(self) -> tuple[NodeEntity, ...]:
-        """Get the nodes in the mesh.
-
-        The return is sorted in alphabetical order based on node name.
-
-        :return: A tuple of NodeEntity objects
-        """
-        ret: list[NodeEntity] = [node for node in self._mesh_entities if isinstance(node, NodeEntity)]
-
-        ret = sorted(ret, key=lambda node: str(node.name))
-        return tuple(ret)
-
-    @property
-    @needs_auth_and_refresh
-    def parental_control_enabled(self) -> MeshAttribute[bool | None]:
-        """Get the state of the Parental Control feature.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_PARENTAL_CONTROL_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="parental_control_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isParentalControlEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def scheduled_reboot_enabled(self) -> MeshAttribute[bool | None]:
-        """Get the state of the Scheduled Reboot feature.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_SCHEDULED_REBOOT_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="scheduled_reboot_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isScheduledRebootEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def scheduled_reboot_interval(self) -> MeshAttribute[ScheduledRebootInterval | None]:
-        """Get the interval for the Scheduled Reboot feature.
-
-        :return: value representing the interval
-        """
-
-        cap_name: ActionKey = "GET_SCHEDULED_REBOOT_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="scheduled_reboot_interval",
-        )
-
-        ret: ScheduledRebootInterval | None = None
-        attr: dict[str, Any] = self._mesh_attributes.get(cap_name, {}).get("rebootInterval")
-        if attr is not None:
-            ret = ScheduledRebootInterval(attr)
-
-        return MeshAttribute[ScheduledRebootInterval | None](ret, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def sip_enabled(self) -> MeshAttribute[bool | None]:
-        """Return whether SIP is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_ALG_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="sip_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isSIPEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def speedtest_latest_complete(
-        self,
-    ) -> MeshAttribute[SpeedtestResult | None]:
-        """Return the most recent completed speedtest result."""
-
-        cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
-        results = self.speedtest_results.value
-
-        latest_result = max(
-            results,
-            key=lambda result: result.timestamp,
-            default=None,
-        )
-
-        return MeshAttribute(latest_result, (AttributeAuditEntry(cap_name, latest_result),))
-
-    @property
-    @needs_auth_and_refresh
-    def speedtest_results(self) -> MeshAttribute[tuple[SpeedtestResult, ...]]:
-        """Return the available speedtest results."""
-
-        cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
-
-        self._require_capability(
-            cap_name,
-            attribute_name="speedtest_results",
-        )
-
-        raw_results: list[dict[str, Any]] = self._mesh_attributes.get(cap_name, {}).get("healthCheckResults", [])
-
-        results: list[SpeedtestResult] = []
-
-        for raw_result in raw_results:
-            result = self._process_speedtest_results(raw_result)
-            if result is not None:
-                results.append(result)
-
-        ret = tuple(results)
-
-        return MeshAttribute(ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def storage_available(self) -> MeshAttribute[list[dict[str, Any]]]:
-        """Get available shared partitions.
-
-        :return: List of the available storage devices and their properties
-        """
-
-        cap_name: ActionKey = "GET_STORAGE_PARTITIONS"
-        self._require_capability(
-            cap_name,
-            attribute_name="storage_available",
-        )
-
-        ret: list[dict[str, Any]] = []
-        node: NodeEntity | None
-        device: dict[str, Any]
-        storage_available = self._mesh_attributes.get(cap_name, {})
-
-        for storage_node in storage_available.get("storageNodes", []):
-            for device in storage_node.get("storageDevices", []):
-                for partition in device.get("partitions", []):
-                    if (
-                        node := next(
-                            (_n for _n in self.nodes if _n.unique_id == storage_node.get("deviceID")),
-                            None,
-                        )
-                    ) is not None:
-                        used_percent: int | None = None
-                        with contextlib.suppress(ZeroDivisionError):
-                            used_percent = round(
-                                (partition.get("usedKB") / partition.get("availableKB")) * 100,
-                                2,
-                            )
-                        ret.append(
-                            {
-                                "available_kb": partition.get("availableKB"),
-                                "ip": next(
-                                    (adapter.ip for adapter in node.adapter_info.value if adapter.ip),
-                                    None,
-                                ),
-                                "label": partition.get("label"),
-                                "last_checked": storage_node.get("timestamp"),
-                                "used_kb": partition.get("usedKB"),
-                                "used_percent": used_percent,
-                            }
-                        )
-
-        return MeshAttribute[list[dict[str, Any]]](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def storage_settings(self) -> MeshAttribute[dict[str, Any]]:
-        """Get the settings for shared partitions.
-
-        :return: dictionary of the storage settings
-        """
-
-        cap_name: ActionKey = "GET_STORAGE_SMB_SERVER"
-        self._require_capability(
-            cap_name,
-            attribute_name="storage_settings",
-        )
-
-        attr: dict[str, Any] = self._mesh_attributes.get(cap_name, {})
-
-        return MeshAttribute[dict[str, Any]](
-            {"anonymous_access": attr.get("isAnonymousAccessEnabled")},
-            (AttributeAuditEntry(cap_name, attr),),
-        )
-
-    @property
-    def timeout(self) -> float:
-        """Get the timeout for API requests.
-
-        :return: the current timeout applied to requests
-        """
-
-        return self._mesh_details.request_timeout
-
-    @timeout.setter
-    def timeout(self, value: float) -> None:
-        """Set the timeout for API requests.
-
-        :param value: value to set for the timeout
-        """
-
-        self._mesh_details.request_timeout = value
-
-    @property
-    @needs_auth_and_refresh
-    def upnp_enabled(self) -> MeshAttribute[bool | None]:
-        """Return whether UPnP is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_UPNP_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="upnp_enabled",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("isUPnPEnabled")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def upnp_allow_change_settings(self) -> MeshAttribute[bool | None]:
-        """Return whether users can change settings when UPnP is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_UPNP_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="upnp_allow_change_settings",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("canUsersConfigure")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def upnp_allow_disable_internet(self) -> MeshAttribute[bool | None]:
-        """Return whether users can change disable the Internet when UPnP is enabled.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_UPNP_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="upnp_allow_disable_internet",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("canUsersDisableWANAccess")
-
-        return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def wan_dns(self) -> MeshAttribute[list[str]]:
-        """Get the WAN DNS servers.
-
-        :return: A list containing the IP addresses of the WAN DNS servers
-        """
-
-        cap_name: ActionKey = "GET_WAN_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="wan_dns",
-        )
-
-        attr: dict[str, Any] = self._mesh_attributes.get(cap_name, {})
-        ret = [val for key, val in attr.get("wanConnection", {}).items() if key.startswith("dnsServer")]
-
-        return MeshAttribute[list[str]](ret, (AttributeAuditEntry(cap_name, ret),))
-
-    @property
-    @needs_auth_and_refresh
-    def wan_ip(self) -> MeshAttribute[str | None]:
-        """Get the WAN IP address.
-
-        :return: A string containing the IP address for the WAN
-        """
-
-        cap_name: ActionKey = "GET_WAN_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="wan_ip",
-        )
-
-        attr = self._mesh_attributes.get(cap_name, {}).get("wanConnection", {}).get("ipAddress")
-
-        return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def wan_mac(self) -> MeshAttribute[str | None]:
-        """Get the WAN MAC.
-
-        :return: A string containing the MAC address for the WAN adapter
-        """
-
-        cap_name: ActionKey = "GET_WAN_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="wan_mac",
-        )
-
-        attr = self._mesh_attributes.get(cap_name, {}).get("macAddress")
-
-        return MeshAttribute[str | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def wan_status(self) -> MeshAttribute[bool | None]:
-        """Get the status of the WAN.
-
-        :return: True if connected, False if not
-        """
-
-        cap_name: ActionKey = "GET_WAN_INFO"
-        self._require_capability(
-            cap_name,
-            attribute_name="wan_status",
-        )
-
-        ret: bool | None = None
-        attr = self._mesh_attributes.get(cap_name, {}).get("wanStatus")
-        if attr:
-            ret = attr.lower() == "connected"
-
-        return MeshAttribute[bool | None](ret, (AttributeAuditEntry(cap_name, attr),))
-
-    @property
-    @needs_auth_and_refresh
-    def wps_state(self) -> MeshAttribute[bool | None]:
-        """Return if WPS is enabled or not.
-
-        :return: True if enabled, False otherwise
-        """
-
-        cap_name: ActionKey = "GET_WPS_SERVER_SETTINGS"
-        self._require_capability(
-            cap_name,
-            attribute_name="wps_state",
-        )
-
-        attr: bool | None = self._mesh_attributes.get(cap_name, {}).get("enabled")
-        ret: MeshAttribute[bool | None] = MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
-
-        return ret
+        return self._last_snapshot
