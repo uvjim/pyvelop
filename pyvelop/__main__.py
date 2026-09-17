@@ -37,7 +37,6 @@ from .mesh import (
 )
 from .mesh_attribute import MeshAttribute
 from .mesh_entity import (
-    BackhaulInfo,
     DeviceEntity,
     NodeEntity,
     NodeType,
@@ -509,10 +508,10 @@ def _render_night_mode(outfile: str | None, mesh: MeshSnapshot, heading_level: i
 
 def _render_node_backhaul(outfile: str | None, node: NodeEntity, heading_level: int = 2) -> None:
 
-    if node.type.value == NodeType.SECONDARY:
+    if node.type.value == NodeType.SECONDARY and node.backhaul.value is not None:
         data: dict[str, Any] = {
             "Parent": f"{node.parent_name} ({node.parent_ip})",
-            **cast(BackhaulInfo, node.backhaul.value).to_dict(),
+            **node.backhaul.value.to_dict(),
         }
         _display_table(outfile, data, index=True, title="Backhaul")
 
