@@ -1774,11 +1774,19 @@ class Mesh:
             str(bi.get("deviceUUID")): bi for bi in backhaul_info if bi.get("deviceUUID")
         }
 
+        # secondary nodes
         ret = [
             {"id": node, "ip": str(backhaul_info_by_id.get(node, {}).get("ipAddress"))}
             for node in connected_nodes_by_id
             if backhaul_info_by_id.get(node, {}).get("ipAddress")
         ]
+
+        # primary node
+        primary_node: dict[str, Any] | None = next(
+            (node for node in connected_nodes_by_id.values() if node.get("nodeType") == "Master"), None
+        )
+        if primary_node is not None and (primary_node_id := primary_node.get("deviceID")) is not None:
+            ret.append({"id": primary_node_id, "ip": self.__mesh_details.host})
 
         return ret
 
