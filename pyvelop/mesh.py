@@ -1612,6 +1612,16 @@ class Mesh:
 
         return ret
 
+    def _get_backhaul_from_raw(self, raw_details: dict[ActionKey, Any]) -> tuple[dict[str, Any], ...]:
+        """Retrieve backhaul information from the raw details.
+
+        N.B. no sanitising has happened on the data at this point.
+
+        :returns: Details from the `GET_BAKHAUL` response.
+        """
+
+        return tuple(raw_details.get("GET_BACKHAUL", {}).get("backhaulDevices", []))
+
     def _get_capability(self, capability: ActionKey) -> MeshCapability:
         """Retrieve a mesh capability.
 
@@ -1635,7 +1645,7 @@ class Mesh:
         data so may be incomplete.  It is intended for retrieving basic node information early
         in the gathering cycle.
 
-        :returns: Details from the `GET_DEVICES` return.
+        :returns: Details from the `GET_DEVICES` response.
         """
 
         ret: list[dict[str, Any]] = []
@@ -1649,23 +1659,26 @@ class Mesh:
     def _get_nodes_from_raw(self, raw_details: dict[ActionKey, Any]) -> list[dict[str, str]]:
         """Retrieve some basic details about the nodes from the given `GET_DEVICES` details.
 
+        This data is matched against `GET_BACKHAUL` to provide a more accurate resultset.
+
         :return: information that should be enough to make simple requests to the node.
         """
 
         ret: list[dict[str, str]] = []
         nodes: tuple[dict[str, Any], ...] = self._get_node_details_from_raw(raw_details)
-        for device in nodes:
-            ip_address = next(
-                (
-                    connection.get("ipAddress")
-                    for connection in device.get("connections", [])
-                    if connection.get("ipAddress")
-                ),
-                None,
-            )
+        connected_nodes_by_id: dict[str, dict[str, Any]] = {
+            str(node.get("deviceID")): node for node in nodes if node.get("deviceID") and node.get("connections")
+        }
+        backhaul_info: tuple[dict[str, Any], ...] = self._get_backhaul_from_raw(raw_details)
+        backhaul_info_by_id: dict[str, dict[str, Any]] = {
+            str(bi.get("deviceUUID")): bi for bi in backhaul_info if bi.get("deviceUUID")
+        }
 
-            if ip_address:
-                ret.append({"id": device["deviceID"], "ip": ip_address})
+        ret = [
+            {"id": node, "ip": str(backhaul_info_by_id.get(node, {}).get("ipAddress"))}
+            for node in connected_nodes_by_id
+            if backhaul_info_by_id.get(node, {}).get("ipAddress")
+        ]
 
         return ret
 
