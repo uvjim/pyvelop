@@ -137,7 +137,7 @@ class MeshWorkflows:
         def _display_progress(info: SpeedtestResult) -> None:
             """Display the progress of the speedtest."""
 
-            _output(None, f"{json.dumps(info, default=json_default)}\n")
+            _output(None, f"{json.dumps(info.to_dict())}\n")
 
         ret = await mesh.async_start_speedtest(wait=True, callback_func=_display_progress)
 
