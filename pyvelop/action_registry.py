@@ -222,6 +222,10 @@ Actions: ActionRegistry = ActionRegistry(
                 # can't see a difference as yet
                 ActionVersionMap(action_version=2, service_version=6),
             ),
+            redactions={
+                "backhaulDevices.wirelessConnectionInfo.apBSSID",
+                "backhaulDevices.wirelessConnectionInfo.stationBSSID",
+            },
         ),
         ActionDefinition(
             "GET_CHANNEL_SCAN_STATUS",
