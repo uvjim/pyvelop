@@ -2046,7 +2046,7 @@ class Mesh:
                     )
                 )
 
-        responses = await asyncio.gather(*requests)
+        responses = await asyncio.gather(*requests, return_exceptions=True)
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_END)
         # endregion
 
