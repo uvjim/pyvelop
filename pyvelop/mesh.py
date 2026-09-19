@@ -15,7 +15,7 @@ import time
 import uuid
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from types import MappingProxyType, TracebackType
 from typing import Any, Final, Literal, NamedTuple, Self, cast, overload
@@ -461,7 +461,16 @@ class SpeedtestResult:
     def to_dict(self) -> dict[str, Any]:
         """Representation of the class."""
 
-        ret: dict[str, Any] = asdict(self)
+        ret: dict[str, Any] = {
+            "download_bandwidth": self.download_bandwidth,
+            "exit_code": self.exit_code.value,
+            "friendly_status": self.friendly_status.value,
+            "latency": self.latency,
+            "result_id": self.result_id,
+            "server_id": self.server_id,
+            "timestamp": self.timestamp.isoformat(),
+            "upload_bandwidth": self.upload_bandwidth,
+        }
         return ret
 
 
@@ -514,14 +523,105 @@ _ACTION_BY_SERVICE: Final[Mapping[str, tuple[ActionDefinition, ...]]] = MappingP
 )
 
 
+class MeshSerialise:
+    """Provides functionality to serialize complex objects and custom classes into formats compatible with JSON serialisation."""
+
+    _EXPORT_PROPERTIES: tuple[str, ...] = ()
+
+    def _serialise(self, value: Any, *, include_audit: bool = False) -> Any:
+        """Recursively transforms objects into types that can be serialized by `json.dump` or `json.dumps`.
+
+        :param value: The object or value to be serialized.
+        :param include_audit: Whether to include audit-related metadata during serialisation of objects that support it.
+        :return: A JSON-serialisable representation of the input value.
+        """
+
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+
+        if hasattr(value, "to_dict"):
+            return value.to_dict(include_audit=include_audit)
+
+        if isinstance(value, Mapping):
+            return {k: self._serialise(v) for k, v in value.items()}
+
+        if isinstance(value, Iterable):
+            return [self._serialise(i) for i in value]
+
+        if isinstance(value, dt.datetime):
+            return value.isoformat()
+
+        return value.__repr__
+
+    def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
+        """Serialises the current instance into a dictionary based on the defined export properties.
+
+        :param include_audit: Whether to include audit-related metadata in the serialised properties.
+        :return: A dictionary containing the serialised values of all properties listed in `_EXPORT_PROPERTIES`.
+        """
+
+        result = {}
+        for prop in self._EXPORT_PROPERTIES:
+            try:
+                val = getattr(self, prop)
+                result[prop] = self._serialise(val, include_audit=include_audit)
+            except AttributeError:
+                continue
+        return result
+
+
 @dataclass(frozen=True)
-class MeshSnapshot:
+class MeshSnapshot(MeshSerialise):
     """Point in time properties of the Mesh."""
 
     _capabilities: MappingProxyType[ActionKey, MeshCapability] = field(repr=False, compare=False)
     _discovered_devices: tuple[DeviceEntity | NodeEntity, ...] = field(repr=False, compare=False)
     _gather_timings: MappingProxyType[str, float] = field(repr=False, compare=False)
     _values: MappingProxyType[ActionKey, Any] = field(repr=False, compare=False)
+
+    _EXPORT_PROPERTIES = tuple(
+        {
+            "capabilities",
+            "check_for_update_status",
+            "client_steering_enabled",
+            "devices",
+            "dhcp_enabled",
+            "dhcp_reservations",
+            "express_forwarding_enabled",
+            "express_forwarding_supported",
+            "firmware_update_setting",
+            "guest_wifi_details",
+            "guest_wifi_enabled",
+            "homekit_enabled",
+            "homekit_paired",
+            "is_channel_scan_running",
+            "is_in_bridge_mode",
+            "last_gather_details",
+            "mac_filtering_addresses",
+            "mac_filtering_enabled",
+            "mac_filtering_mode",
+            "mlo_state",
+            "night_mode",
+            "node_steering_enabled",
+            "nodes",
+            "parental_control_enabled",
+            "scheduled_reboot_enabled",
+            "scheduled_reboot_interval",
+            "sip_enabled",
+            "speedtest_latest_complete",
+            "speedtest_results",
+            "storage_available",
+            "storage_settings",
+            "upnp_allow_change_settings",
+            "upnp_allow_disable_internet",
+            "upnp_enabled",
+            "wan_dns",
+            "wan_ip",
+            "wan_mac",
+            "wan_status",
+            "wps_state",
+        }
+    )
 
     def __init__(
         self,
