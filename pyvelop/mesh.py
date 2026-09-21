@@ -1548,19 +1548,17 @@ class Mesh:
         # region #-- pre-index mac based information
         dhcp_reservations_by_mac: dict[str, Any] = {
             reservation["macAddress"].lower(): reservation
-            for reservation in mesh_details.get(Actions.GET_LAN_SETTINGS.key, {})
-            .get("dhcpSettings", {})
-            .get("reservations", [])
+            for reservation in mesh_details.get("GET_LAN_SETTINGS", {}).get("dhcpSettings", {}).get("reservations", [])
             if reservation.get("macAddress")
         }
-        network_connections_by_mac: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for connection in mesh_details.get("GET_NETWORK_CONNECTIONS", []):
-            mac = connection.get("macAddress")
-            if mac:
-                network_connections_by_mac[mac.lower()].append(connection)
-        node_wirless_connections_by_mac: dict[str, dict[str, Any]] = {
-            mac.lower(): connection
-            for connection in mesh_details.get(Actions.GET_NODE_WIRELESS_CONNECTIONS.key, {}).get("connections", [])
+        network_connections_by_mac = defaultdict(list)
+        for conn in mesh_details.get("GET_NETWORK_CONNECTIONS", []):
+            if mac := conn.get("macAddress"):
+                network_connections_by_mac[mac.lower()].append(conn)
+        node_wireless_connections_by_mac: dict[str, dict[str, Any]] = {
+            connection.get("macAddress").lower(): connection
+            for node in mesh_details.get("GET_NODE_WIRELESS_CONNECTIONS", {}).get("nodeWirelessConnections", [])
+            for connection in node.get("connections", [])
             if connection.get("macAddress")
         }
         parental_control_by_mac: dict[str, Any] = {
@@ -1602,7 +1600,7 @@ class Mesh:
                     # endregion
 
                     # region #-- wireless connection details --#
-                    if connection := node_wirless_connections_by_mac.get(mac):
+                    if connection := node_wireless_connections_by_mac.get(mac):
                         entity_wifi_connections.append(connection)
                     # endregion
 
@@ -1987,9 +1985,7 @@ class Mesh:
                 capability.service_versions = service_versions
                 detected[action.key] = capability
 
-        transaction = self._find_capability(Actions.TRANSACTION.key) or MeshCapability(
-            Actions.TRANSACTION, self.__mesh_details
-        )
+        transaction = self._find_capability("TRANSACTION") or MeshCapability(Actions.TRANSACTION, self.__mesh_details)
         detected.setdefault(transaction.action_definition.key, transaction)
 
         self._capabilities = detected
