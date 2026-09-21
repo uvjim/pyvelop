@@ -905,29 +905,26 @@ class MeshEntity(ABC):
                     )
                 )
                 props.update(props_wifi_state)
-                if (
-                    not props.get("connected", False)
-                    and nnc
-                    and (
-                        props.get("type") == ConnectionType.WIRED
-                        or (
-                            props.get("type") == ConnectionType.WIRELESS
-                            and nnc.get("wireless", {}).get("signalDecibels")
-                        )
+            if (
+                not props.get("connected", False)
+                and nnc
+                and (
+                    props.get("type") == ConnectionType.WIRED
+                    or (props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless", {}).get("signalDecibels"))
+                )
+            ):
+                props_nnc_state: dict[str, bool] = {
+                    "connected": True,
+                }
+                audit_history.append(
+                    AttributeAuditEntry(
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                        props_nnc_state,
+                        kind=AttributeAction.MERGE,
+                        index=idx,
                     )
-                ):
-                    props_nnc_state: dict[str, bool] = {
-                        "connected": True,
-                    }
-                    audit_history.append(
-                        AttributeAuditEntry(
-                            EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                            props_nnc_state,
-                            kind=AttributeAction.MERGE,
-                            index=idx,
-                        )
-                    )
-                    props.update(props_nnc_state)
+                )
+                props.update(props_nnc_state)
             # endregion
 
             # region #-- parent details --#
