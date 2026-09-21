@@ -694,10 +694,11 @@ class MeshEntity(ABC):
         ret: list[AdapterInfo] = []
         props: dict[str, Any] = {}
 
-        # -- get the adapters based on known interfaces --#
+        # get the adapters based on known interfaces
         my_adapters: list[dict[str, Any]] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
             "knownInterfaces", []
         )
+
         for idx, adapter in enumerate(my_adapters):
             props: dict[str, Any] = {}
             props_adapter: dict[str, Any] = {
