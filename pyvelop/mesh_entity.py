@@ -8,6 +8,7 @@ import base64
 import contextlib
 import datetime as dt
 import logging
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -60,6 +61,7 @@ class EntityDataProperties(StrEnum):
     BACKHAUL = Actions.GET_BACKHAUL.key
     CONNECTED_ENTITIES = "connected_entities"
     DEVICE_DETAILS = Actions.GET_DEVICES.key
+    ETHERNET_PORT_CONNECTIONS = Actions.GET_ETHERNET_PORT_CONNECTIONS.key
     FIRMWARE_DETAILS = Actions.GET_UPDATE_FIRMWARE_STATE.key
     NODE_NETWORK_CONNECTIONS = Actions.GET_NETWORK_CONNECTIONS.key
     PARENT_ENTITY = "parent_entity"
@@ -68,6 +70,13 @@ class EntityDataProperties(StrEnum):
     RESULTS_TIME = "results_time"
     SYSTEM_STATS = Actions.GET_SYSTEM_STATS.key
     WIRELESS_CONNECTION_DETAILS = Actions.GET_NODE_WIRELESS_CONNECTIONS.key
+
+
+class EthernetPortType(StrEnum):
+    """Enumeration for port ethernet types."""
+
+    LAN = auto()
+    WAN = auto()
 
 
 class NodeType(StrEnum):
@@ -264,6 +273,54 @@ class AdapterInfo:
             "rssi_dbm": self.rssi_dbm,
             "signal_strength": self.signal_strength.value if self.signal_strength is not None else None,
             "type": self.type.value,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EthernetPortConnection:
+    """Representation of an ethernet port."""
+
+    index: int
+    speed: str
+    kind: EthernetPortType
+
+    @property
+    def negotiated_speed_mbps(self) -> float | None:
+        """Parse a speed string (e.g., '1Gbps', '100Mbps') and calculate the speed in Mbps.
+
+        :param speed_str: The speed string to parse.
+        :returns: The equivalent speed in Mbps as an integer.
+        :raises ValueError: If the string format is not recognised.
+        """
+
+        if self.speed.strip().lower() == "none":
+            return None
+
+        # match digits (including decimals) and the unit
+        match = re.match(r"([\d.]+)\s*([a-zA-Z]+)", self.speed.strip())
+        if not match:
+            return None
+
+        value = float(match.group(1))
+        unit = match.group(2).lower()
+
+        if unit == "gbps":
+            return float(value * 1000)
+        elif unit == "mbps":
+            return float(value)
+        elif unit == "kbps":
+            return float(value / 1000)
+        else:
+            raise ValueError(f"Unsupported unit: {unit}. Please use Gbps, Mbps, or Kbps.")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the instance as a dictionary."""
+
+        return {
+            "index": self.index,
+            "kind": self.kind.value,
+            "negotiated_speed_mbps": self.negotiated_speed_mbps,
+            "raw_speed": self.speed,
         }
 
 
@@ -1733,6 +1790,40 @@ class NodeEntity(MeshEntity):
         )
 
         return tuple(ret)
+
+    @property
+    def ethernet_port_info(self) -> MeshAttribute[tuple[EthernetPortConnection, ...]]:
+        """Retrieve the connection status and negotiated speeds for all Ethernet ports.
+
+        :returns: A MeshAttribute containing a tuple of `EthernetPortConnection` objects
+                  for both WAN and LAN ports.
+        """
+        cap: ActionKey = "GET_ETHERNET_PORT_CONNECTIONS"
+        ret: list[EthernetPortConnection] = []
+        audit_history: list[AttributeAuditEntry] = []
+
+        eth_connections: dict[str, Any] = self._data.get(EntityDataProperties.ETHERNET_PORT_CONNECTIONS, {})
+
+        # map data keys to their respective port types
+        port_mapping = {
+            "wanPortConnection": EthernetPortType.WAN,
+            "lanPortConnections": EthernetPortType.LAN,
+        }
+
+        for key, port_type in port_mapping.items():
+            ports = eth_connections.get(key, [])
+            ports_list = ports if isinstance(ports, list) else [ports]
+
+            for idx, speed in enumerate(ports_list):
+                connection = EthernetPortConnection(
+                    index=idx,
+                    speed=speed,
+                    kind=port_type,
+                )
+                ret.append(connection)
+                audit_history.append(AttributeAuditEntry(cap, connection, index=len(ret) - 1))
+
+        return MeshAttribute(tuple(ret), tuple(audit_history))
 
     @property
     def firmware(self) -> MeshAttribute[dict[str, Any]]:
