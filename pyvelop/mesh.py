@@ -1528,6 +1528,11 @@ class Mesh:
             for bi in mesh_details.get("GET_BACKHAUL", {}).get("backhaulDevices", [])
             if bi.get("deviceUUID")
         }
+        ethernet_port_connections_by_id: dict[str, Any] = {
+            eth_conns.get("device_id"): eth_conns
+            for eth_conns in mesh_details.get("GET_ETHERNET_PORT_CONNECTIONS", {})
+            if eth_conns.get("device_id")
+        }
         firmware_by_device_id: dict[str, Any] = {
             fds.get("deviceUUID"): fds
             for fds in mesh_details.get("GET_UPDATE_FIRMWARE_STATE", {}).get("firmwareUpdateStatus", [])
@@ -1589,50 +1594,46 @@ class Mesh:
                 for adapter in entity.get("knownInterfaces", []):  # per MAC details
                     mac = adapter.get("macAddress", "").lower()
 
-                    # region #-- get parental control details --#
+                    # parental control details
                     if pc_rule := parental_control_by_mac.get(mac):
                         entity_pc_schedules.append(pc_rule)
-                    # endregion
 
-                    # region #-- get DHCP reservation info --#
+                    # DHCP reservation info
                     if reservation := dhcp_reservations_by_mac.get(mac):
                         entity_dhcp_reservations.append(reservation)
-                    # endregion
 
-                    # region #-- wireless connection details --#
+                    # wireless connection details
                     if connection := node_wireless_connections_by_mac.get(mac):
                         entity_wifi_connections.append(connection)
-                    # endregion
 
-                    # region #-- retrieve details from the node network connections --#
+                    # retrieve details from the node network connections
                     if conns := network_connections_by_mac.get(mac):
                         entity_network_connections.extend(conns)
-                    # endregion
 
                 entity_data[EntityDataProperties.NODE_NETWORK_CONNECTIONS] = entity_network_connections
                 entity_data[EntityDataProperties.PARENTAL_CONTROLS] = entity_pc_schedules
                 entity_data[EntityDataProperties.RESERVATION_DETAILS] = entity_dhcp_reservations
                 entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = entity_wifi_connections
             else:  # process nodes connected to the mesh
-                # region #-- determine the backhaul information --#
+                # backhaul information
                 if backhaul := backhaul_by_device_id.get(entity.get("deviceID")):
                     entity_data[EntityDataProperties.BACKHAUL] = backhaul
-                # endregion
 
-                # region #-- firmware update details --#
+                # ethernet port connections
+                if eth_conns := ethernet_port_connections_by_id.get(entity.get("deviceID")):
+                    entity_data[EntityDataProperties.ETHERNET_PORT_CONNECTIONS] = eth_conns
+
+                # firmware update details
                 if firmware := firmware_by_device_id.get(entity.get("deviceID")):
                     entity_data[EntityDataProperties.FIRMWARE_DETAILS] = firmware
-                # endregion
 
-                # region #-- wifi connection details --#
+                # wifi connection details
                 if wifi_conn := wifi_connections_by_id.get(entity.get("deviceID")):
                     entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = wifi_conn.get("connections", [])
-                # endregion
 
-                # region #-- system stats --#
+                # system stats
                 if system_stats := system_stats_by_device_id.get(entity.get("deviceID")):
                     entity_data[EntityDataProperties.SYSTEM_STATS] = system_stats
-                # endregion
             # endregion
 
             # region #-- build the MeshEntity objects --#
