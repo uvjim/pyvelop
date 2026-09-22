@@ -1991,38 +1991,6 @@ class Mesh:
 
         self._capabilities = detected
 
-        self.__mesh_details.password = self._password
-        await self.async_test_credentials()
-
-        speedtest_capability: MeshCapability | None = self._find_capability("GET_SPEEDTEST_TYPES")
-        if speedtest_capability is not None:
-            speedtest_info: JnapResponseSingle = await speedtest_capability.async_execute()
-            healthcheck_modules: set[str] = {
-                module for module in speedtest_info.get("supportedHealthCheckModules", []) if isinstance(module, str)
-            }
-            if "SpeedTest" not in healthcheck_modules:
-                for act in (
-                    action
-                    for action in Actions.values()
-                    if action.features is not None and ActionFeatures.SPEEDTEST in action.features
-                ):
-                    cap = self._find_capability(act.key)
-                    if cap is not None:
-                        cap.mark_as_invalid()
-
-        wan_capability: MeshCapability | None = self._find_capability("GET_WAN_INFO")
-        if wan_capability is not None:
-            wan_info: JnapResponseSingle = await wan_capability.async_execute()
-            if wan_info.get("detectedWANType", "").lower() == "bridge":
-                for act in (
-                    action
-                    for action in Actions.values()
-                    if action.features is not None and ActionFeatures.PARENTAL_CONTROL in action.features
-                ):
-                    cap = self._find_capability(act.key)
-                    if cap is not None:
-                        cap.mark_as_invalid()
-
     async def _async_gather_details(
         self, required_capabilities: Iterable[MeshCapability] | None = None
     ) -> dict[ActionKey, Any]:
@@ -2246,6 +2214,40 @@ class Mesh:
 
         return ret
 
+    async def _async_remediate_capabilities(self) -> None:
+        """Apply remediation to invalidate capabilities that may have been reported as supported but shouldn't be."""
+
+        # check if speedtest is actually available
+        speedtest_capability: MeshCapability | None = self._find_capability("GET_SPEEDTEST_TYPES")
+        if speedtest_capability is not None:
+            speedtest_info: JnapResponseSingle = await speedtest_capability.async_execute()
+            healthcheck_modules: set[str] = {
+                module for module in speedtest_info.get("supportedHealthCheckModules", []) if isinstance(module, str)
+            }
+            if "SpeedTest" not in healthcheck_modules:
+                for act in (
+                    action
+                    for action in Actions.values()
+                    if action.features is not None and ActionFeatures.SPEEDTEST in action.features
+                ):
+                    cap = self._find_capability(act.key)
+                    if cap is not None:
+                        cap.mark_as_invalid()
+
+        # disbale functionality based on being in bridge mode
+        wan_capability: MeshCapability | None = self._find_capability("GET_WAN_INFO")
+        if wan_capability is not None:
+            wan_info: JnapResponseSingle = await wan_capability.async_execute()
+            if wan_info.get("detectedWANType", "").lower() == "bridge":
+                for act in (
+                    action
+                    for action in Actions.values()
+                    if action.features is not None and ActionFeatures.PARENTAL_CONTROL in action.features
+                ):
+                    cap = self._find_capability(act.key)
+                    if cap is not None:
+                        cap.mark_as_invalid()
+
     async def async_authenticate_and_refresh(self) -> MeshSnapshot:
         """Test credentials and refresh the data.
 
@@ -2265,6 +2267,13 @@ class Mesh:
 
         # detect available capabilities
         await self._async_detect_capabilities()
+
+        # test the password
+        self.__mesh_details.password = self._password
+        await self.async_test_credentials()
+
+        # remediate capabilities
+        await self._async_remediate_capabilities()
 
         # set the flag so that the refresh will work as expected
         self.__initialise_executed = True
