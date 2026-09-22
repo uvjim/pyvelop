@@ -2787,16 +2787,16 @@ class Mesh:
         a delay should be used before retrying.
         """
 
-        attempts_remaining: int | None = None
         ret: bool = False
         payload: JnapPayloadSingle = {}
         cap: MeshCapability | None = self._find_capability("GET_PASSWORD_AUTH_STATUS")
         if cap is not None:
-            resp: JnapResponseSingle = await cap.async_execute()
-            attempts_remaining = resp.get("attemptsRemaining")
-
-        if attempts_remaining is not None and attempts_remaining <= 2:
-            raise MeshInvalidCredentialsNoRetry()
+            try:
+                resp = await cap.async_execute()
+                if (attempts := resp.get("attemptsRemaining")) is not None and attempts <= 2:
+                    raise MeshInvalidCredentialsNoRetry()
+            except MeshActionUnknown:
+                pass
 
         cap = self._get_capability("CHECK_PASSWORD")
         if cap.action_version not in cap.implemented_versions:
