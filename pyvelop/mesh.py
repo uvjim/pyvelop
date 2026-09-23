@@ -71,6 +71,7 @@ _LOGGER_VERBOSE = Logger(logging.getLogger(f"{__name__}.verbose"))
 class CapabilityScopedGroups(NamedTuple):
     """Representation of the groups of capabilities."""
 
+    device: tuple[MeshCapability, ...]
     mesh: tuple[MeshCapability, ...]
     node: tuple[MeshCapability, ...]
 
@@ -1567,145 +1568,108 @@ class Mesh:
     def _build_mesh_entities(self, track_time, mesh_details: dict[ActionKey, Any]) -> list[DeviceEntity | NodeEntity]:
         """Build a list of mesh entities with the given information."""
 
-        ret: list[DeviceEntity | NodeEntity] = []
-
         self._mark_time(track_time, ProcessTimerLabels.ENTITIES_PROCESS_START)
-        # region #-- pre-index device ID based info --#
-        backhaul_by_device_id: dict[str, Any] = {
-            bi.get("deviceUUID"): bi
-            for bi in mesh_details.get("GET_BACKHAUL", {}).get("backhaulDevices", [])
-            if bi.get("deviceUUID")
-        }
-        ethernet_port_connections_by_id: dict[str, Any] = {
-            eth_conns.get("device_id"): eth_conns
-            for eth_conns in mesh_details.get("GET_ETHERNET_PORT_CONNECTIONS", {})
-            if eth_conns.get("device_id")
-        }
-        firmware_by_device_id: dict[str, Any] = {
-            fds.get("deviceUUID"): fds
-            for fds in mesh_details.get("GET_UPDATE_FIRMWARE_STATE", {}).get("firmwareUpdateStatus", [])
-            if fds.get("deviceUUID")
-        }
-        system_stats_by_device_id: dict[str, Any] = {
-            stats.get("device_id"): stats
-            for stats in mesh_details.get("GET_SYSTEM_STATS", [])
-            if stats.get("device_id")
-        }
-        wifi_connections_by_id: dict[str, Any] = {
-            nwc.get("deviceID"): nwc
-            for nwc in mesh_details.get("GET_NODE_WIRELESS_CONNECTIONS", {}).get("nodeWirelessConnections", [])
-            if nwc.get("deviceID")
-        }
-        # endregion
 
-        # region #-- pre-index mac based information
-        dhcp_reservations_by_mac: dict[str, Any] = {
-            reservation["macAddress"].lower(): reservation
-            for reservation in mesh_details.get("GET_LAN_SETTINGS", {}).get("dhcpSettings", {}).get("reservations", [])
-            if reservation.get("macAddress")
+        # retrieve the capabilities per entity type
+        capabilities_by_scope = self._split_capability_into_scopes(self._capabilities.values())
+        capability_mapping_by_scope: dict[str, dict[ActionKey, MeshCapability]] = {
+            "device": {cap.action_definition.key: cap for cap in capabilities_by_scope.device},
+            "node": {cap.action_definition.key: cap for cap in capabilities_by_scope.node},
         }
-        network_connections_by_mac = defaultdict(list)
+
+        # helper to retrieve deta from the index
+        def index_by(key: ActionKey, subkey: str | None = None, *, id_field: str = "deviceUUID"):
+            data = mesh_details.get(key, {})
+            items = data.get(subkey, []) if subkey else data
+            if not isinstance(items, list):
+                return {}
+            return {i.get(id_field): i for i in items if i.get(id_field)}
+
+        # device ID based indices
+        by_id = {
+            "backhaul": index_by("GET_BACKHAUL", "backhaulDevices"),
+            "ethernet": index_by("GET_ETHERNET_PORT_CONNECTIONS", id_field="device_id"),
+            "firmware": index_by("GET_UPDATE_FIRMWARE_STATE", "firmwareUpdateStatus"),
+            "stats": index_by("GET_SYSTEM_STATS", id_field="device_id"),
+            "wifi": index_by("GET_NODE_WIRELESS_CONNECTIONS", "nodeWirelessConnections", id_field="deviceID"),
+        }
+
+        # MAC based indices
+        dhcp_reservations = mesh_details.get("GET_LAN_SETTINGS", {}).get("dhcpSettings", {}).get("reservations", [])
+        dhcp_by_mac = {r["macAddress"].lower(): r for r in dhcp_reservations if r.get("macAddress")}
+
+        net_conns = defaultdict(list)
         for conn in mesh_details.get("GET_NETWORK_CONNECTIONS", []):
             if mac := conn.get("macAddress"):
-                network_connections_by_mac[mac.lower()].append(conn)
-        node_wireless_connections_by_mac: dict[str, dict[str, Any]] = {
-            connection.get("macAddress").lower(): connection
+                net_conns[mac.lower()].append(conn)
+        node_wifi_by_mac = {
+            conn.get("macAddress").lower(): conn
             for node in mesh_details.get("GET_NODE_WIRELESS_CONNECTIONS", {}).get("nodeWirelessConnections", [])
-            for connection in node.get("connections", [])
-            if connection.get("macAddress")
+            for conn in node.get("connections", [])
+            if conn.get("macAddress")
         }
-        parental_control_by_mac: dict[str, Any] = {
+        pc_by_mac = {
             mac.lower(): rule
             for rule in mesh_details.get("GET_PARENTAL_CONTROL_INFO", {}).get("rules", [])
             for mac in rule.get("macAddresses", [])
         }
-        # endregion
 
-        # we'll treat the information from GET_DEVICES as our starting point.
+        # process the results
+        ret = []
+        results_time = self.__last_gather_details.get(ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_START.value)
+
         for entity in mesh_details.get("GET_DEVICES", {}).get("devices", []):
-            # prepare variables for holding processed data
-            entity_dhcp_reservations: list[dict[str, Any]] = []
-            entity_network_connections: list[dict[str, Any]] = []
-            entity_pc_schedules: list[dict[str, Any]] = []
-            entity_wifi_connections: list[dict[str, Any]] = []
-            # entity_data will be used to store all the information needed to build the appropriate MeshEntity object.
-            entity_data: dict[str, Any] = {}
-            # stamp the gather time into each entity
-            entity_data[EntityDataProperties.RESULTS_TIME] = self.__last_gather_details.get(
-                ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_START.value
-            )
-            # all details as per the API response get added
-            entity_data[EntityDataProperties.DEVICE_DETAILS] = entity
-            # region #-- process additional information --#
-            # this is gathered, infered and linked from other API calls
-            if "nodeType" not in entity:  # process end devices connected to the mesh
-                for adapter in entity.get("knownInterfaces", []):  # per MAC details
-                    mac = adapter.get("macAddress", "").lower()
+            dev_id = entity.get("deviceID")
+            entity_data: dict[str, Any] = {
+                EntityDataProperties.RESULTS_TIME: results_time,
+                EntityDataProperties.DEVICE_DETAILS: entity,
+            }
 
-                    # parental control details
-                    if pc_rule := parental_control_by_mac.get(mac):
-                        entity_pc_schedules.append(pc_rule)
-
-                    # DHCP reservation info
-                    if reservation := dhcp_reservations_by_mac.get(mac):
-                        entity_dhcp_reservations.append(reservation)
-
-                    # wireless connection details
-                    if connection := node_wireless_connections_by_mac.get(mac):
-                        entity_wifi_connections.append(connection)
-
-                    # retrieve details from the node network connections
-                    if conns := network_connections_by_mac.get(mac):
-                        entity_network_connections.extend(conns)
-
-                entity_data[EntityDataProperties.NODE_NETWORK_CONNECTIONS] = entity_network_connections
-                entity_data[EntityDataProperties.PARENTAL_CONTROLS] = entity_pc_schedules
-                entity_data[EntityDataProperties.RESERVATION_DETAILS] = entity_dhcp_reservations
-                entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = entity_wifi_connections
-            else:  # process nodes connected to the mesh
-                # backhaul information
-                if backhaul := backhaul_by_device_id.get(entity.get("deviceID")):
-                    entity_data[EntityDataProperties.BACKHAUL] = backhaul
-
-                # ethernet port connections
-                if eth_conns := ethernet_port_connections_by_id.get(entity.get("deviceID")):
-                    entity_data[EntityDataProperties.ETHERNET_PORT_CONNECTIONS] = eth_conns
-
-                # firmware update details
-                if firmware := firmware_by_device_id.get(entity.get("deviceID")):
-                    entity_data[EntityDataProperties.FIRMWARE_DETAILS] = firmware
-
-                # wifi connection details
-                if wifi_conn := wifi_connections_by_id.get(entity.get("deviceID")):
-                    entity_data[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = wifi_conn.get("connections", [])
-
-                # system stats
-                if system_stats := system_stats_by_device_id.get(entity.get("deviceID")):
-                    entity_data[EntityDataProperties.SYSTEM_STATS] = system_stats
-            # endregion
-
-            # region #-- build the MeshEntity objects --#
             if "nodeType" not in entity:
-                cap_device: Mapping[ActionKey, MeshCapability] = MappingProxyType(
-                    {
-                        key: cap
-                        for key, cap in self._capabilities.items()
-                        if ActionScope.DEVICE in cap.action_definition.scope and cap.is_valid is not False
-                    }
-                )
-                ret.append(DeviceEntity(entity_data, cap_device, self._supplementary_redactions))
-            else:
-                cap_node: Mapping[ActionKey, MeshCapability] = MappingProxyType(
-                    {
-                        key: cap
-                        for key, cap in self._capabilities.items()
-                        if ActionScope.NODE in cap.action_definition.scope and cap.is_valid is not False
-                    }
-                )
-                ret.append(NodeEntity(entity_data, cap_node, self._supplementary_redactions))
-            # endregion
-        self._mark_time(track_time, ProcessTimerLabels.ENTITIES_PROCESS_END)
+                # devices
+                pc, dhcp, wifi, net = [], [], [], []
+                for adapter in entity.get("knownInterfaces", []):
+                    mac = adapter.get("macAddress", "").lower()
+                    if rule := pc_by_mac.get(mac):
+                        pc.append(rule)
+                    if res := dhcp_by_mac.get(mac):
+                        dhcp.append(res)
+                    if conn := node_wifi_by_mac.get(mac):
+                        wifi.append(conn)
+                    if conns := net_conns.get(mac):
+                        net.extend(conns)
 
+                entity_data.update(
+                    {
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS: net,
+                        EntityDataProperties.PARENTAL_CONTROLS: pc,
+                        EntityDataProperties.RESERVATION_DETAILS: dhcp,
+                        EntityDataProperties.WIRELESS_CONNECTION_DETAILS: wifi,
+                    }
+                )
+                ret.append(
+                    DeviceEntity(
+                        entity_data, capability_mapping_by_scope.get("device", {}), self._supplementary_redactions
+                    )
+                )
+
+            else:
+                # nodes
+                node_map = {
+                    EntityDataProperties.BACKHAUL: by_id["backhaul"].get(dev_id),
+                    EntityDataProperties.ETHERNET_PORT_CONNECTIONS: by_id["ethernet"].get(dev_id),
+                    EntityDataProperties.FIRMWARE_DETAILS: by_id["firmware"].get(dev_id),
+                    EntityDataProperties.SYSTEM_STATS: by_id["stats"].get(dev_id),
+                }
+                if wifi_conn := by_id["wifi"].get(dev_id):
+                    node_map[EntityDataProperties.WIRELESS_CONNECTION_DETAILS] = wifi_conn.get("connections", [])
+
+                entity_data.update({k: v for k, v in node_map.items() if v})
+                ret.append(
+                    NodeEntity(entity_data, capability_mapping_by_scope.get("node", {}), self._supplementary_redactions)
+                )
+
+        self._mark_time(track_time, ProcessTimerLabels.ENTITIES_PROCESS_END)
         return ret
 
     def _build_transaction_payload(
@@ -1994,18 +1958,21 @@ class Mesh:
     def _split_capability_into_scopes(self, capabilities: Iterable[MeshCapability]) -> CapabilityScopedGroups:
         """Group the given capabilities into scopes."""
 
+        device: list[MeshCapability] = []
         mesh: list[MeshCapability] = []
         node: list[MeshCapability] = []
 
         for cap in capabilities:
             if cap.is_valid is False:
                 continue
-            if ActionScope.MESH in cap.action_definition.scope:
+            if ActionScope.DEVICE in cap.action_definition.scope:
+                device.append(cap)
+            elif ActionScope.MESH in cap.action_definition.scope:
                 mesh.append(cap)
             elif ActionScope.NODE in cap.action_definition.scope:
                 node.append(cap)
 
-        return CapabilityScopedGroups(tuple(mesh), tuple(node))
+        return CapabilityScopedGroups(tuple(device), tuple(mesh), tuple(node))
 
     async def _async_detect_capabilities(self) -> None:
         """Attempt to detect the capabilities of the Mesh.
