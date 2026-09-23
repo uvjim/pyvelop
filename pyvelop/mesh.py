@@ -1717,8 +1717,7 @@ class Mesh:
         """
 
         ret: MeshCapability | None = None
-        capability_value: MeshCapability | None = self._capabilities.get(capability)
-        if capability_value is not None:
+        if (capability_value := self._capabilities.get(capability)) is not None:
             ret = capability_value if capability_value.is_valid is not False else None
 
         return ret
@@ -1742,9 +1741,7 @@ class Mesh:
         :return: The matching MeshCapability object.
         :raises ValueError: If the capability is not available.
         """
-        ret = self._find_capability(capability)
-
-        if ret is None:
+        if (ret := self._find_capability(capability)) is None:
             raise ValueError(f"Unknown capability ({capability})")
 
         return ret
