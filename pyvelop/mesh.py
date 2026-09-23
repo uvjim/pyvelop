@@ -570,6 +570,27 @@ class MeshSerialise:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class DhcpLease(MeshSerialise):
+    """Representation of a DHCP lease."""
+
+    _EXPORT_PROPERTIES = tuple(
+        {
+            "client_id",
+            "expires",
+            "hostname",
+            "ip",
+            "mac",
+        }
+    )
+
+    client_id: str
+    expires: dt.datetime
+    hostname: str
+    ip: str
+    mac: str
+
+
 @dataclass(frozen=True)
 class MeshSnapshot(MeshSerialise):
     """Point in time properties of the Mesh."""
@@ -712,11 +733,38 @@ class MeshSnapshot(MeshSerialise):
         The list will be returned in alphabetical order based on the device name.
         N.B. this will not include the nodes.
 
-        :return: A list containing Device objects
+        :return: A tuple containing `DeviceEntity` objects
         """
         ret: list[DeviceEntity] = [device for device in self._discovered_devices if isinstance(device, DeviceEntity)]
         ret = sorted(ret, key=lambda device: str(device.name))
         return tuple(ret)
+
+    @property
+    def dhcp_client_list(self) -> MeshAttribute[tuple[DhcpLease, ...]]:
+        """Get the DHCP clients list.
+
+        :return: A tuple contianing `DhcpLease` objects.
+        """
+
+        cap_name: ActionKey = "GET_DHCP_CLIENT_LIST"
+        self._require_capability(
+            cap_name,
+            attribute_name="dhcp_client_list",
+        )
+
+        attr: list[dict[str, str]] = self._values.get(cap_name, {}).get("leases", [])
+        ret = [
+            DhcpLease(
+                client_id=lease.get("clientID", ""),
+                expires=dt.datetime.fromisoformat(lease.get("expiration", "")).astimezone(tz=dt.UTC),
+                hostname=lease.get("hostName", ""),
+                ip=lease.get("ipAddress", ""),
+                mac=lease.get("macAddress", ""),
+            )
+            for lease in attr
+        ]
+
+        return MeshAttribute[tuple[DhcpLease, ...]](tuple(ret), (AttributeAuditEntry(cap_name, attr),))
 
     @property
     def dhcp_enabled(self) -> MeshAttribute[bool | None]:

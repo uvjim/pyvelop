@@ -22,6 +22,7 @@ ActionKey = Literal[
     "GET_DEVICES",
     "GET_DEVICE_INFO",
     "GET_DEVICE_MODE",
+    "GET_DHCP_CLIENT_LIST",
     "GET_ETHERNET_PORT_CONNECTIONS",
     "GET_EXPRESS_FORWARDING",
     "GET_GUEST_NETWORK_INFO",
@@ -265,6 +266,16 @@ Actions: ActionRegistry = ActionRegistry(
                 ActionVersionMap(action_version=1, service_version=1),
                 ActionVersionMap(action_version=3, service_version=4),
             ),
+        ),
+        ActionDefinition(
+            "GET_DHCP_CLIENT_LIST",
+            "http://linksys.com/jnap/router/GetDHCPClientLeases",
+            "http://linksys.com/jnap/router/Router",
+            redactions={
+                "leases.clientID",
+                "leases.hostName",
+                "leases.macAddress",
+            },
         ),
         ActionDefinition(
             "GET_ETHERNET_PORT_CONNECTIONS",
