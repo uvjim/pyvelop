@@ -333,7 +333,7 @@ def json_default(obj: Any) -> Any:
     :returns: a serialisable object for `json.dump` or `json.dumps`.
     """
 
-    if isinstance(obj, SpeedtestResult):
+    if hasattr(obj, "to_dict"):
         return obj.to_dict()
     elif isinstance(obj, MappingProxyType):
         return obj.copy()
