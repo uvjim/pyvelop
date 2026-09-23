@@ -10,7 +10,7 @@ import datetime as dt
 import logging
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum, auto
 from types import MappingProxyType
@@ -238,9 +238,74 @@ class Weekdays(IntEnum):
     SATURDAY = auto()
 
 
+class MeshSerialiser:
+    """Provides functionality to serialize complex objects and custom classes into formats compatible with JSON serialisation."""
+
+    _EXPORT_PROPERTIES: tuple[str, ...] = ()
+
+    def _serialise(self, value: Any, *, include_audit: bool = False) -> Any:
+        """Recursively transforms objects into types that can be serialized by `json.dump` or `json.dumps`.
+
+        :param value: The object or value to be serialized.
+        :param include_audit: Whether to include audit-related metadata during serialisation of objects that support it.
+        :return: A JSON-serialisable representation of the input value.
+        """
+
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+
+        if hasattr(value, "to_dict"):
+            return value.to_dict(include_audit=include_audit)
+
+        if isinstance(value, Mapping):
+            return {k: self._serialise(v) for k, v in value.items()}
+
+        if isinstance(value, Iterable):
+            return [self._serialise(i) for i in value]
+
+        if isinstance(value, dt.datetime):
+            return value.isoformat()
+
+        return value.__repr__
+
+    def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
+        """Serialises the current instance into a dictionary based on the defined export properties.
+
+        :param include_audit: Whether to include audit-related metadata in the serialised properties.
+        :return: A dictionary containing the serialised values of all properties listed in `_EXPORT_PROPERTIES`.
+        """
+
+        result = {}
+        for prop in self._EXPORT_PROPERTIES:
+            try:
+                val = getattr(self, prop)
+                result[prop] = self._serialise(val, include_audit=include_audit)
+            except AttributeError:
+                continue
+        return result
+
+
 @dataclass(frozen=True, slots=True)
-class AdapterInfo:
+class AdapterInfo(MeshSerialiser):
     """Representation of adapter information."""
+
+    _EXPORT_PROPERTIES = tuple(
+        {
+            "band",
+            "connected",
+            "guest_network",
+            "ip",
+            "ipv6",
+            "mac",
+            "negotiated_mbps",
+            "parent_id",
+            "reservation",
+            "reservation_description",
+            "rssi_dbm",
+            "signal_strength",
+            "type",
+        }
+    )
 
     band: str | None = None
     connected: bool = False
@@ -256,29 +321,19 @@ class AdapterInfo:
     signal_strength: SignalStrength | None = None
     type: ConnectionType = ConnectionType.UNKNOWN
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return the instance as a dictionary."""
-
-        return {
-            "band": self.band,
-            "connected": self.connected,
-            "guest_network": self.guest_network,
-            "ip": self.ip,
-            "ipv6": self.ipv6,
-            "mac": self.mac,
-            "negotiated_mbps": self.negotiated_mbps,
-            "parent_id": self.parent_id,
-            "reservation": self.reservation,
-            "reservation_description": self.reservation_description,
-            "rssi_dbm": self.rssi_dbm,
-            "signal_strength": self.signal_strength.value if self.signal_strength is not None else None,
-            "type": self.type.value,
-        }
-
 
 @dataclass(frozen=True, slots=True)
-class EthernetPortConnection:
+class EthernetPortConnection(MeshSerialiser):
     """Representation of an ethernet port."""
+
+    _EXPORT_PROPERTIES = tuple(
+        {
+            "index",
+            "kind",
+            "negotiated_speed_mbps",
+            "raw_speed",
+        }
+    )
 
     index: int
     speed: str
@@ -313,16 +368,6 @@ class EthernetPortConnection:
         else:
             raise ValueError(f"Unsupported unit: {unit}. Please use Gbps, Mbps, or Kbps.")
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return the instance as a dictionary."""
-
-        return {
-            "index": self.index,
-            "kind": self.kind.value,
-            "negotiated_speed_mbps": self.negotiated_speed_mbps,
-            "raw_speed": self.speed,
-        }
-
 
 @dataclass(frozen=True, slots=True)
 class NodeAdapterInfo(AdapterInfo):
@@ -344,25 +389,24 @@ class NodeAdapterInfo(AdapterInfo):
 
 
 @dataclass(frozen=True, slots=True)
-class BackhaulInfo:
+class BackhaulInfo(MeshSerialiser):
     """Representation of backhaul information."""
+
+    _EXPORT_PROPERTIES = tuple(
+        {
+            "connection",
+            "last_checked",
+            "speed_mbps",
+            "rssi_dbm",
+            "signal_strength",
+        }
+    )
 
     connection: ConnectionType | None
     last_checked: dt.datetime | None
     speed_mbps: float | None
     rssi_dbm: int | None
     signal_strength: SignalStrength | None
-
-    def to_dict(self, **kwargs) -> dict[str, Any]:
-        """Return the instance as a dictionary."""
-
-        return {
-            "connection": self.connection.value if self.connection else None,
-            "last_checked": self.last_checked.isoformat() if self.last_checked is not None else None,
-            "speed_mbps": self.speed_mbps,
-            "rssi_dbm": self.rssi_dbm,
-            "signal_strength": self.signal_strength.value if self.signal_strength is not None else None,
-        }
 
 
 class ParentalControl:

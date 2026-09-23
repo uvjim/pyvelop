@@ -56,6 +56,7 @@ from .mesh_attribute import AttributeAction, AttributeAuditEntry, MeshAttribute
 from .mesh_entity import (
     DeviceEntity,
     EntityDataProperties,
+    MeshSerialiser,
     NodeEntity,
     NodeType,
 )
@@ -429,8 +430,21 @@ class MeshDetails:
 
 
 @dataclass(frozen=True, slots=True)
-class SpeedtestResult:
+class SpeedtestResult(MeshSerialiser):
     """Representation of the results of a speedtest."""
+
+    _EXPORT_PROPERTIES = tuple(
+        {
+            "download_bandwidth",
+            "exit_code",
+            "friendly_status",
+            "latency",
+            "result_id",
+            "server_id",
+            "timestamp",
+            "upload_bandwidth",
+        }
+    )
 
     timestamp: dt.datetime
     download_bandwidth: int
@@ -458,21 +472,6 @@ class SpeedtestResult:
             _friendly_status = SpeedtestStatus.NOT_RUNNING
 
         object.__setattr__(self, "friendly_status", _friendly_status)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Representation of the class."""
-
-        ret: dict[str, Any] = {
-            "download_bandwidth": self.download_bandwidth,
-            "exit_code": self.exit_code.value,
-            "friendly_status": self.friendly_status.value,
-            "latency": self.latency,
-            "result_id": self.result_id,
-            "server_id": self.server_id,
-            "timestamp": self.timestamp.isoformat(),
-            "upload_bandwidth": self.upload_bandwidth,
-        }
-        return ret
 
 
 def _process_speedtest_results(results: dict[str, Any]) -> SpeedtestResult:
@@ -524,55 +523,8 @@ _ACTION_BY_SERVICE: Final[Mapping[str, tuple[ActionDefinition, ...]]] = MappingP
 )
 
 
-class MeshSerialise:
-    """Provides functionality to serialize complex objects and custom classes into formats compatible with JSON serialisation."""
-
-    _EXPORT_PROPERTIES: tuple[str, ...] = ()
-
-    def _serialise(self, value: Any, *, include_audit: bool = False) -> Any:
-        """Recursively transforms objects into types that can be serialized by `json.dump` or `json.dumps`.
-
-        :param value: The object or value to be serialized.
-        :param include_audit: Whether to include audit-related metadata during serialisation of objects that support it.
-        :return: A JSON-serialisable representation of the input value.
-        """
-
-        if value is None or isinstance(value, (bool, int, float, str)):
-            return value
-
-        if hasattr(value, "to_dict"):
-            return value.to_dict(include_audit=include_audit)
-
-        if isinstance(value, Mapping):
-            return {k: self._serialise(v) for k, v in value.items()}
-
-        if isinstance(value, Iterable):
-            return [self._serialise(i) for i in value]
-
-        if isinstance(value, dt.datetime):
-            return value.isoformat()
-
-        return value.__repr__
-
-    def to_dict(self, *, include_audit: bool = False) -> dict[str, Any]:
-        """Serialises the current instance into a dictionary based on the defined export properties.
-
-        :param include_audit: Whether to include audit-related metadata in the serialised properties.
-        :return: A dictionary containing the serialised values of all properties listed in `_EXPORT_PROPERTIES`.
-        """
-
-        result = {}
-        for prop in self._EXPORT_PROPERTIES:
-            try:
-                val = getattr(self, prop)
-                result[prop] = self._serialise(val, include_audit=include_audit)
-            except AttributeError:
-                continue
-        return result
-
-
 @dataclass(frozen=True, slots=True)
-class DhcpLease(MeshSerialise):
+class DhcpLease(MeshSerialiser):
     """Representation of a DHCP lease."""
 
     _EXPORT_PROPERTIES = tuple(
@@ -593,7 +545,7 @@ class DhcpLease(MeshSerialise):
 
 
 @dataclass(frozen=True)
-class MeshSnapshot(MeshSerialise):
+class MeshSnapshot(MeshSerialiser):
     """Point in time properties of the Mesh."""
 
     _capabilities: MappingProxyType[ActionKey, MeshCapability] = field(repr=False, compare=False)
