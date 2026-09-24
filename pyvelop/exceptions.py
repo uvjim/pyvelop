@@ -3,6 +3,11 @@
 # region #-- imports --#
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .mesh_entity import DeviceEntity
+
 # endregion
 
 
@@ -71,9 +76,16 @@ class MeshDeviceDbFailure(MeshException):
 class MeshDeviceNotFoundResponse(MeshException):
     """Device is not found in the mesh."""
 
-    def __init__(self, devices: list[str] | None = None) -> None:
+    def __init__(self, *, found: list[DeviceEntity] | None = None, missing: list[str] | None = None) -> None:
         """Initialise and default message."""
-        self.devices = devices or []
+
+        if found is None:
+            found = []
+        if missing is None:
+            missing = []
+
+        self.found: tuple[DeviceEntity, ...] = tuple(found)
+        self.missing: tuple[str, ...] = tuple(missing)
         super().__init__("Device(s) not found")
 
 
