@@ -1916,9 +1916,9 @@ class Mesh:
                 continue
             if ActionScope.DEVICE in cap.action_definition.scope:
                 device.append(cap)
-            elif ActionScope.MESH in cap.action_definition.scope:
+            if ActionScope.MESH in cap.action_definition.scope:
                 mesh.append(cap)
-            elif ActionScope.NODE in cap.action_definition.scope:
+            if ActionScope.NODE in cap.action_definition.scope:
                 node.append(cap)
 
         return CapabilityScopedGroups(tuple(device), tuple(mesh), tuple(node))
