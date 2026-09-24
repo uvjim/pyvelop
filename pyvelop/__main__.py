@@ -888,7 +888,7 @@ async def device_internet_access(
                     force_enable=bool(block),
                 )
             except MeshDeviceNotFoundResponse as err:
-                _LOGGER.error("Device not found: %s", err.devices[0])
+                _LOGGER.error("Device not found: %s", err.missing[0])
             except MeshException as err:
                 _LOGGER.error(err)
 
@@ -1608,7 +1608,11 @@ async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> tu
         device_qry: tuple[str, ...] | None = None
         if device:
             device_qry = tuple(filter(lambda d: not d.startswith("${input:"), device))
-        return await mesh.async_get_devices(device_qry)
+        try:
+            return await mesh.async_get_devices(device_qry)
+        except MeshDeviceNotFoundResponse as exc:
+            _write_error(f"{exc}, missing devices: {",".join(exc.missing)}")
+            return ()
 
     return await _with_mesh(ctx, _fetch_devices)
 

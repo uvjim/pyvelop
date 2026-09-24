@@ -2288,90 +2288,54 @@ class Mesh:
         *,
         raise_for_missing: bool = True,
     ) -> tuple[DeviceEntity, ...]:
-        """Get matching devices if identity is specified, or all devices.
+        """Get matching devices if identity is specified, or all devices."""
 
-        To be used only if needing to query devices and get the details returned.
-        Returns the devices in alphabetical order based on the name.
-
-        :return: Device objects
-        """
-
-        all_devices: list[DeviceEntity] = []
-        ret: list[DeviceEntity] = []
-
-        device_capabilities: set[MeshCapability] = {
+        device_capabilities = {
             cap
             for cap in self._capabilities.values()
-            if cap.action_definition.features is not None
-            and ActionFeatures.DEVICE_INFO in cap.action_definition.features
+            if cap.action_definition.features and ActionFeatures.DEVICE_INFO in cap.action_definition.features
         }
-        device_details: dict[ActionKey, Any] = await self._async_gather_details(device_capabilities)
-        device_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(False, device_details)
-        device_entities: list[DeviceEntity | NodeEntity] = self._remediate_mesh_entities(False, device_entities)
-        all_devices = [dev for dev in device_entities if isinstance(dev, DeviceEntity)]
+        device_details = await self._async_gather_details(device_capabilities)
+        entities = self._remediate_mesh_entities(False, self._build_mesh_entities(False, device_details))
+        all_devices = [dev for dev in entities if isinstance(dev, DeviceEntity)]
 
         if identity is None:
-            ret = all_devices
-        else:
-            found: DeviceEntity | None = None
-            identity_formatted: tuple[str, ...] = tuple(map(str.lower, map(str.strip, identity)))
-            identity_found: list[str | uuid.UUID] = []
-            for ident in identity_formatted:
-                try:  # match a GUID?
-                    _ = uuid.UUID(str(ident))
-                    found = next(
+            return tuple(sorted(all_devices, key=lambda d: str(d.name)))
+
+        found_devices: list[DeviceEntity] = []
+        found_original_identities: list[str] = []
+
+        mac_regex = re.compile(r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$", re.IGNORECASE)
+
+        for original_ident in identity:
+            ident = original_ident.strip().lower()
+            match = None
+
+            try:
+                uuid.UUID(ident)
+                match = next((d for d in all_devices if str(d.unique_id).lower() == ident), None)
+            except ValueError:
+                if mac_regex.match(ident):
+                    match = next(
                         (
-                            dev
-                            for dev in all_devices
-                            if type(dev) is DeviceEntity
-                            and dev.unique_id.value is not None
-                            and str(dev.unique_id).lower() == ident
+                            d
+                            for d in all_devices
+                            if any(str(a.mac).strip().lower() == ident for a in d.adapter_info.value)
                         ),
                         None,
                     )
-                except ValueError:  # not a GUID
-                    regex_pattern: str = r"^[a-f0-9]{2}((:|-)*[a-f0-9]{2}){5}$"
-                    if (  # MAC address?
-                        re.match(
-                            pattern=regex_pattern,
-                            string=str(ident),
-                            flags=re.IGNORECASE,
-                        )
-                        is not None
-                    ):
-                        found = next(
-                            dev
-                            for dev in all_devices
-                            if type(dev) is DeviceEntity
-                            and next(
-                                (
-                                    adapter
-                                    for adapter in dev.adapter_info.value
-                                    if str(adapter.mac).strip().lower() == ident
-                                ),
-                                None,
-                            )
-                        )
-                    else:
-                        found = next(
-                            (
-                                dev
-                                for dev in all_devices
-                                if type(dev) is DeviceEntity and str(dev.name).strip().lower() == ident
-                            ),
-                            None,
-                        )
+                else:
+                    match = next((d for d in all_devices if str(d.name).strip().lower() == ident), None)
 
-                if found is not None:
-                    identity_found.append(ident)
-                    ret.append(found)
+            if match:
+                found_devices.append(match)
+                found_original_identities.append(original_ident)
 
-            if len(ret) != len(identity) and raise_for_missing:
-                raise MeshDeviceNotFoundResponse(devices=list(set(identity_formatted).difference(identity_found)))
+        if raise_for_missing and len(found_devices) != len(identity):
+            missing = set(identity) - set(found_original_identities)
+            raise MeshDeviceNotFoundResponse(found=found_devices, missing=list(missing))
 
-        ret = sorted(ret, key=lambda device: str(device.name))
-
-        return tuple(ret)
+        return tuple(sorted(found_devices, key=lambda d: str(d.name)))
 
     @needs_auth_and_refresh
     async def async_get_speedtest_result_by_id(self, result_ids: Sequence[int]) -> tuple[SpeedtestResult, ...]:
