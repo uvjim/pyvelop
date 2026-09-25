@@ -3,12 +3,13 @@
 # region #-- imports --#
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import datetime as dt
 import json
 import logging
 import sys
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from enum import StrEnum, auto
 from types import MappingProxyType
@@ -37,6 +38,7 @@ from .mesh import (
 )
 from .mesh_attribute import MeshAttribute
 from .mesh_entity import (
+    EMPTY_NAME,
     DeviceEntity,
     NodeEntity,
     NodeType,
@@ -1111,6 +1113,48 @@ async def mesh_attr(
     await _with_mesh(ctx, _mesh_attr)
 
 
+@mesh_group.command(cls=StandardCommand, name="backup_devices")
+@click.argument("file", type=click.File(lazy=True, mode="w"))
+@click.pass_context
+async def mesh_backup_devices(
+    ctx: click.Context,
+    /,
+    file: click.utils.LazyFile,
+    **_: Any,
+) -> None:
+    """Back up the relevant information about devices to the given file in JSON format.
+
+    :param ctx: The click context for the current command
+    :param file: Path to the file the backup should be stored in
+    """
+
+    devices: tuple[DeviceEntity, ...] | None = await _get_device_details(ctx, ())
+    timestamp: str = dt.datetime.now(tz=dt.UTC).isoformat()
+    if not devices:
+        return
+
+    device_list: list[dict[str, Any]] = []
+    for dev in devices:
+        mac: str | None = next((adi.mac for adi in dev.adapter_info.value), None)
+        if mac:
+            device_list.append(
+                {
+                    "mac": mac,
+                    "name": dev.name.value,
+                    "ui_type": dev.ui_type.value,
+                }
+            )
+
+    file.write(
+        json.dumps(
+            {
+                "timestamp": timestamp,
+                "devices": device_list,
+            }
+        )
+    )
+
+
 @mesh_group.command(cls=StandardCommand, name="details")
 @click.option("--outfile", default=None, required=False)
 @click.pass_context
@@ -1164,6 +1208,83 @@ async def mesh_ping(
             click.echo(await mesh.async_ping())
 
     await _with_mesh(ctx, _ping)
+
+
+@mesh_group.command(cls=StandardCommand, name="restore_devices")
+@click.argument("file", type=click.File(lazy=True, mode="r"))
+@click.argument("concurrency", type=int, default=10)
+@click.pass_context
+async def mesh_restore_devices(
+    ctx: click.Context,
+    /,
+    file: click.utils.LazyFile,
+    concurrency,
+    **_: Any,
+) -> None:
+    """Restore device configurations from a backup file.
+
+    This command reads a JSON backup file and updates the current devices'
+    names and UI icons to match the stored state. It utilises a semaphore
+    to limit concurrent network requests, preventing potential rate-limiting
+    or system instability.
+
+    :param ctx: The Click context object.
+    :param file: The backup file to be read.
+    :param concurrency: The maximum number of concurrent updates allowed.
+    """
+
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def limit_concurrency(coro):
+        async with semaphore:
+            return await coro
+
+    try:
+        bkp_data: dict[str, Any] = json.loads(file.read())
+    except (json.JSONDecodeError, OSError) as exc:
+        _output(None, f"Failed to read backup file: {exc}")
+        return
+
+    _output(None, f"Processing backup from {bkp_data.get("timestamp")}\n")
+    bkp_devices = bkp_data.get("devices", [])
+    bkp_devices_by_mac: dict[str, Any] = {bd.get("mac"): bd for bd in bkp_devices if bd.get("mac")}
+
+    cur_devices = await _get_device_details(ctx, bkp_devices_by_mac.keys())
+    if not cur_devices:
+        return
+
+    to_process = []
+    task_to_mac = {}
+    for dev in cur_devices:
+        mac: str | None = next((adi.mac for adi in dev.adapter_info.value), None)
+        if not mac or (bkp_details := bkp_devices_by_mac.get(mac)) is None:
+            continue
+
+        if (ui_type := bkp_details.get("ui_type")) != dev.ui_type:
+            print("adding ui_type")
+            coro = limit_concurrency(dev.async_set_icon(ui_type) if ui_type else dev.async_reset_icon())
+            to_process.append(coro)
+            task_to_mac[coro] = mac
+        if (name := bkp_details.get("name")) != dev.name:
+            print("adding name", name)
+            coro = limit_concurrency(
+                dev.async_rename(name) if name not in (EMPTY_NAME, None) else dev.async_reset_name()
+            )
+            to_process.append(coro)
+            task_to_mac[coro] = mac
+
+    if not to_process:
+        _output(None, "There are no updates to make")
+
+    results = await asyncio.gather(*to_process, return_exceptions=True)
+    exceptions = [res for res in results if isinstance(res, Exception)]
+    if exceptions:
+        _output(None, f"Completed with {len(exceptions)} errors out of {len(results)} updates.\n")
+        for i, res in enumerate(results):
+            task_obj = to_process[i]
+            mac = task_to_mac.get(task_obj, "Unknown MAC")
+            for exc in exceptions:
+                _output(None, f"{mac} failed: {exc}\n")
 
 
 @mesh_group.command(cls=StandardCommand, name="scheduled_reboot")
@@ -1601,7 +1722,7 @@ def _write_error(msg: Any) -> None:
     click.echo(click.style(msg, fg="red"), err=True)
 
 
-async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> tuple[DeviceEntity, ...] | None:
+async def _get_device_details(ctx: click.Context, device: Iterable[str]) -> tuple[DeviceEntity, ...] | None:
     """Retreive device details from the mesh."""
 
     async def _fetch_devices(mesh: Mesh) -> tuple[DeviceEntity, ...]:
@@ -1612,7 +1733,7 @@ async def _get_device_details(ctx: click.Context, device: tuple[str, ...]) -> tu
             return await mesh.async_get_devices(device_qry)
         except MeshDeviceNotFoundResponse as exc:
             _write_error(f"{exc}, missing devices: {",".join(exc.missing)}")
-            return ()
+            return exc.found
 
     return await _with_mesh(ctx, _fetch_devices)
 
