@@ -934,31 +934,33 @@ class MeshEntity(ABC):
             # endregion
 
             # region #-- infer the adapter connected state if we can --#
+            adapter_conn_state: bool = bool(connection_info)
             _update_and_log_audit(
-                {"connected": bool(connection_info)},
-                EntityDataProperties.DEVICE_DETAILS.value,
-                index=idx,
+                {"connected": adapter_conn_state}, EntityDataProperties.DEVICE_DETAILS.value, index=idx
             )
-
-            wifi_state: bool = bool(wifi_info)
-            if props.get("connected", False) != wifi_state:
-                props_wifi_state: dict[str, bool] = {
-                    "connected": wifi_state,
-                }
+            if not props.get("connected") and wifi_info:
                 _update_and_log_audit(
-                    props_wifi_state, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx
+                    {"connected": True},
+                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
+                    index=idx,
                 )
-
-            has_wired_evidence = conn_type == ConnectionType.WIRED
-            has_wireless_evidence = (
-                conn_type == ConnectionType.WIRELESS and nnc and nnc.get("wireless", {}).get("signalDecibels")
-            )
-            is_actually_connected = nnc and (has_wired_evidence or has_wireless_evidence)
-            if not props.get("connected", False) and is_actually_connected:
-                props_nnc_state: dict[str, bool] = {
-                    "connected": True,
-                }
-                _update_and_log_audit(props_nnc_state, EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, index=idx)
+            elif props.get("connected") and conn_type == ConnectionType.WIRELESS and not wifi_info:
+                _update_and_log_audit(
+                    {"connected": False},
+                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
+                    index=idx,
+                )
+            if (
+                not props.get("connected")
+                and nnc
+                and (
+                    props.get("type") == ConnectionType.WIRED
+                    or (props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless", {}).get("signalDecibels"))
+                )
+            ):
+                _update_and_log_audit(
+                    {"connected": True}, EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, index=idx
+                )
             # endregion
 
             # region #-- parent details --#
