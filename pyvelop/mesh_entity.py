@@ -1237,6 +1237,28 @@ class DeviceEntity(MeshEntity):
         cap: MeshCapability = self._get_capability("SET_DEVICE_PROPERTY")
         await cap.async_execute(payload=payload)
 
+    async def async_reset_icon(self) -> None:
+        """Reset the icon for the device."""
+
+        payload: JnapPayloadSingle = {
+            "deviceID": self.unique_id.value,
+            "propertiesToRemove": [DeviceProperty.UI_TYPE.value],
+        }
+
+        cap: MeshCapability = self._get_capability("SET_DEVICE_PROPERTY")
+        await cap.async_execute(payload=payload)
+
+    async def async_reset_name(self) -> None:
+        """Reset the name for the device."""
+
+        payload: JnapPayloadSingle = {
+            "deviceID": self.unique_id.value,
+            "propertiesToRemove": [DeviceProperty.DEVICE_NAME.value],
+        }
+
+        cap: MeshCapability = self._get_capability("SET_DEVICE_PROPERTY")
+        await cap.async_execute(payload=payload)
+
     async def async_set_icon(self, icon: UiType | str) -> None:
         """Set the icon for the device.
 
