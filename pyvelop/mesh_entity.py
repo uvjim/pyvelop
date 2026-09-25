@@ -810,11 +810,7 @@ class MeshEntity(ABC):
 
         for idx, adapter in enumerate(my_adapters):
             props: dict[str, Any] = {}
-            props_adapter: dict[str, Any] = {
-                "mac": adapter.get("macAddress"),
-            }
-            if adapter.get("band") is not None:
-                props_adapter["band"] = adapter.get("band")
+            props_adapter: dict[str, Any] = {"mac": adapter.get("macAddress"), "band": adapter.get("band")}
             _update_and_log_audit(props_adapter, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
 
             # region #-- prep all the info we need to use for making decisions --#
@@ -848,9 +844,7 @@ class MeshEntity(ABC):
                     "ip": connection_info.get("ipAddress"),
                     "ipv6": connection_info.get("ipv6Address"),
                 }
-                _update_and_log_audit(
-                    props_ci, EntityDataProperties.DEVICE_DETAILS.value, index=idx, kind=AttributeAction.MERGE
-                )
+                _update_and_log_audit(props_ci, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
             # endregion
 
             # region #-- derive reservation information --#
@@ -862,9 +856,7 @@ class MeshEntity(ABC):
                 "reservation": bool(reservation_info),
                 "reservation_description": next(iter(reservation_info), {}).get("description"),
             }
-            _update_and_log_audit(
-                props_reservation, EntityDataProperties.RESERVATION_DETAILS.value, index=idx, kind=AttributeAction.MERGE
-            )
+            _update_and_log_audit(props_reservation, EntityDataProperties.RESERVATION_DETAILS.value, index=idx)
             # endregion
 
             # region #-- derive wireless information --#
@@ -880,123 +872,93 @@ class MeshEntity(ABC):
                     "rssi_dbm": wifi_info[0].get("wireless", {}).get("signalDecibels"),
                     "signal_strength": signal_strength,
                 }
-                _update_and_log_audit(
-                    props_wifi,
-                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                    index=idx,
-                    kind=AttributeAction.MERGE,
-                )
+                _update_and_log_audit(props_wifi, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx)
             # endregion
 
             # region #-- derive the adapter connection type --#
-            adapter_conn_type: ConnectionType = ConnectionType(adapter.get("interfaceType", "Unknown"))
             props_device_type: dict[str, ConnectionType] = {
-                "type": adapter_conn_type,
+                "type": ConnectionType(adapter.get("interfaceType", "Unknown"))
             }
-            _update_and_log_audit(
-                props_device_type, EntityDataProperties.DEVICE_DETAILS.value, index=idx, kind=AttributeAction.MERGE
-            )
+            _update_and_log_audit(props_device_type, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
 
-            props_wifi_type: dict[str, ConnectionType] = {}
             # weird state where the device is listed as wired but has wifi info so change to wireless
-            if adapter_conn_type in (ConnectionType.WIRED, ConnectionType.UNKNOWN) and props_wifi:
-                props_wifi_type = {"type": ConnectionType.WIRELESS}
-            if props_wifi_type:
+            if props.get("type") in (ConnectionType.WIRED, ConnectionType.UNKNOWN) and props_wifi:
                 _update_and_log_audit(
-                    props_wifi_type,
-                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                    index=idx,
-                    kind=AttributeAction.MERGE,
+                    {"type": ConnectionType.WIRELESS}, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx
                 )
 
             # unknown still so let's derive from GET_NETWORK_CONNECTIONS
-            props_nnc_type: dict[str, Any] = {}
             if node_network_conns:
                 if props.get("type") != ConnectionType.WIRELESS and any(
                     nnc.get("wireless", {}).get("signalDecibels") for nnc in node_network_conns
                 ):
-                    props_nnc_type = {"type": ConnectionType.WIRELESS}
+                    _update_and_log_audit(
+                        {"type": ConnectionType.WIRELESS},
+                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
+                        index=idx,
+                    )
                 elif props.get("type") == ConnectionType.UNKNOWN:
-                    props_nnc_type = {"type": ConnectionType.WIRED}
-            if props_nnc_type:
-                _update_and_log_audit(
-                    props_nnc_type,
-                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                    index=idx,
-                    kind=AttributeAction.MERGE,
-                )
+                    _update_and_log_audit(
+                        {"type": ConnectionType.WIRED}, EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, index=idx
+                    )
             # endregion
 
             # region #-- establish a valid node connection record --#
             # this relies on the "type" being established so needs to come after that.
-            nnc: dict[str, Any] | None = next(
-                (
-                    n
-                    for n in node_network_conns
-                    if (props.get("type") == ConnectionType.WIRED and not n.get("wireless", {}).get("signalDecibels"))
-                    or (props.get("type") == ConnectionType.WIRELESS and n.get("wireless", {}).get("signalDecibels"))
-                ),
-                None,
-            )
+            conn_type = props.get("type")
+            nnc: dict[str, Any] | None = None
+            for n in node_network_conns:
+                has_signal = bool(n.get("wireless", {}).get("signalDecibels"))
+                if conn_type == ConnectionType.WIRED and not has_signal:
+                    nnc = n
+                    break
+                if conn_type == ConnectionType.WIRELESS and has_signal:
+                    nnc = n
+                    break
             # endregion
 
             # region #-- derive information from node connection details --#
-            props_nnc: dict[str, Any] = {}
             if nnc is not None:
                 signal_strength: SignalStrength | None = self._signal_strength_to_text(
                     nnc.get("wireless", {}).get("signalDecibels")
                 )
-                props_nnc = {
-                    "negotiated_mbps": nnc.get("negotiatedMbps"),
-                    "rssi_dbm": nnc.get("wireless", {}).get("signalDecibels"),
-                    "signal_strength": signal_strength,
-                }
                 _update_and_log_audit(
-                    props_nnc,
+                    {
+                        "negotiated_mbps": nnc.get("negotiatedMbps"),
+                        "rssi_dbm": nnc.get("wireless", {}).get("signalDecibels"),
+                        "signal_strength": signal_strength,
+                    },
                     EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                     index=idx,
-                    kind=AttributeAction.MERGE,
                 )
             # endregion
 
             # region #-- infer the adapter connected state if we can --#
-            adapter_conn_state: bool = bool(connection_info)
-            props_adapter_conn_state: dict[str, bool] = {
-                "connected": adapter_conn_state,
-            }
             _update_and_log_audit(
-                props_adapter_conn_state,
+                {"connected": bool(connection_info)},
                 EntityDataProperties.DEVICE_DETAILS.value,
                 index=idx,
-                kind=AttributeAction.MERGE,
             )
-            if not props.get("connected", False) and wifi_info:
+
+            wifi_state: bool = bool(wifi_info)
+            if props.get("connected", False) != wifi_state:
                 props_wifi_state: dict[str, bool] = {
-                    "connected": True,
+                    "connected": wifi_state,
                 }
                 _update_and_log_audit(
-                    props_wifi_state,
-                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                    index=idx,
-                    kind=AttributeAction.MERGE,
+                    props_wifi_state, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx
                 )
-            if (
-                not props.get("connected", False)
-                and nnc
-                and (
-                    props.get("type") == ConnectionType.WIRED
-                    or (props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless", {}).get("signalDecibels"))
-                )
-            ):
+
+            has_wired_evidence = conn_type == ConnectionType.WIRED
+            has_wireless_evidence = (
+                conn_type == ConnectionType.WIRELESS and nnc and nnc.get("wireless", {}).get("signalDecibels")
+            )
+            is_actually_connected = nnc and (has_wired_evidence or has_wireless_evidence)
+            if not props.get("connected", False) and is_actually_connected:
                 props_nnc_state: dict[str, bool] = {
                     "connected": True,
                 }
-                _update_and_log_audit(
-                    props_nnc_state,
-                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                    index=idx,
-                    kind=AttributeAction.MERGE,
-                )
+                _update_and_log_audit(props_nnc_state, EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, index=idx)
             # endregion
 
             # region #-- parent details --#
@@ -1004,15 +966,11 @@ class MeshEntity(ABC):
                 parent: MeshAttribute[NodeEntity | None] | None = cast(
                     MeshAttribute[NodeEntity | None] | None, self._data.get(EntityDataProperties.PARENT_ENTITY)
                 )
-                props_parent: dict[str, Any] = {}
                 if parent is not None and parent.value is not None:
-                    props_parent = {"parent_id": parent.value.unique_id.value}
-                if props_parent:
                     _update_and_log_audit(
-                        props_parent,
+                        {"parent_id": parent.value.unique_id.value},
                         EntityDataProperties.DEVICE_DETAILS.value,
                         index=idx,
-                        kind=AttributeAction.MERGE,
                     )
             # endregion
 
