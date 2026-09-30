@@ -576,8 +576,8 @@ class ParentalControl:
                 time_schedules: list[str] = schedule.split(",")
                 for schedule in time_schedules:
                     times: list[str] = schedule.split("-")
-                    start = dt.datetime.strptime(times[0].strip(), "%H:%M").astimezone(dt.UTC)
-                    end = dt.datetime.strptime(times[1].strip(), "%H:%M").astimezone(dt.UTC)
+                    start = dt.datetime.strptime(times[0].strip(), "%H:%M").replace(tzinfo=dt.UTC)
+                    end = dt.datetime.strptime(times[1].strip(), "%H:%M").replace(tzinfo=dt.UTC)
                     offset_start, offset_end = ParentalControl._time_block_offsets(
                         start,
                         end,
@@ -1295,32 +1295,30 @@ class DeviceEntity(MeshEntity):
         :param rules: A dictionary of time string pairs in the form: `"monday": "00:00-02:00,17:30:18:00"`
         :param force_enable: True to enable Parental Control, False to leave in current state
         """
-        _LOGGER.debug(
-            "entered, rules: %s",
-            rules,
-        )
+        _LOGGER_VERBOSE.debug("entered, rules: %s", rules)
 
         current_schedule: dict[str, str] = {}
         keep_rules: list[dict[str, Any]] = []
         this_device_rules: list[dict[str, Any]] = []
 
-        # region #-- get the device MAC --#
+        # get the device MAC
         device_mac: str | None = self.adapter_info.value[0].mac
         if device_mac is None:
             raise MeshException("No MAC available")
+        device_mac = device_mac.upper()
         # endregion
 
-        # -- get the current rules as they may have changed --#
+        # get the current rules as they may have changed
         cap: MeshCapability = self._get_capability("GET_PARENTAL_CONTROL_INFO")
         live_pc_info: JnapResponseSingle = await cap.async_execute()
 
-        # region #-- determine the rules --#
+        # determine the rules
         if live_pc_info:
             keep_rules = [
-                rule for rule in live_pc_info.get("rules", []) if device_mac.upper() not in rule.get("macAddresses", [])
+                rule for rule in live_pc_info.get("rules", []) if device_mac not in rule.get("macAddresses", [])
             ]
             this_device_rules = [
-                rule for rule in live_pc_info.get("rules", []) if device_mac.upper() in rule.get("macAddresses", [])
+                rule for rule in live_pc_info.get("rules", []) if device_mac in rule.get("macAddresses", [])
             ]
 
         if this_device_rules:  # already has rules
@@ -1329,7 +1327,7 @@ class DeviceEntity(MeshEntity):
         cached_schedule: str | None = self._get_user_property(DeviceProperty.ACTUAL_WAN_SCHEDULE)
         new_rule = ParentalControl.human_readable_to_binary(rules)
         if new_rule != ParentalControl.all_allowed_schedule():
-            _LOGGER.debug("adding new rules")
+            _LOGGER_VERBOSE.debug("adding new rules")
             if this_device_rules:
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
@@ -1343,17 +1341,16 @@ class DeviceEntity(MeshEntity):
                     )
         else:
             if cached_schedule:
-                _LOGGER.debug("restoring backed up schedule")
+                _LOGGER_VERBOSE.debug("restoring backed up schedule")
                 new_rule = ParentalControl.backup_to_binary(cached_schedule)
                 this_device_rules[0]["wanSchedule"] = new_rule
             else:
                 if len(this_device_rules) > 0 and this_device_rules[0].get("blockedURLs", []):
-                    _LOGGER.debug("blocked URLs found, applying permissive rule")
+                    _LOGGER_VERBOSE.debug("blocked URLs found, applying permissive rule")
                     this_device_rules[0]["wanSchedule"] = new_rule
                 else:
-                    _LOGGER.debug("removing from rules")
+                    _LOGGER_VERBOSE.debug("removing from rules")
                     this_device_rules = []
-        # endregion
 
         cap = self._get_capability("SET_PARENTAL_CONTROL_INFO")
         requests: list[Awaitable[JnapResponseSingle]] = []
@@ -1370,7 +1367,7 @@ class DeviceEntity(MeshEntity):
             )
         )
 
-        # region #-- calculate the device properties to update --#
+        # calculate the device properties to update
         cap = self._get_capability("SET_DEVICE_PROPERTY")
         device_properties = self._get_parental_control_device_attributes(
             schedule=new_rule if isinstance(new_rule, dict) else {},
@@ -1408,7 +1405,6 @@ class DeviceEntity(MeshEntity):
                     }
                 )
             )
-        # endregion
 
         await asyncio.gather(*requests)
 
@@ -1425,7 +1421,7 @@ class DeviceEntity(MeshEntity):
         :param force_enable: True to enable the rule if it isn't enabled
         :param merge: True to merge with existing URLs, False to replace
         """
-        _LOGGER.debug(
+        _LOGGER_VERBOSE.debug(
             "entered, urls: %s, merge: %s",
             urls,
             merge,
