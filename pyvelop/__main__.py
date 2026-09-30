@@ -184,9 +184,9 @@ class StandardCommand(click.Command):
                     logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.WARNING)
                     if value > 2:
                         logging.getLogger(f"{__package__}.mesh.verbose").setLevel(logging.DEBUG)
-                        logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.DEBUG)
                         if value > 3:
                             logging.getLogger(f"{__package__}.jnap").setLevel(logging.DEBUG)
+                            logging.getLogger(f"{__package__}.mesh_entity.verbose").setLevel(logging.DEBUG)
                             if value > 4:
                                 logging.getLogger(f"{__package__}.jnap.verbose").setLevel(logging.DEBUG)
 
@@ -1141,6 +1141,7 @@ async def mesh_backup_devices(
                 {
                     "mac": mac,
                     "name": dev.name.value,
+                    "parental_control": dev.parental_control_schedule.value,
                     "ui_type": dev.ui_type.value,
                 }
             )
@@ -1223,10 +1224,10 @@ async def mesh_restore_devices(
 ) -> None:
     """Restore device configurations from a backup file.
 
-    This command reads a JSON backup file and updates the current devices'
-    names and UI icons to match the stored state. It utilises a semaphore
-    to limit concurrent network requests, preventing potential rate-limiting
-    or system instability.
+    Reads the JSON backup file and updates the current devices'
+    names and UI icons to match the stored state. If parental control
+    information is found for the device, no check or merging is carried out.
+    The information stored in the file always wins.
 
     :param ctx: The Click context object.
     :param file: The backup file to be read.
@@ -1253,27 +1254,45 @@ async def mesh_restore_devices(
     if not cur_devices:
         return
 
-    to_process = []
-    task_to_mac = {}
+    changes_made = False
+    to_process = []  # list of coroutines to process
+    task_to_mac = {}  # maps tasks to MAC address for lookup purposes
+
+    def _prep_coro(coro, mac: str) -> None:
+        """Carry out required tasks to prepare the coroutine."""
+        # add the request to the list to process
+        to_process.append(coro)
+        # add to the mapping
+        task_to_mac[coro] = mac
+
+    # process the devices
     for dev in cur_devices:
         mac: str | None = next((adi.mac for adi in dev.adapter_info.value), None)
         if not mac or (bkp_details := bkp_devices_by_mac.get(mac)) is None:
             continue
 
         if (ui_type := bkp_details.get("ui_type")) != dev.ui_type:
-            print("adding ui_type")
             coro = limit_concurrency(dev.async_set_icon(ui_type) if ui_type else dev.async_reset_icon())
-            to_process.append(coro)
-            task_to_mac[coro] = mac
+            _prep_coro(coro, mac)
         if (name := bkp_details.get("name")) != dev.name:
-            print("adding name", name)
             coro = limit_concurrency(
                 dev.async_rename(name) if name not in (EMPTY_NAME, None) else dev.async_reset_name()
             )
-            to_process.append(coro)
-            task_to_mac[coro] = mac
+            _prep_coro(coro, mac)
 
-    if not to_process:
+        # can't add these to the to_process because that creates a race condition
+        if pc_schedule := bkp_details.get("parental_control"):
+            blocked_sites = pc_schedule.get("blocked_sites")
+            blocked_times = pc_schedule.get("blocked_internet_access")
+            if blocked_sites:
+                await dev.async_set_parental_control_urls(blocked_sites)
+                changes_made = True
+            if blocked_times:
+                to_block: dict[str, str | None] = {k: ",".join(v) if v else None for k, v in blocked_times.items()}
+                await dev.async_set_parental_control_rules(to_block)
+                changes_made = True
+
+    if not to_process and not changes_made:
         _output(None, "There are no updates to make")
 
     results = await asyncio.gather(*to_process, return_exceptions=True)
