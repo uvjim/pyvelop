@@ -2724,7 +2724,7 @@ class Mesh:
         if cap is not None and not ignore_boundary_check:
             try:
                 resp = await cap.async_execute()
-                if (attempts := resp.get("attemptsRemaining")) is not None and attempts <= 2:
+                if (attempts := resp.get("attemptsRemaining")) is not None and attempts > 0 and attempts <= 2:
                     raise MeshInvalidCredentialsNoRetry(
                         details={
                             "attempts_remaining": attempts,
