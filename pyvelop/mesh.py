@@ -2212,13 +2212,14 @@ class Mesh:
                     if cap is not None:
                         cap.mark_as_invalid()
 
-    async def async_authenticate_and_refresh(self) -> MeshSnapshot:
+    async def async_authenticate_and_refresh(self, ignore_auth_boundary_check: bool = False) -> MeshSnapshot:
         """Test credentials and refresh the data.
 
         Probes for capabilities, attempts login and retrieves details for the discovered capabilities.
 
-        :raises MeshInvalidCredentials: The password is invalid
-        :raises MeshInvalidCredentialsNoRetry: The number of attempts is lower than the boundary for retries
+        :param ignore_auth_boundary_check: `True` to ignore the lower boundary check for auth.
+        :raises MeshInvalidCredentials: The password is invalid.
+        :raises MeshInvalidCredentialsNoRetry: The number of attempts is lower than the boundary for retries.
         :raises MeshInvalidCredentialsWithDelay: The mesh has informed the password is incorrect but a delay should be used before retrying.
         :raises MeshNodeNotPrimary: The specified node reports that it is not the primary node.
         """
@@ -2234,7 +2235,7 @@ class Mesh:
 
         # test the password
         self.__mesh_details.password = self._password
-        await self.async_test_credentials()
+        await self.async_test_credentials(ignore_boundary_check=ignore_auth_boundary_check)
 
         # remediate capabilities
         await self._async_remediate_capabilities()
@@ -2704,9 +2705,10 @@ class Mesh:
 
         return ret
 
-    async def async_test_credentials(self) -> bool:
+    async def async_test_credentials(self, *, ignore_boundary_check: bool = False) -> bool:
         """Check the provided credentials are valid.
 
+        :param ignore_boundary_check: `True` to ignore checking the lower boundary for which auth attempts are made.
         :return: `True` if valid
         :raises MeshActionVersionNotImplemented: If the specified version is not implemented
         :raises MeshInvalidCredentials: If the password is invalid
@@ -2718,11 +2720,17 @@ class Mesh:
         ret: bool = False
         payload: JnapPayloadSingle = {}
         cap: MeshCapability | None = self._find_capability("GET_PASSWORD_AUTH_STATUS")
-        if cap is not None:
+        _LOGGER_VERBOSE.debug("cap: %s, ignore_boundary_check: %s", cap, ignore_boundary_check)
+        if cap is not None and not ignore_boundary_check:
             try:
                 resp = await cap.async_execute()
                 if (attempts := resp.get("attemptsRemaining")) is not None and attempts <= 2:
-                    raise MeshInvalidCredentialsNoRetry()
+                    raise MeshInvalidCredentialsNoRetry(
+                        details={
+                            "attempts_remaining": attempts,
+                            "delay_time_remaining_secs": resp.get("delayTimeRemaining"),
+                        }
+                    )
             except MeshActionUnknown:
                 pass
 
