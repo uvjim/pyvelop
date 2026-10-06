@@ -28,6 +28,10 @@ class MeshActionVersionNotImplemented(MeshException):
     """Action with the specified version has not been implemented."""
 
 
+class MeshAdminAccountLocked(MeshException):
+    """Admin account is currently in a locked state."""
+
+
 class MeshAlreadyInProgress(MeshException):
     """API returns an already in progress response."""
 
