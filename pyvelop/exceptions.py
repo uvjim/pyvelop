@@ -31,6 +31,10 @@ class MeshActionVersionNotImplemented(MeshException):
 class MeshAdminAccountLocked(MeshException):
     """Admin account is currently in a locked state."""
 
+    def __init__(self) -> None:
+        """Initialise and default message."""
+        super().__init__("Your account is currently locked out")
+
 
 class MeshAlreadyInProgress(MeshException):
     """API returns an already in progress response."""

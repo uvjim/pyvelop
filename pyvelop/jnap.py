@@ -311,6 +311,7 @@ class Response:
             for resp in err_responses:  # loop through the responses
                 exc = None
                 result: str = resp.get(self.RESULT_KEY, "")
+                _LOGGER_VERBOSE.debug("result_key, %s", result)
                 if resp is None:
                     exc = MeshInvalidOutput()
                 elif result == "_ErrorInvalidInput":
@@ -370,6 +371,7 @@ class Response:
                     break
 
         if exc and self._raise_on_error:
+            _LOGGER_VERBOSE.debug("raising, %s", type(exc))
             raise exc
 
     @property
