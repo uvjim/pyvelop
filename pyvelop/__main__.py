@@ -799,7 +799,7 @@ async def device_attr(
 ) -> None:
     """Retrieve details about a specific mesh attribute."""
 
-    devices: tuple[DeviceEntity, ...] | None = await _get_device_details(ctx=ctx, device=(device,))
+    devices: tuple[DeviceEntity, ...] | None = await _async_get_device_details(ctx=ctx, device=(device,))
     if devices is not None:
         for found_device in devices:
             attr: Any = getattr(found_device, attribute, None)
@@ -818,7 +818,7 @@ async def device_delete(
     """Delete a device on the Mesh."""
 
     dev = (device,)
-    devices = await _get_device_details(ctx, dev)
+    devices = await _async_get_device_details(ctx, dev)
 
     if devices is not None:
         for found_device in devices:
@@ -837,7 +837,7 @@ async def device_details(
     **_: Any,
 ) -> None:
     """Display details about a device on the Mesh."""
-    devices = await _get_device_details(ctx=ctx, device=device)
+    devices = await _async_get_device_details(ctx=ctx, device=device)
 
     if devices is not None:
         _output(outfile, "# Device Details\n")
@@ -871,7 +871,7 @@ async def device_internet_access(
 ) -> None:
     """Block/Unblock access to the internet."""
     dev_id = (device_id,)
-    devices = await _get_device_details(ctx, dev_id)
+    devices = await _async_get_device_details(ctx, dev_id)
 
     if devices is not None:
         for found_device in devices:
@@ -903,7 +903,7 @@ async def device_rename(ctx: click.Context, /, device_id: str, new_name: str, **
     """Rename the given device."""
 
     dev_id = (device_id,)
-    devices = await _get_device_details(ctx, dev_id)
+    devices = await _async_get_device_details(ctx, dev_id)
 
     if devices is not None:
         for found_device in devices:
@@ -918,7 +918,7 @@ async def device_set_icon(ctx: click.Context, /, device_id: str, icon: str, **_:
     """Set the icon for the given device."""
 
     dev_id = (device_id,)
-    devices = await _get_device_details(ctx, dev_id)
+    devices = await _async_get_device_details(ctx, dev_id)
     if devices is not None:
         for found_device in devices:
             await found_device.async_set_icon(icon.lower())
@@ -955,7 +955,7 @@ async def device_pc_set_rules(
     }
 
     dev_id = (device_id,)
-    devices = await _get_device_details(ctx, dev_id)
+    devices = await _async_get_device_details(ctx, dev_id)
 
     if devices is not None:
         for found_device in devices:
@@ -976,7 +976,7 @@ async def device_pc_set_urls(
     """Set the parental control URLs."""
 
     dev_id = (device_id,)
-    devices = await _get_device_details(ctx, dev_id)
+    devices = await _async_get_device_details(ctx, dev_id)
 
     if devices is not None:
         for found_device in devices:
@@ -1027,7 +1027,7 @@ async def diagnostics(
             ]
             _display_table(None, ret, index=True, title="Devices Without a Parent", heading_level=1)
 
-    await _with_mesh(ctx, _diagnostics)
+    await _async_with_mesh(ctx, _diagnostics)
 
 
 @cli.group(name="example")
@@ -1087,7 +1087,7 @@ async def mesh_action(
 
     workflow = MESH_WORKFLOWS[action]
 
-    ret = await _with_mesh(ctx, workflow)
+    ret = await _async_with_mesh(ctx, workflow)
     _output(None, json.dumps(ret, default=json_default))
 
 
@@ -1110,7 +1110,7 @@ async def mesh_attr(
         attr: Any = getattr(mesh_snapshot, attribute, None)
         _display_attribute(attribute, attr)
 
-    await _with_mesh(ctx, _mesh_attr)
+    await _async_with_mesh(ctx, _mesh_attr)
 
 
 @mesh_group.command(cls=StandardCommand, name="backup_devices")
@@ -1128,7 +1128,7 @@ async def mesh_backup_devices(
     :param file: Path to the file the backup should be stored in
     """
 
-    devices: tuple[DeviceEntity, ...] | None = await _get_device_details(ctx, ())
+    devices: tuple[DeviceEntity, ...] | None = await _async_get_device_details(ctx, ())
     timestamp: str = dt.datetime.now(tz=dt.UTC).isoformat()
     if not devices:
         return
@@ -1188,7 +1188,7 @@ async def mesh_details(
             elif all(hasattr(mesh_snapshot, property_name) for property_name in section.properties):
                 section.render(outfile, mesh_snapshot, 2)
 
-    await _with_mesh(ctx, _mesh_details)
+    await _async_with_mesh(ctx, _mesh_details)
 
 
 @mesh_group.command(cls=StandardCommand, name="ping")
@@ -1208,7 +1208,7 @@ async def mesh_ping(
         if click.confirm(text="Do you want to try again?"):
             click.echo(await mesh.async_ping())
 
-    await _with_mesh(ctx, _ping)
+    await _async_with_mesh(ctx, _ping)
 
 
 @mesh_group.command(cls=StandardCommand, name="restore_devices")
@@ -1250,7 +1250,7 @@ async def mesh_restore_devices(
     bkp_devices = bkp_data.get("devices", [])
     bkp_devices_by_mac: dict[str, Any] = {bd.get("mac"): bd for bd in bkp_devices if bd.get("mac")}
 
-    cur_devices = await _get_device_details(ctx, bkp_devices_by_mac.keys())
+    cur_devices = await _async_get_device_details(ctx, bkp_devices_by_mac.keys())
     if not cur_devices:
         return
 
@@ -1325,7 +1325,7 @@ async def mesh_scheduled_reboot(
             _LOGGER.debug("setting scheduled reboot interval to %s", interval.title())
             await mesh.async_set_scheduled_reboot_interval(interval=ScheduledRebootInterval(interval.title()))
 
-    await _with_mesh(ctx, _mesh_scheduled_reboot)
+    await _async_with_mesh(ctx, _mesh_scheduled_reboot)
 
 
 @cli.group(name="node")
@@ -1362,7 +1362,7 @@ async def node_attr(
                 attr: Any = getattr(found_node, attribute, None)
                 _display_attribute(attribute, attr)
 
-    await _with_mesh(ctx, _node_attr)
+    await _async_with_mesh(ctx, _node_attr)
 
 
 @node_group.command(cls=StandardCommand, name="details")
@@ -1405,7 +1405,7 @@ async def node_details(
                     elif all(hasattr(found_node, property_name) for property_name in section.properties):
                         section.render(outfile, found_node, 2)
 
-    await _with_mesh(ctx, _node_details)
+    await _async_with_mesh(ctx, _node_details)
 
 
 @node_group.command(cls=StandardCommand, name="execute")
@@ -1441,7 +1441,7 @@ async def node_execute(
                 resp: dict[str, Any] = await found_node.async_execute_action(cast(ActionKey, action.upper()))
                 _output(None, json.dumps(resp))
 
-    await _with_mesh(ctx, _node_execute)
+    await _async_with_mesh(ctx, _node_execute)
 
 
 @node_group.command(cls=StandardCommand, name="restart")
@@ -1471,7 +1471,7 @@ async def node_restart(
             else:
                 await found_node.async_reboot(force=force, wait=True)
 
-    await _with_mesh(ctx, _node_restart)
+    await _async_with_mesh(ctx, _node_restart)
 
 
 @cli.group(name="parental_schedules")
@@ -1612,6 +1612,22 @@ async def ps_encode_for_backup(
         _output(None, ParentalControl.encode_for_backup(encoded))
 
 
+async def _async_get_device_details(ctx: click.Context, device: Iterable[str]) -> tuple[DeviceEntity, ...] | None:
+    """Retreive device details from the mesh."""
+
+    async def _fetch_devices(mesh: Mesh) -> tuple[DeviceEntity, ...]:
+        device_qry: tuple[str, ...] | None = None
+        if device:
+            device_qry = tuple(filter(lambda d: not d.startswith("${input:"), device))
+        try:
+            return await mesh.async_get_devices(device_qry)
+        except MeshDeviceNotFoundResponse as exc:
+            _write_error(f"{exc}, missing devices: {",".join(exc.missing)}")
+            return exc.found
+
+    return await _async_with_mesh(ctx, _fetch_devices)
+
+
 async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
     """Return the Mesh object."""
 
@@ -1652,6 +1668,21 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             _write_error(msg)
 
     return None
+
+
+async def _async_with_mesh[T](
+    ctx: click.Context | None,
+    action: Callable[..., Awaitable[T]],
+    *args: Any,
+    **kwargs: Any,
+) -> T | None:
+    """Connect to the mesh and run the given action."""
+    mesh_obj = await _async_mesh_connect(ctx)
+    if mesh_obj is None:
+        return None
+
+    async with mesh_obj:
+        return await action(mesh_obj, *args, **kwargs)
 
 
 def _display(
@@ -1739,37 +1770,6 @@ def _write_error(msg: Any) -> None:
     """Output error to the screen."""
 
     click.echo(click.style(msg, fg="red"), err=True)
-
-
-async def _get_device_details(ctx: click.Context, device: Iterable[str]) -> tuple[DeviceEntity, ...] | None:
-    """Retreive device details from the mesh."""
-
-    async def _fetch_devices(mesh: Mesh) -> tuple[DeviceEntity, ...]:
-        device_qry: tuple[str, ...] | None = None
-        if device:
-            device_qry = tuple(filter(lambda d: not d.startswith("${input:"), device))
-        try:
-            return await mesh.async_get_devices(device_qry)
-        except MeshDeviceNotFoundResponse as exc:
-            _write_error(f"{exc}, missing devices: {",".join(exc.missing)}")
-            return exc.found
-
-    return await _with_mesh(ctx, _fetch_devices)
-
-
-async def _with_mesh[T](
-    ctx: click.Context | None,
-    action: Callable[..., Awaitable[T]],
-    *args: Any,
-    **kwargs: Any,
-) -> T | None:
-    """Connect to the mesh and run the given action."""
-    mesh_obj = await _async_mesh_connect(ctx)
-    if mesh_obj is None:
-        return None
-
-    async with mesh_obj:
-        return await action(mesh_obj, *args, **kwargs)
 
 
 if __name__ == "__main__":
