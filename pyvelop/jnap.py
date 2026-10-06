@@ -15,6 +15,7 @@ import aiohttp
 from .action_registry import ActionDefinition, Actions
 from .exceptions import (
     MeshActionUnknown,
+    MeshAdminAccountLocked,
     MeshAlreadyInProgress,
     MeshCannotDeleteDevice,
     MeshConnectionError,
@@ -297,7 +298,7 @@ class Response:
         if self._data is None:
             return
 
-        err: MeshException | None = None
+        exc: MeshException | None = None
 
         if self._data.get(self.RESULT_KEY) != "OK":  # seemingly there is an error
             # build a list of the responses - transactions will already be a list
@@ -308,17 +309,18 @@ class Response:
             # establish errors and work through them
             err_responses = [resp for resp in responses if resp.get(self.RESULT_KEY) != "OK"]
             for resp in err_responses:  # loop through the responses
-                err = None
+                exc = None
+                result: str = resp.get(self.RESULT_KEY, "")
                 if resp is None:
-                    err = MeshInvalidOutput()
-                elif resp.get(self.RESULT_KEY) == "_ErrorInvalidInput":
-                    err = MeshInvalidInput(resp.get("error"))
-                elif resp.get(self.RESULT_KEY) == "_ErrorInvalidOutput":
-                    err = MeshInvalidOutput(resp.get("error"))
-                elif resp.get(self.RESULT_KEY) == "_ErrorUnauthorized":
+                    exc = MeshInvalidOutput()
+                elif result == "_ErrorInvalidInput":
+                    exc = MeshInvalidInput(resp.get("error"))
+                elif result == "_ErrorInvalidOutput":
+                    exc = MeshInvalidOutput(resp.get("error"))
+                elif result == "_ErrorUnauthorized":
                     err_details = resp.get("error")
-                    err = MeshInvalidCredentials(details=err_details)
-                elif resp.get(self.RESULT_KEY) == "_ErrorUnknownAction":
+                    exc = MeshInvalidCredentials(details=err_details)
+                elif result == "_ErrorUnknownAction":
                     action: str = ""
                     if "error" in resp:
                         match = re.search(r"'(https?://[^']+)'", resp.get("error", ""))
@@ -326,47 +328,49 @@ class Response:
                         action = uri
                     else:
                         action = self.action
-                    err = MeshActionUnknown(action)
-                elif resp.get(self.RESULT_KEY) == "ErrorAutoChannelSelectionAlreadyInProgress":
-                    err = MeshAlreadyInProgress()
-                elif resp.get(self.RESULT_KEY) == "ErrorCannotDeleteDevice":
-                    err = MeshCannotDeleteDevice()
-                elif resp.get(self.RESULT_KEY) == "ErrorDeviceDBFailure":
-                    err = MeshDeviceDbFailure(resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", ""))
-                elif resp.get(self.RESULT_KEY) == "ErrorDeviceNotInMasterMode":
-                    err = MeshNodeNotPrimary()
-                elif resp.get(self.RESULT_KEY) == "ErrorInvalidAdminPassword":
+                    exc = MeshActionUnknown(action)
+                elif result == "ErrorAdminAccountLocked":
+                    exc = MeshAdminAccountLocked()
+                elif result == "ErrorAutoChannelSelectionAlreadyInProgress":
+                    exc = MeshAlreadyInProgress()
+                elif result == "ErrorCannotDeleteDevice":
+                    exc = MeshCannotDeleteDevice()
+                elif result == "ErrorDeviceDBFailure":
+                    exc = MeshDeviceDbFailure(resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", ""))
+                elif result == "ErrorDeviceNotInMasterMode":
+                    exc = MeshNodeNotPrimary()
+                elif result == "ErrorInvalidAdminPassword":
                     err_details = resp.get(self.DATA_KEY_SINGLE, {})
-                    err = MeshInvalidCredentialsWithDelay(
+                    exc = MeshInvalidCredentialsWithDelay(
                         details={
                             "attempts_remaining": err_details.get("attemptsRemaining"),
                             "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
                         }
                     )
-                elif resp.get(self.RESULT_KEY) == "ErrorInvalidWANSchedule":
-                    err = MeshInvalidInput("Invalid WAN Schedule")
-                elif resp.get(self.RESULT_KEY) == "ErrorPasswordCheckDelayed":
+                elif result == "ErrorInvalidWANSchedule":
+                    exc = MeshInvalidInput("Invalid WAN Schedule")
+                elif result == "ErrorPasswordCheckDelayed":
                     err_details = resp.get(self.DATA_KEY_SINGLE, {})
-                    err = MeshCredentialCheckDelayed(
+                    exc = MeshCredentialCheckDelayed(
                         details={
                             "attempts_remaining": err_details.get("attemptsRemaining"),
                             "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
                         }
                     )
-                elif resp.get(self.RESULT_KEY) == "ErrorRulesOverlap":
-                    err = MeshInvalidInput("Rules Overlap")
-                elif resp.get(self.RESULT_KEY) == "ErrorUnknownDevice":
-                    err = MeshInvalidInput("Unknown Device")
-                elif resp.get(self.RESULT_KEY, "").startswith("_"):
-                    err = MeshInvalidInput(f"{resp.get(self.RESULT_KEY)}: '{self.action}'")
+                elif result == "ErrorRulesOverlap":
+                    exc = MeshInvalidInput("Rules Overlap")
+                elif result == "ErrorUnknownDevice":
+                    exc = MeshInvalidInput("Unknown Device")
+                elif result.startswith("_"):
+                    exc = MeshInvalidInput(f"{result}: '{self.action}'")
                 else:  # don't know the error, log and raise exception
                     _LOGGER.error("unknown error received: %s", self._data)
-                    err = MeshException(json.dumps(resp.get(self.RESULT_KEY)))
-                if err:  # break out of the for loop if we have an error
+                    exc = MeshException(json.dumps(result))
+                if exc:  # break out of the for loop if we have an error
                     break
 
-        if err and self._raise_on_error:
-            raise err
+        if exc and self._raise_on_error:
+            raise exc
 
     @property
     def action(self) -> str:
