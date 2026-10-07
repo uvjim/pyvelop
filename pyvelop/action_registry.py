@@ -68,6 +68,7 @@ class ActionFeatures(IntFlag):
     """Features that allow grouping of actions."""
 
     DEVICE_INFO = auto()
+    MESH_DETAILS = auto()
     SPEEDTEST = auto()
     PARENTAL_CONTROL = auto()
 
@@ -192,6 +193,7 @@ Actions: ActionRegistry = ActionRegistry(
                 # changes: now unauthenticated (ignores the header if it is passed), return is a whole new object.
                 # delayTimeRemaining is in seconds and password retries should be guarded against this.
                 # {"result": "OK", "output": {"isPasswordValid": true}}
+                # {"result": "ErrorAdminAccountLocked", "output": {}
                 # {"result": "ErrorInvalidAdminPassword", "output": {"attemptsRemaining": <int>, "delayTimeReminaing": <int>}}
                 # {"result": "ErrorPasswordCheckDelayed", "output": {"attemptsRemaining": <int>, "delayTimeRemaining": <int>}}
                 ActionVersionMap(action_version=3, service_version=7),
@@ -214,30 +216,34 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_ALG_SETTINGS",
             "http://linksys.com/jnap/firewall/GetALGSettings",
             "http://linksys.com/jnap/firewall/Firewall",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_BACKHAUL",
             "http://linksys.com/jnap/nodes/diagnostics/GetBackhaulInfo",
             "http://linksys.com/jnap/nodes/diagnostics/Diagnostics",
+            features=ActionFeatures.MESH_DETAILS,
+            redactions={
+                "backhaulDevices.wirelessConnectionInfo.apBSSID",
+                "backhaulDevices.wirelessConnectionInfo.stationBSSID",
+            },
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
                 # can't see a difference as yet
                 ActionVersionMap(action_version=2, service_version=6),
             ),
-            redactions={
-                "backhaulDevices.wirelessConnectionInfo.apBSSID",
-                "backhaulDevices.wirelessConnectionInfo.stationBSSID",
-            },
         ),
         ActionDefinition(
             "GET_CHANNEL_SCAN_STATUS",
             "http://linksys.com/jnap/nodes/setup/GetSelectedChannels",
             "http://linksys.com/jnap/nodes/setup/Setup",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_DEVICE_INFO",
             "http://linksys.com/jnap/core/GetDeviceInfo",
             "http://linksys.com/jnap/core/Core",
+            features=ActionFeatures.MESH_DETAILS,
             redactions={
                 "serialNumber",
             },
@@ -247,13 +253,14 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_DEVICE_MODE",
             "http://linksys.com/jnap/nodes/smartmode/GetDeviceMode",
             "http://linksys.com/jnap/nodes/smartmode/SmartMode",
+            features=ActionFeatures.MESH_DETAILS,
             requires_auth=False,
         ),
         ActionDefinition(
             "GET_DEVICES",
             "http://linksys.com/jnap/devicelist/GetDevices",
             "http://linksys.com/jnap/devicelist/DeviceList",
-            features=ActionFeatures.DEVICE_INFO,
+            features=ActionFeatures.DEVICE_INFO | ActionFeatures.MESH_DETAILS,
             redactions={
                 "devices.connections.macAddress",
                 "devices.friendlyName",  # the name identified by the Mesh
@@ -281,18 +288,21 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_ETHERNET_PORT_CONNECTIONS",
             "http://linksys.com/jnap/router/GetEthernetPortConnections",
             "http://linksys.com/jnap/router/Router",
+            features=ActionFeatures.MESH_DETAILS,
             scope=ActionScope.NODE,
         ),
         ActionDefinition(
             "GET_EXPRESS_FORWARDING",
             "http://linksys.com/jnap/router/GetExpressForwardingSettings",
             "http://linksys.com/jnap/router/Router",
+            features=ActionFeatures.MESH_DETAILS,
             version_map=(ActionVersionMap(action_version=1, service_version=6),),
         ),
         ActionDefinition(
             "GET_GUEST_NETWORK_INFO",
             "http://linksys.com/jnap/guestnetwork/GetGuestRadioSettings",
             "http://linksys.com/jnap/guestnetwork/GuestNetwork",
+            features=ActionFeatures.MESH_DETAILS,
             redactions={
                 "radios.guestSSID",
                 "radios.guestWPAPassphrase",
@@ -308,12 +318,13 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_HOMEKIT_SETTINGS",
             "http://linksys.com/jnap/homekit/GetHomeKitSettings",
             "http://linksys.com/jnap/homekit/HomeKit",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_LAN_SETTINGS",
             "http://linksys.com/jnap/router/GetLANSettings",
             "http://linksys.com/jnap/router/Router",
-            features=ActionFeatures.DEVICE_INFO,
+            features=ActionFeatures.DEVICE_INFO | ActionFeatures.MESH_DETAILS,
             redactions={
                 "hostName",
                 "dhcpSettings.reservations",
@@ -323,12 +334,14 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_LED_NIGHT_MODE",
             "http://linksys.com/jnap/routerleds/GetLedNightModeSetting",
             "http://linksys.com/jnap/routerleds/RouterLEDs",
+            features=ActionFeatures.MESH_DETAILS,
             version_map=(ActionVersionMap(action_version=1, service_version=4),),
         ),
         ActionDefinition(
             "GET_MAC_FILTERING_SETTINGS",
             "http://linksys.com/jnap/macfilter/GetMACFilterSettings",
             "http://linksys.com/jnap/macfilter/MACFilter",
+            features=ActionFeatures.MESH_DETAILS,
             redactions={
                 "macAddresses",
             },
@@ -337,19 +350,20 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_MLO_SETTINGS",
             "http://linksys.com/jnap/wirelessap/GetMLOSettings",
             "http://linksys.com/jnap/wirelessap/MultiLinkOperation",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_NETWORK_CONNECTIONS",
             "http://linksys.com/jnap/networkconnections/GetNetworkConnections",
             "http://linksys.com/jnap/networkconnections/NetworkConnections",
-            features=ActionFeatures.DEVICE_INFO,
-            scope=ActionScope.NODE,
+            features=ActionFeatures.DEVICE_INFO | ActionFeatures.MESH_DETAILS,
             redactions={
                 "connections.macAddress",
                 "connections.wireless.bssid",
                 "macAddress",
                 "wireless.bssid",
             },
+            scope=ActionScope.NODE,
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
                 # adds: radioID
@@ -360,7 +374,7 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_NODE_WIRELESS_CONNECTIONS",
             "http://linksys.com/jnap/nodes/networkconnections/GetNodesWirelessNetworkConnections",
             "http://linksys.com/jnap/nodes/networkconnections/NodesNetworkConnections",
-            features=ActionFeatures.DEVICE_INFO,
+            features=ActionFeatures.DEVICE_INFO | ActionFeatures.MESH_DETAILS,
             redactions={
                 "nodeWirelessConnections.connections.wireless.bssid",
                 "nodeWirelessConnections.connections.macAddress",
@@ -374,7 +388,7 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_PARENTAL_CONTROL_INFO",
             "http://linksys.com/jnap/parentalcontrol/GetParentalControlSettings",
             "http://linksys.com/jnap/parentalcontrol/ParentalControl",
-            features=ActionFeatures.DEVICE_INFO | ActionFeatures.PARENTAL_CONTROL,
+            features=ActionFeatures.DEVICE_INFO | ActionFeatures.PARENTAL_CONTROL | ActionFeatures.MESH_DETAILS,
             redactions={
                 "rules.macAddresses",
             },
@@ -390,12 +404,13 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_SCHEDULED_REBOOT_SETTINGS",
             "http://linksys.com/jnap/diagnostics/GetScheduledRebootSettings",
             "http://linksys.com/jnap/diagnostics/ScheduledReboot",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_SPEEDTEST_RESULTS",
             "http://linksys.com/jnap/healthcheck/GetHealthCheckResults",
             "http://linksys.com/jnap/healthcheck/HealthCheckManager",
-            features=ActionFeatures.SPEEDTEST,
+            features=ActionFeatures.SPEEDTEST | ActionFeatures.MESH_DETAILS,
             payload={
                 "healthCheckModule": "SpeedTest",
                 "includeModuleResults": True,
@@ -406,28 +421,31 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_SPEEDTEST_STATUS",
             "http://linksys.com/jnap/healthcheck/GetHealthCheckStatus",
             "http://linksys.com/jnap/healthcheck/HealthCheckManager",
-            features=ActionFeatures.SPEEDTEST,
+            features=ActionFeatures.SPEEDTEST | ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_SPEEDTEST_TYPES",
             "http://linksys.com/jnap/healthcheck/GetSupportedHealthCheckModules",
             "http://linksys.com/jnap/healthcheck/HealthCheckManager",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_STORAGE_PARTITIONS",
             "http://linksys.com/jnap/nodes/storage/GetNodesPartitions",
             "http://linksys.com/jnap/nodes/storage/Storage",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_STORAGE_SMB_SERVER",
             "http://linksys.com/jnap/nodes/storage/GetSMBServerSettings",
             "http://linksys.com/jnap/nodes/storage/SMBServer",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_SYSTEM_STATS",
             "http://linksys.com/jnap/diagnostics/GetSystemStats",
             "http://linksys.com/jnap/diagnostics/Diagnostics",
-            features=ActionFeatures.DEVICE_INFO,
+            features=ActionFeatures.DEVICE_INFO | ActionFeatures.MESH_DETAILS,
             scope=ActionScope.NODE,
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
@@ -439,6 +457,7 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_TOPOLOGY_OPTIMISATION_SETTINGS",
             "http://linksys.com/jnap/nodes/topologyoptimization/GetTopologyOptimizationSettings",
             "http://linksys.com/jnap/nodes/topologyoptimization/TopologyOptimization",
+            features=ActionFeatures.MESH_DETAILS,
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
                 # adds: isNodeSteeringEnabled
@@ -449,21 +468,25 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_UPDATE_FIRMWARE_STATE",
             "http://linksys.com/jnap/nodes/firmwareupdate/GetFirmwareUpdateStatus",
             "http://linksys.com/jnap/nodes/firmwareupdate/FirmwareUpdate",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_UPDATE_SETTINGS",
             "http://linksys.com/jnap/firmwareupdate/GetFirmwareUpdateSettings",
             "http://linksys.com/jnap/firmwareupdate/FirmwareUpdate",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_UPNP_SETTINGS",
             "http://linksys.com/jnap/routerupnp/GetUPnPSettings",
             "http://linksys.com/jnap/routerupnp/RouterUPnP",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "GET_WAN_INFO",
             "http://linksys.com/jnap/router/GetWANStatus",
             "http://linksys.com/jnap/router/Router",
+            features=ActionFeatures.MESH_DETAILS,
             redactions={
                 "linkLocalIPv6Address",
                 "macAddress",
@@ -486,6 +509,7 @@ Actions: ActionRegistry = ActionRegistry(
             "GET_WPS_SERVER_SETTINGS",
             "http://linksys.com/jnap/wirelessap/GetWPSServerSettings",
             "http://linksys.com/jnap/wirelessap/WirelessAP",
+            features=ActionFeatures.MESH_DETAILS,
         ),
         ActionDefinition(
             "REBOOT",

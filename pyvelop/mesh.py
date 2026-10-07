@@ -29,7 +29,6 @@ from .action_registry import (
     ActionDefinition,
     ActionFeatures,
     ActionKey,
-    ActionPurpose,
     Actions,
     ActionScope,
     ActionVersionMap,
@@ -1979,7 +1978,9 @@ class Mesh:
 
             track_time = True
             required_capabilities = (
-                cap for cap in self._capabilities.values() if cap.action_definition.purpose == ActionPurpose.GET
+                cap
+                for cap in self._capabilities.values()
+                if cap.action_definition.features and ActionFeatures.MESH_DETAILS in cap.action_definition.features
             )
 
         capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(required_capabilities)
