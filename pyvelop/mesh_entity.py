@@ -810,7 +810,7 @@ class MeshEntity(ABC):
 
         for idx, adapter in enumerate(my_adapters):
             props: dict[str, Any] = {}
-            props_adapter: dict[str, Any] = {"mac": adapter.get("macAddress"), "band": adapter.get("band")}
+            props_adapter: dict[str, Any] = {"mac": adapter.get("macAddress")}
             _update_and_log_audit(props_adapter, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
 
             # region #-- prep all the info we need to use for making decisions --#
@@ -860,7 +860,8 @@ class MeshEntity(ABC):
             # endregion
 
             # region #-- derive wireless information --#
-            props_wifi: dict[str, Any] = {}
+            props_wifi: dict[str, Any] = {"band": adapter.get("band")}
+            _update_and_log_audit(props_wifi, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
             if len(wifi_info) > 1:
                 raise ValueError("Unexpected wi-fi data")
             if wifi_info:
@@ -868,6 +869,7 @@ class MeshEntity(ABC):
                     wifi_info[0].get("wireless", {}).get("signalDecibels")
                 )
                 props_wifi = {
+                    "band": wifi_info[0].get("wireless", {}).get("band"),
                     "negotiated_mbps": wifi_info[0].get("negotiatedMbps"),
                     "rssi_dbm": wifi_info[0].get("wireless", {}).get("signalDecibels"),
                     "signal_strength": signal_strength,
