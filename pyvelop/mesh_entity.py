@@ -872,6 +872,8 @@ class MeshEntity(ABC):
                     "rssi_dbm": wifi_info[0].get("wireless", {}).get("signalDecibels"),
                     "signal_strength": signal_strength,
                 }
+                if band := wifi_info[0].get("wireless", {}).get("band"):
+                    props_wifi["band"] = band
                 _update_and_log_audit(props_wifi, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx)
             # endregion
 
@@ -922,12 +924,15 @@ class MeshEntity(ABC):
                 signal_strength: SignalStrength | None = self._signal_strength_to_text(
                     nnc.get("wireless", {}).get("signalDecibels")
                 )
+                props_nnc: dict[str, Any] = {
+                    "negotiated_mbps": nnc.get("negotiatedMbps"),
+                    "rssi_dbm": nnc.get("wireless", {}).get("signalDecibels"),
+                    "signal_strength": signal_strength,
+                }
+                if band := nnc.get("wireless", {}).get("band"):
+                    props_nnc["band"] = band
                 _update_and_log_audit(
-                    {
-                        "negotiated_mbps": nnc.get("negotiatedMbps"),
-                        "rssi_dbm": nnc.get("wireless", {}).get("signalDecibels"),
-                        "signal_strength": signal_strength,
-                    },
+                    props_nnc,
                     EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                     index=idx,
                 )
