@@ -735,6 +735,17 @@ class MeshEntity(ABC):
 
         return ret
 
+    @staticmethod
+    def _rssi_dbm(value: Any) -> int | None:
+        """Return the value if it is a plausible RSSI in dBm, otherwise None.
+
+        A received signal is always negative in dBm; some JNAP responses report non-dBm values in the same field.
+        """
+        if isinstance(value, int) and not isinstance(value, bool) and value < 0:
+            return value
+
+        return None
+
     def _update_connected_devices(self, new_device: MeshEntity) -> None:
         """Update the connected devices."""
 
@@ -864,14 +875,14 @@ class MeshEntity(ABC):
             if len(wifi_info) > 1:
                 raise ValueError("Unexpected wi-fi data")
             if wifi_info:
-                signal_strength: SignalStrength | None = self._signal_strength_to_text(
-                    wifi_info[0].get("wireless", {}).get("signalDecibels")
-                )
+                rssi_dbm: int | None = self._rssi_dbm(wifi_info[0].get("wireless", {}).get("signalDecibels"))
                 props_wifi = {
                     "negotiated_mbps": wifi_info[0].get("negotiatedMbps"),
-                    "rssi_dbm": wifi_info[0].get("wireless", {}).get("signalDecibels"),
-                    "signal_strength": signal_strength,
+                    "rssi_dbm": rssi_dbm,
+                    "signal_strength": self._signal_strength_to_text(rssi_dbm),
                 }
+                if band := wifi_info[0].get("wireless", {}).get("band"):
+                    props_wifi["band"] = band
                 _update_and_log_audit(props_wifi, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx)
             # endregion
 
@@ -919,15 +930,15 @@ class MeshEntity(ABC):
 
             # region #-- derive information from node connection details --#
             if nnc is not None:
-                signal_strength: SignalStrength | None = self._signal_strength_to_text(
-                    nnc.get("wireless", {}).get("signalDecibels")
-                )
+                props_nnc: dict[str, Any] = {"negotiated_mbps": nnc.get("negotiatedMbps")}
+                # Node-scoped GetNetworkConnections can report a positive signalDecibels (e.g. 24) that is not
+                # dBm, so only let it replace the wireless details when it is a plausible RSSI.
+                if (rssi_dbm := self._rssi_dbm(nnc.get("wireless", {}).get("signalDecibels"))) is not None:
+                    props_nnc.update({"rssi_dbm": rssi_dbm, "signal_strength": self._signal_strength_to_text(rssi_dbm)})
+                if band := nnc.get("wireless", {}).get("band"):
+                    props_nnc["band"] = band
                 _update_and_log_audit(
-                    {
-                        "negotiated_mbps": nnc.get("negotiatedMbps"),
-                        "rssi_dbm": nnc.get("wireless", {}).get("signalDecibels"),
-                        "signal_strength": signal_strength,
-                    },
+                    props_nnc,
                     EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
                     index=idx,
                 )
