@@ -1752,7 +1752,17 @@ class NodeEntity(MeshEntity):
             speed_mbps = float(backhaul.get("speedMbps"))
 
         if backhaul:
-            signal_strength_raw: int | None = backhaul.get("wirelessConnectionInfo", {}).get("stationRSSI")
+            # Some firmware (e.g. MX5300 1.1.12) only populates one direction and reports the other as 0,
+            # so take the first non-zero reading rather than treating 0 dBm as a real (excellent) signal.
+            wireless_info: dict[str, Any] = backhaul.get("wirelessConnectionInfo") or {}
+            signal_strength_raw: int | None = next(
+                (
+                    rssi
+                    for rssi in (wireless_info.get("stationRSSI"), wireless_info.get("apRSSI"))
+                    if isinstance(rssi, int) and rssi != 0
+                ),
+                None,
+            )
             ret = BackhaulInfo(
                 connection=ConnectionType(backhaul.get("connectionType", "unknown")),
                 last_checked=(
