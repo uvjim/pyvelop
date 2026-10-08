@@ -1138,13 +1138,17 @@ class MeshSnapshot(MeshSerialiser):
 
     @property
     def speedtest_latest_complete(self) -> MeshAttribute[SpeedtestResult | None]:
-        """Return the most recent completed speedtest result."""
+        """Return the most recent successfully completed speedtest result.
+
+        Failed runs (e.g. `SpeedTestExecutionError`) report 0 bandwidth, so they are skipped in favour of the most
+        recent run that produced real figures.
+        """
 
         cap_name: ActionKey = "GET_SPEEDTEST_RESULTS"
         results = self.speedtest_results.value
 
         latest_result = max(
-            results,
+            (result for result in results if result.exit_code == SpeedtestExitCode.SUCCESS),
             key=lambda result: result.timestamp,
             default=None,
         )
