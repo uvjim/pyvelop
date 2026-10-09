@@ -735,8 +735,7 @@ class MeshEntity(ABC):
 
         return ret
 
-    @staticmethod
-    def _rssi_dbm(value: Any) -> int | None:
+    def _rssi_dbm(self, value: Any) -> int | None:
         """Return the value if it is a plausible RSSI in dBm, otherwise None.
 
         A received signal is always negative in dBm; some JNAP responses report non-dBm values in the same field.
