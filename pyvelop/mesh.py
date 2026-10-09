@@ -45,7 +45,6 @@ from .exceptions import (
     MeshInvalidOutput,
     MeshNeedsAuthAndRefresh,
     MeshNodeNotPrimary,
-    MeshTransactionAborted,
 )
 from .jnap import (
     JnapPayloadSingle,
@@ -238,11 +237,11 @@ class MeshCapability:
     async def async_execute(
         self,
         *,
+        capabilities_by_uri: dict[str, MeshCapability] | None = None,
         node_address: str | None = None,
         payload: JnapPayloadTransaction | JnapPayloadSingle | None = None,
         raise_on_error: bool = True,
         timeout: float | None = None,
-        capabilities_by_uri: dict[str, MeshCapability] | None = None,
     ) -> JnapResponseSingle | JnapResponseTransaction:
         """Execute the API request against the specified node.
 
@@ -250,6 +249,8 @@ class MeshCapability:
         primary node. It is assumed that all child nodes will support the subset of actions that
         could be targeted at them.
 
+        :param capabilities_by_uri: Mapping of capbilities by thir URI to ensure vaailablity updates
+        for transactions
         :param node_address: The node to send the request to will default to the primary node if
         not supplied
         :param payload: The relevant payload for the action
@@ -257,8 +258,24 @@ class MeshCapability:
         :param timeout: timeout to apply to the request
         """
 
+        def get_limit_detail(cap):
+            return {"action": cap.action_definition.key, "time_remaining": cap.remaining_rate_limit}
+
+        # check if the action is rate limited - JNAP single
         if self.last_execute_utc and self.action_definition.rate_limit_secs and not self.can_run:
-            raise MeshActionRateLimited(self.remaining_rate_limit)
+            raise MeshActionRateLimited([get_limit_detail(self)], self.remaining_rate_limit)
+
+        # check if any action URI is rate limited - JNAP transaction
+        if capabilities_by_uri:
+            rate_limited_txn_actions = [
+                capabilities_by_uri[p["action"]]
+                for p in cast(JnapPayloadTransaction, payload)
+                if p.get("action") in capabilities_by_uri and not capabilities_by_uri[p["action"]].can_run
+            ]
+            if rate_limited_txn_actions:
+                details = [get_limit_detail(cap) for cap in rate_limited_txn_actions]
+                max_limit = max((cap.remaining_rate_limit or -1 for cap in rate_limited_txn_actions), default=-1)
+                raise MeshActionRateLimited(details, max_limit)
 
         ret: JnapResponseTransaction | JnapResponseSingle = {}
         if self._mesh_details is None:
@@ -1713,28 +1730,6 @@ class Mesh:
 
         return tuple(ret)
 
-    def _check_transaction_actions_are_runnable(self, capabilities: Iterable[MeshCapability]) -> None:
-        """Check if the actions to be executed in a transaction are all runnable.
-
-        :raises MeshTransactionAborted: raised if any of the actions forming the transaction are currently rate limited.
-        The exception provides details on which actions are currently rate limited.
-        """
-
-        limited_capabilities = [cap for cap in capabilities if not cap.can_run]
-        if limited_capabilities:
-            exc_details = [
-                {
-                    "action": cap.action_definition.key,
-                    "time_remaining": cap.remaining_rate_limit,
-                }
-                for cap in limited_capabilities
-            ]
-            max_time_secs: int = max(item["time_remaining"] for item in exc_details) if exc_details else -1
-            raise MeshTransactionAborted(
-                f"Some actions are currently rate limited, wait for {max_time_secs} seconds before trying again",
-                exc_details,
-            )
-
     def _find_capability(self, capability: ActionKey) -> MeshCapability | None:
         """Find a mesh capability without raising an exception.
 
@@ -2113,9 +2108,6 @@ class Mesh:
         txn_payload: tuple[list[dict[str, Any]], ...] = self._build_transaction_payload(_required_capabilities)
         requests: list[Awaitable[JnapResponseTransaction]] = []
 
-        # checking if the transaction actions can be run
-        self._check_transaction_actions_are_runnable(_required_capabilities)
-
         for txn in txn_payload:
             cap: MeshCapability = self._get_capability("TRANSACTION")
             requests.append(cap.async_execute(payload=txn, capabilities_by_uri=capabilities_by_action_uri))
@@ -2150,9 +2142,6 @@ class Mesh:
 
         if not _required_capabilities or not nodes or not txn_payload:
             return {}
-
-        # checking if the transaction actions can be run
-        self._check_transaction_actions_are_runnable(_required_capabilities)
 
         # build the requests that need to be made
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_START)

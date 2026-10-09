@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .mesh_entity import DeviceEntity
@@ -22,9 +22,10 @@ class MeshActionRateLimited(MeshException):
     The exception includes information about how long is currently left in the ratelimnited state.
     """
 
-    def __init__(self, time_remaining: int) -> None:
+    def __init__(self, details: Iterable[Mapping[str, Any]], time_remaining: int) -> None:
         """Initialise."""
-
+        super().__init__(f"An action is currently rate limited, wait for a minimum of {time_remaining} seconds")
+        self.details: Iterable[Mapping[str, Any]] = details
         self.time_remaining_secs: int = time_remaining
 
 
@@ -176,11 +177,3 @@ class MeshNodeNotPrimary(MeshException):
 
 class MeshTimeoutError(MeshException):
     """Raised when a mesh action exceeds its timeout."""
-
-
-class MeshTransactionAborted(MeshException):
-    """An error was found that caused the transaction request to be aborted."""
-
-    def __init__(self, msg: str, details: Iterable[Mapping[str, str]]) -> None:
-        super().__init__(msg)
-        self.details = details
