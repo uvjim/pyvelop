@@ -878,8 +878,10 @@ class MeshEntity(ABC):
             # endregion
 
             # region #-- derive wireless information --#
-            props_wifi: dict[str, Any] = {"band": adapter.get("band")}
-            _update_and_log_audit(props_wifi, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
+            props_wifi: dict[str, Any] = {}
+            if "band" in adapter:
+                props_wifi = {"band": adapter.get("band")}
+                _update_and_log_audit(props_wifi, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
             if len(wifi_info) > 1:
                 raise ValueError("Unexpected wi-fi data")
             if wifi_info:
