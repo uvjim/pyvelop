@@ -302,6 +302,7 @@ class AdapterInfo(MeshSerialiser):
             "reservation",
             "reservation_description",
             "rssi_dbm",
+            "rssi_dbm_timestamp",
             "signal_strength",
             "type",
         }
@@ -318,6 +319,7 @@ class AdapterInfo(MeshSerialiser):
     reservation: bool = False
     reservation_description: str | None = None
     rssi_dbm: int | None = None
+    rssi_dbm_timestamp: dt.datetime | None = None
     signal_strength: SignalStrength | None = None
     type: ConnectionType = ConnectionType.UNKNOWN
 
@@ -886,6 +888,7 @@ class MeshEntity(ABC):
                     "band": wifi_info[0].get("wireless", {}).get("band"),
                     "negotiated_mbps": wifi_info[0].get("negotiatedMbps"),
                     "rssi_dbm": rssi_dbm,
+                    "rssi_dbm_timestamp": wifi_info[0].get("timestamp"),
                     "signal_strength": self._signal_strength_to_text(rssi_dbm),
                 }
                 _update_and_log_audit(props_wifi, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx)
@@ -936,10 +939,16 @@ class MeshEntity(ABC):
             # region #-- derive information from node connection details --#
             if nnc is not None:
                 props_nnc: dict[str, Any] = {"negotiated_mbps": nnc.get("negotiatedMbps")}
-                # Node-scoped GetNetworkConnections can report a positive signalDecibels (e.g. 24) that is not
-                # dBm, so only let it replace the wireless details when it is a plausible RSSI.
-                if (rssi_dbm := self._rssi_dbm(nnc.get("wireless", {}).get("signalDecibels"))) is not None:
-                    props_nnc.update({"rssi_dbm": rssi_dbm, "signal_strength": self._signal_strength_to_text(rssi_dbm)})
+                if (
+                    rssi_dbm := self._rssi_dbm(nnc.get("wireless", {}).get("signalDecibels"))
+                ) is not None and not props.get("rssi_dbm"):
+                    props_nnc.update(
+                        {
+                            "rssi_dbm": rssi_dbm,
+                            "rssi_dbm_timestamp": None,
+                            "signal_strength": self._signal_strength_to_text(rssi_dbm),
+                        }
+                    )
                 _update_and_log_audit(
                     props_nnc,
                     EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
