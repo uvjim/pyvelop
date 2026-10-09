@@ -49,6 +49,7 @@ ActionKey = Literal[
     "GET_WAN_INFO",
     "GET_WPS_SERVER_SETTINGS",
     "REBOOT",
+    "REFRESH_NODE_WIRELESS_CONNECTIONS",
     "SET_DEVICE_PROPERTY",
     "SET_GUEST_NETWORK",
     "SET_HOMEKIT_SETTINGS",
@@ -381,6 +382,7 @@ Actions: ActionRegistry = ActionRegistry(
             },
             version_map=(
                 ActionVersionMap(action_version=1, service_version=1),
+                # adds: txRate, rxRate, isMLOCapable
                 ActionVersionMap(action_version=2, service_version=2),
             ),
         ),
@@ -521,6 +523,12 @@ Actions: ActionRegistry = ActionRegistry(
                 ActionVersionMap(action_version=1, service_version=1),
                 ActionVersionMap(action_version=1, service_version=8),
             ),
+        ),
+        ActionDefinition(
+            "REFRESH_NODE_WIRELESS_CONNECTIONS",
+            "http://linksys.com/jnap/nodes/networkconnections/RefreshNodesWirelessNetworkConnections",
+            "http://linksys.com/jnap/nodes/networkconnections/NodesNetworkConnections",
+            purpose=ActionPurpose.INVOKE,
         ),
         ActionDefinition(
             "SET_DEVICE_PROPERTY",
