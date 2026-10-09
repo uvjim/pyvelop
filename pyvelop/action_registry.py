@@ -108,6 +108,7 @@ class ActionDefinition:
     :param features: feature flags pertinent to the definition.
     :param payload: default payload to be used when sending a request.
     :param purpose: what the purpose is for the action.
+    :param rate_limit_secs: number of seconds that should be between action executions at a minimum.
     :param redactions: definition of the default redactions that should be applied when logging.
     :param scope: where the action should be targeted.
     :param version_map: definition of what action versions are available in which service.
@@ -120,6 +121,7 @@ class ActionDefinition:
     features: ActionFeatures | None = field(default=None, kw_only=True)
     payload: dict[str, Any] = field(default_factory=dict, kw_only=True)
     purpose: ActionPurpose = field(default=ActionPurpose.GET, kw_only=True)
+    rate_limit_secs: float | None = field(default=None, kw_only=True)
     redactions: set[str] = field(default_factory=set, kw_only=True)
     requires_auth: bool = field(default=True, kw_only=True)
     scope: ActionScope = field(default=ActionScope.MESH, kw_only=True)

@@ -3,6 +3,7 @@
 # region #-- imports --#
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -13,6 +14,18 @@ if TYPE_CHECKING:
 
 class MeshException(Exception):
     """Base Exception for the Mesh."""
+
+
+class MeshActionRateLimited(MeshException):
+    """Action is currently being rate limited.
+
+    The exception includes information about how long is currently left in the ratelimnited state.
+    """
+
+    def __init__(self, time_remaining: int) -> None:
+        """Initialise."""
+
+        self.time_remaining_secs: int = time_remaining
 
 
 class MeshActionUnknown(MeshException):
@@ -163,3 +176,11 @@ class MeshNodeNotPrimary(MeshException):
 
 class MeshTimeoutError(MeshException):
     """Raised when a mesh action exceeds its timeout."""
+
+
+class MeshTransactionAborted(MeshException):
+    """An error was found that caused the transaction request to be aborted."""
+
+    def __init__(self, msg: str, details: Iterable[Mapping[str, str]]) -> None:
+        super().__init__(msg)
+        self.details = details

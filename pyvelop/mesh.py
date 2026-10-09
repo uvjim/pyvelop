@@ -10,6 +10,7 @@ import datetime as dt
 import functools
 import inspect
 import logging
+import math
 import re
 import time
 import uuid
@@ -34,6 +35,7 @@ from .action_registry import (
     ActionVersionMap,
 )
 from .exceptions import (
+    MeshActionRateLimited,
     MeshActionUnknown,
     MeshActionVersionNotImplemented,
     MeshAlreadyInProgress,
@@ -43,6 +45,7 @@ from .exceptions import (
     MeshInvalidOutput,
     MeshNeedsAuthAndRefresh,
     MeshNodeNotPrimary,
+    MeshTransactionAborted,
 )
 from .jnap import (
     JnapPayloadSingle,
@@ -165,6 +168,8 @@ class MeshCapability:
         self._is_fallback_action: bool = False
         self._is_fallback_service: bool = False
         self._is_valid: bool | None = None
+        self._last_execute_utc: dt.datetime | None = None
+        self._last_execute_monotonic: float | None = None
         self._mesh_details: MeshDetails | None = mesh_details
         self._service_versions: list[int] = []
 
@@ -252,6 +257,9 @@ class MeshCapability:
         :param timeout: timeout to apply to the request
         """
 
+        if self.last_execute_utc and self.action_definition.rate_limit_secs and not self.can_run:
+            raise MeshActionRateLimited(self.remaining_rate_limit)
+
         ret: JnapResponseTransaction | JnapResponseSingle = {}
         if self._mesh_details is None:
             raise ValueError("mesh has not been set")
@@ -288,11 +296,13 @@ class MeshCapability:
                         and (cap := capabilities_by_uri.get(action_uri)) is not None
                     ):
                         cap.mark_as_valid()
+                        cap.mark_executed_time()
 
                     ret_list.append(response_data)
 
                 ret = cast(JnapResponseTransaction, ret_list)
             self.mark_as_valid()
+            self.mark_executed_time()
         except MeshActionUnknown as exc:
             _LOGGER_VERBOSE.debug("unknown action found: %s", exc.action)
             if exc.action == self.action_uri:  # singlular request
@@ -308,6 +318,12 @@ class MeshCapability:
             raise
 
         return ret
+
+    def mark_executed_time(self) -> None:
+        """Stamp the time the capability was executed."""
+
+        self._last_execute_monotonic = time.monotonic()
+        self._last_execute_utc = dt.datetime.now(dt.UTC)
 
     def mark_as_invalid(self) -> None:
         """Mark the capability as invalid."""
@@ -355,6 +371,18 @@ class MeshCapability:
         return ret
 
     @property
+    def can_run(self) -> bool:
+        """Return whether a capability can be executed or not."""
+
+        is_rate_limited = (
+            self._last_execute_monotonic
+            and self.action_definition.rate_limit_secs
+            and time.monotonic() - self._last_execute_monotonic < self.action_definition.rate_limit_secs
+        )
+
+        return not is_rate_limited
+
+    @property
     def implemented_versions(self) -> tuple[int, ...]:
         """Return the implemented versions of the action."""
 
@@ -387,12 +415,34 @@ class MeshCapability:
     def is_valid(self) -> bool | None:
         """Return whether a capability is valid.
 
-        :returns: `True` valid
-        :returns: `False` not valid
-        :returns: `None` not tested.
+        :returns: `True` valid. `False` not valid. `None` not tested.
         """
 
         return self._is_valid
+
+    @property
+    def last_execute_utc(self) -> dt.datetime | None:
+        """Return when the action was last executed in the UTC timezone."""
+
+        return self._last_execute_utc
+
+    @property
+    def remaining_rate_limit(self) -> int:
+        """Return the remaining time left of the rate limiter.
+
+        `-1` is returned if conditions for calculation are invalid.
+        """
+
+        if not self.last_execute_utc or not self.action_definition.rate_limit_secs:
+            return -1
+
+        return math.ceil(
+            (
+                self.last_execute_utc
+                + dt.timedelta(seconds=self.action_definition.rate_limit_secs)
+                - dt.datetime.now(dt.UTC)
+            ).total_seconds()
+        )
 
     @property
     def service_versions(self) -> Iterable[int]:
@@ -639,9 +689,12 @@ class MeshSnapshot(MeshSerialiser):
                 {
                     "key": cap_key,
                     "action_version": cap.action_version,
+                    "can_run": cap.can_run,
                     "fallback_action": cap.is_fallback_action,
                     "fallback_service": cap.is_fallback_service,
                     "is_valid": cap.is_valid,
+                    "last_executed_utc": cap.last_execute_utc.isoformat() if cap.last_execute_utc else None,
+                    "rate_limit_secs": cap.action_definition.rate_limit_secs,
                 }
             )
             for cap_key, cap in sorted(self._capabilities.items())
@@ -1660,6 +1713,28 @@ class Mesh:
 
         return tuple(ret)
 
+    def _check_transaction_actions_are_runnable(self, capabilities: Iterable[MeshCapability]) -> None:
+        """Check if the actions to be executed in a transaction are all runnable.
+
+        :raises MeshTransactionAborted: raised if any of the actions forming the transaction are currently rate limited.
+        The exception provides details on which actions are currently rate limited.
+        """
+
+        limited_capabilities = [cap for cap in capabilities if not cap.can_run]
+        if limited_capabilities:
+            exc_details = [
+                {
+                    "action": cap.action_definition.key,
+                    "time_remaining": cap.remaining_rate_limit,
+                }
+                for cap in limited_capabilities
+            ]
+            max_time_secs: int = max(item["time_remaining"] for item in exc_details) if exc_details else -1
+            raise MeshTransactionAborted(
+                f"Some actions are currently rate limited, wait for {max_time_secs} seconds before trying again",
+                exc_details,
+            )
+
     def _find_capability(self, capability: ActionKey) -> MeshCapability | None:
         """Find a mesh capability without raising an exception.
 
@@ -1962,9 +2037,7 @@ class Mesh:
         ret_mesh_details: dict[ActionKey, Any] = {}
         previous_primary_node: NodeEntity | None = None
         track_time: bool = False
-        if required_capabilities:
-            required_capabilities = tuple(required_capabilities)
-        else:
+        if not required_capabilities:
             snapshot = self._last_snapshot
             if snapshot is not None:
                 previous_primary_node = next(
@@ -1983,7 +2056,8 @@ class Mesh:
                 if cap.action_definition.features and ActionFeatures.MESH_DETAILS in cap.action_definition.features
             )
 
-        capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(required_capabilities)
+        cap_req = tuple(required_capabilities)
+        capability_scope_groups: CapabilityScopedGroups = self._split_capability_into_scopes(cap_req)
 
         # region #-- gather the details for the mesh scoped capabilities --#
         mesh_details: dict[ActionKey, Any] = await self._async_gather_mesh_details(
@@ -2038,6 +2112,10 @@ class Mesh:
         capabilities_by_action_uri: dict[str, MeshCapability] = {cap.action_uri: cap for cap in _required_capabilities}
         txn_payload: tuple[list[dict[str, Any]], ...] = self._build_transaction_payload(_required_capabilities)
         requests: list[Awaitable[JnapResponseTransaction]] = []
+
+        # checking if the transaction actions can be run
+        self._check_transaction_actions_are_runnable(_required_capabilities)
+
         for txn in txn_payload:
             cap: MeshCapability = self._get_capability("TRANSACTION")
             requests.append(cap.async_execute(payload=txn, capabilities_by_uri=capabilities_by_action_uri))
@@ -2073,7 +2151,10 @@ class Mesh:
         if not _required_capabilities or not nodes or not txn_payload:
             return {}
 
-        # region #-- build and make the requests --#
+        # checking if the transaction actions can be run
+        self._check_transaction_actions_are_runnable(_required_capabilities)
+
+        # build the requests that need to be made
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_START)
         for node in nodes:
             cap: MeshCapability = self._get_capability("TRANSACTION")
@@ -2084,9 +2165,9 @@ class Mesh:
                     )
                 )
 
+        # make the requests
         responses = await asyncio.gather(*requests, return_exceptions=True)
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_GATHER_DETAILS_END)
-        # endregion
 
         # region #-- process the responses --#
         self._mark_time(track_time, ProcessTimerLabels.NODE_SCOPED_PROCESS_DETAILS_START)
