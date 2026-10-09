@@ -719,6 +719,19 @@ class MeshEntity(ABC):
 
         return ret
 
+    def _rssi_dbm(self, value: Any) -> int | None:
+        """Return the value if it is a plausible RSSI in dBm, otherwise None.
+
+        A received signal is always negative in dBm; some JNAP responses report non-dBm values in the same field.
+
+        :param value: Value as reported by the JNAP API.
+        :return: Valid RSSI value or `None` if invalid.
+        """
+        if isinstance(value, int) and not isinstance(value, bool) and value < 0:
+            return value
+
+        return None
+
     @staticmethod
     def _signal_strength_to_text(rssi: int | None) -> SignalStrength | None:
         """Convert the given RSSI value to a textual representation."""
@@ -734,16 +747,6 @@ class MeshEntity(ABC):
                 ret = SignalStrength.WEAK
 
         return ret
-
-    def _rssi_dbm(self, value: Any) -> int | None:
-        """Return the value if it is a plausible RSSI in dBm, otherwise None.
-
-        A received signal is always negative in dBm; some JNAP responses report non-dBm values in the same field.
-        """
-        if isinstance(value, int) and not isinstance(value, bool) and value < 0:
-            return value
-
-        return None
 
     def _update_connected_devices(self, new_device: MeshEntity) -> None:
         """Update the connected devices."""
