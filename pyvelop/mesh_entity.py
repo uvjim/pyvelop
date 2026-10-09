@@ -732,21 +732,24 @@ class MeshEntity(ABC):
 
         return None
 
-    @staticmethod
-    def _signal_strength_to_text(rssi: int | None) -> SignalStrength | None:
-        """Convert the given RSSI value to a textual representation."""
-        ret: SignalStrength | None = None
-        if rssi is not None:
-            if rssi <= 0:
-                ret = SignalStrength.EXCELLENT
-            if rssi <= -50:
-                ret = SignalStrength.GOOD
-            if rssi <= -60:
-                ret = SignalStrength.FAIR
-            if rssi <= -70:
-                ret = SignalStrength.WEAK
+    def _signal_strength_to_text(self, rssi: int | None) -> SignalStrength | None:
+        """Convert the given RSSI value to a textual representation.
 
-        return ret
+        :param rssi: RSSI value to convert to a textual representation.
+        :return: `SignalStrength` enum value representing the textual representation or `None`.
+        """
+
+        if rssi is None:
+            return None
+
+        if rssi <= -70:
+            return SignalStrength.WEAK
+        if rssi <= -60:
+            return SignalStrength.FAIR
+        if rssi <= -50:
+            return SignalStrength.GOOD
+
+        return SignalStrength.EXCELLENT
 
     def _update_connected_devices(self, new_device: MeshEntity) -> None:
         """Update the connected devices."""
