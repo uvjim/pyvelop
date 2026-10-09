@@ -2069,6 +2069,9 @@ class Mesh:
         ret_mesh_details.update(node_details)
         # endregion
 
+        # refresh the wireless connections ready for the next request
+        await self.async_refresh_wireless_connections()
+
         # region #-- check if we need to reset capability validity --#
         # this is based on either a reboot or firmware version change.
         if previous_primary_node is not None:
@@ -2539,6 +2542,23 @@ class Mesh:
         )
 
         return self._last_snapshot
+
+    @needs_auth_and_refresh
+    async def async_refresh_wireless_connections(self) -> None:
+        """Request a refresh of the mesh-scoped wireless connection details.
+
+        No exceptions are raised because this should not be a destructive functin.
+        """
+
+        if (cap := self._find_capability("REFRESH_NODE_WIRELESS_CONNECTIONS")) is None:
+            return
+
+        try:
+            await cap.async_execute()
+        except MeshActionRateLimited as exc:
+            _LOGGER_VERBOSE.debug("wireless refresh is rate limited for another %s seconds", exc.time_remaining_secs)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER_VERBOSE.debug("wireless connection refresh failed: %s", exc)
 
     @needs_auth_and_refresh
     async def async_set_guest_wifi_state(self, state: bool) -> None:
