@@ -531,6 +531,7 @@ Actions: ActionRegistry = ActionRegistry(
             "http://linksys.com/jnap/nodes/networkconnections/RefreshNodesWirelessNetworkConnections",
             "http://linksys.com/jnap/nodes/networkconnections/NodesNetworkConnections",
             purpose=ActionPurpose.INVOKE,
+            rate_limit_secs=300,
         ),
         ActionDefinition(
             "SET_DEVICE_PROPERTY",
