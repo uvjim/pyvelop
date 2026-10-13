@@ -333,7 +333,7 @@ class EthernetPortConnection(MeshSerialiser):
             "index",
             "kind",
             "negotiated_speed_mbps",
-            "raw_speed",
+            "speed",
         }
     )
 
