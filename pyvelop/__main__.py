@@ -96,6 +96,19 @@ class MeshWorkflows:
         await mesh.async_set_homekit_state(enabled)
 
     @staticmethod
+    async def mesh_snapshot_action_dump(mesh: Mesh) -> MappingProxyType[str, Any] | None:
+        """Retrieve a dump of the JNAP data used for building the snapshot.
+
+        :returns: The details used for building the snapshot.
+        """
+
+        if not mesh.latest_snapshot:
+            _output(None, "There are no details to display")
+            return
+
+        return MappingProxyType(mesh.latest_snapshot.get_action_data())
+
+    @staticmethod
     async def night_mode_state(mesh: Mesh, state: NightModeState) -> None:
         """Change the state of the night mode functionality.
 
@@ -268,6 +281,7 @@ MESH_WORKFLOWS: Mapping[str, Callable[[Mesh], Awaitable[Any]]] = MappingProxyTyp
         "guest_wifi_on": lambda mesh: MeshWorkflows.guest_wifi_state(mesh, True),
         "homekit_off": lambda mesh: MeshWorkflows.homekit_state(mesh, False),
         "homekit_on": lambda mesh: MeshWorkflows.homekit_state(mesh, True),
+        "mesh_snapshot_action_dump": lambda mesh: MeshWorkflows.mesh_snapshot_action_dump(mesh),
         "night_mode_always": lambda mesh: MeshWorkflows.night_mode_state(mesh, NightModeState.ALWAYS),
         "night_mode_off": lambda mesh: MeshWorkflows.night_mode_state(mesh, NightModeState.OFF),
         "night_mode_on": lambda mesh: MeshWorkflows.night_mode_state(mesh, NightModeState.NIGHT_MODE),

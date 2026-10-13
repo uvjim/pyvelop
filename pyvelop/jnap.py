@@ -12,7 +12,7 @@ from typing import Any, TypeGuard, cast
 
 import aiohttp
 
-from .action_registry import ActionDefinition, Actions
+from .action_registry import Actions, build_action_redactions
 from .exceptions import (
     MeshActionUnknown,
     MeshAdminAccountLocked,
@@ -30,6 +30,7 @@ from .exceptions import (
     MeshTimeoutError,
 )
 from .logger import Logger
+from .redaction import redact
 
 # endregion
 
@@ -89,7 +90,7 @@ class Request:
         raise_on_error: bool = True,
         session: aiohttp.ClientSession | None = None,
         username: str = "admin",
-        redact: bool = True,
+        enable_redaction: bool = True,
         supplementary_redactions: dict[str, set[str]] | None = None,
     ) -> None:
         """Initialise a request.
@@ -101,14 +102,14 @@ class Request:
         :param raise_on_error: raise an error if one is found
         :param session: an existing session to use
         :param username: the username required to communicate with the target
-        :param redact: `True` to enable redaction
+        :param enable_redaction: `True` to enable redaction
         :param supplementary_redactions: additional redactions to be applied to the logging
         """
         self._action: str = action
         self._creds: str = base64.b64encode(bytes(f"{username}:{password}", "utf-8")).decode("ascii")
         self._payload: JnapPayloadSingle | JnapPayloadTransaction = payload if payload is not None else {}
         self._raise_on_error: bool = raise_on_error
-        self._redact: bool = redact
+        self._redact: bool = enable_redaction
         self._session: aiohttp.ClientSession = (
             session if session is not None else aiohttp.ClientSession(raise_for_status=True)
         )
@@ -129,20 +130,6 @@ class Request:
                 return action_def.key
         return action_uri
 
-    def _build_redactions(self, key: str) -> set[str]:
-        """Build the set of redactions for a given action key.
-
-        :param key: the action key to look up redactions for
-        :return: the set of field names to redact
-        """
-        ret: set[str] = set()
-        action: ActionDefinition | None = next((a for a in Actions.values() if a.key == key), None)
-
-        if action is not None:
-            ret = action.redactions.union(self._supplementary_redactions.get(action.key, set()))
-
-        return ret
-
     def _redact_payload(
         self,
         payload: JnapPayloadSingle | JnapPayloadTransaction,
@@ -155,17 +142,17 @@ class Request:
         :return: redacted copy of the payload
         """
         action_key = self._get_action_key_from_uri(action_uri)
-        redactions = self._build_redactions(action_key)
+        redactions = build_action_redactions(action_key, self._supplementary_redactions)
         if not redactions:
             return payload
 
         if isinstance(payload, list):
             # Transaction: redact each payload entry
-            return [_LOGGER.redact(p, redactions) if isinstance(p, dict) else p for p in payload]
+            return [redact(p, redactions) if isinstance(p, dict) else p for p in payload]
 
         if isinstance(payload, dict):
             # Single: redact the payload dict
-            return _LOGGER.redact(payload, redactions)
+            return redact(payload, redactions)
 
         return payload
 
@@ -195,19 +182,19 @@ class Request:
 
                     # Convert URI to ActionKey for redaction lookup
                     action_key = self._get_action_key_from_uri(action_uri)
-                    redactions = self._build_redactions(action_key)
+                    redactions = build_action_redactions(action_key, self._supplementary_redactions)
                     if redactions:
-                        r_entry["output"] = _LOGGER.redact(r_entry.get("output", {}), redactions)
+                        r_entry["output"] = redact(r_entry.get("output", {}), redactions)
             return redacted
 
         # Single response: redact the output
         action_key = self._get_action_key_from_uri(self._action)
-        redactions = self._build_redactions(action_key)
+        redactions = build_action_redactions(action_key, self._supplementary_redactions)
         if redactions:
             redacted_single = cast(JnapResponseSingle, redacted)
             output = redacted_single.get("output", {})
             if isinstance(output, dict):
-                redacted_single["output"] = _LOGGER.redact(output, redactions)
+                redacted_single["output"] = redact(output, redactions)
         return redacted
 
     async def execute(self, timeout: float = 10) -> Response:
