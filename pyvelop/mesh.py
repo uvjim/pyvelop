@@ -33,6 +33,7 @@ from .action_registry import (
     Actions,
     ActionScope,
     ActionVersionMap,
+    build_action_redactions,
 )
 from .exceptions import (
     MeshActionRateLimited,
@@ -61,6 +62,7 @@ from .mesh_entity import (
     NodeEntity,
     NodeType,
 )
+from .redaction import redact
 from .timeouts import poll_with_yield
 
 # endregion
@@ -289,7 +291,7 @@ class MeshCapability:
             session=self._mesh_details.session,
             target=node_address or self._mesh_details.host,
             username=self._mesh_details.user,
-            redact=self._mesh_details.redact,
+            enable_redaction=self._mesh_details.redact,
             supplementary_redactions=self._mesh_details.supplementary_redactions,
         )
         try:
@@ -615,8 +617,10 @@ class MeshSnapshot(MeshSerialiser):
     """Point in time properties of the Mesh."""
 
     _capabilities: MappingProxyType[ActionKey, MeshCapability] = field(repr=False, compare=False)
+    _disable_redaction: bool = field(repr=False, compare=False)
     _discovered_devices: tuple[DeviceEntity | NodeEntity, ...] = field(repr=False, compare=False)
     _gather_timings: MappingProxyType[str, float] = field(repr=False, compare=False)
+    _supplementary_redactions: MappingProxyType[str, Iterable[str]] | None = field(repr=False, compare=False)
     _values: MappingProxyType[ActionKey, Any] = field(repr=False, compare=False)
 
     _EXPORT_PROPERTIES = tuple(
@@ -669,11 +673,20 @@ class MeshSnapshot(MeshSerialiser):
         gathered_details: Mapping[ActionKey, Any],
         discovered_devices: tuple[DeviceEntity | NodeEntity, ...],
         gather_timings: Mapping[str, float],
+        *,
+        disable_redaction: bool,
+        supplemetary_redactions: Mapping[str, set[str]] | None,
     ) -> None:
         # using object.__setattr__ because the class is frozen
         object.__setattr__(self, "_capabilities", MappingProxyType(dict(available_capabilities)))
+        object.__setattr__(self, "_disable_redaction", disable_redaction)
         object.__setattr__(self, "_discovered_devices", discovered_devices)
         object.__setattr__(self, "_gather_timings", MappingProxyType(dict(gather_timings)))
+        object.__setattr__(
+            self,
+            "_supplementary_redactions",
+            MappingProxyType(dict(supplemetary_redactions)) if supplemetary_redactions else None,
+        )
         object.__setattr__(self, "_values", MappingProxyType(dict(gathered_details)))
 
     def _find_capability(self, capability: ActionKey) -> MeshCapability | None:
@@ -694,6 +707,24 @@ class MeshSnapshot(MeshSerialiser):
         """
         if self._find_capability(capability) is None:
             raise AttributeError(f"{type(self).__name__} has no attribute {attribute_name!r}")
+
+    def get_action_data(self, *, disable_redaction: bool = False) -> dict[ActionKey, Any]:
+        """Retrieve the action data and optionally redact.
+
+        :param disable_redaction: `True` to disable redaction in the return value.
+        :returns: A dictionary containing the details used for building the snapshot with optional redaction.
+        """
+
+        values = copy.deepcopy(dict(self._values))
+        if disable_redaction or self._disable_redaction:
+            return values
+
+        ret: dict[ActionKey, Any] = {}
+        for action_key, data in values.items():
+            redactions = build_action_redactions(action_key, self._supplementary_redactions)
+            ret[action_key] = redact(data, redactions)
+
+        return ret
 
     @property
     def capabilities(self) -> tuple[Mapping[str, Any], ...]:
@@ -2538,7 +2569,12 @@ class Mesh:
         mesh_entities: list[DeviceEntity | NodeEntity] = self._build_mesh_entities(True, mesh_details)
         mesh_entities = self._remediate_mesh_entities(True, mesh_entities)
         self._last_snapshot = MeshSnapshot(
-            self._capabilities, mesh_details, tuple(mesh_entities), self.__last_gather_details
+            self._capabilities,
+            mesh_details,
+            tuple(mesh_entities),
+            self.__last_gather_details,
+            disable_redaction=self._disable_redaction,
+            supplemetary_redactions=self._supplementary_redactions,
         )
 
         return self._last_snapshot

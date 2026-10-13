@@ -178,6 +178,26 @@ class ActionRegistry(Mapping[ActionKey, ActionDefinition]):
         return len(self._storage)
 
 
+def build_action_redactions(key: str, supplementary_redactions: Mapping[str, Any] | None) -> set[str]:
+    """Build the set of redactions for a given action key.
+
+    :param key: The action key to look up redactions for.
+    :param supplementary_redactions: The additional redactions specified by the user.
+    :return: the set of field names to redact.
+    """
+
+    if supplementary_redactions is None:
+        supplementary_redactions = {}
+
+    ret: set[str] = set()
+    action: ActionDefinition | None = next((a for a in Actions.values() if a.key == key), None)
+
+    if action is not None:
+        ret = action.redactions.union(supplementary_redactions.get(action.key, set()))
+
+    return ret
+
+
 Actions: ActionRegistry = ActionRegistry(
     (
         ActionDefinition(
