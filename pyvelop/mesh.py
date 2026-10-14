@@ -24,7 +24,7 @@ from typing import Any, Final, Literal, NamedTuple, Self, cast, overload
 import aiohttp
 from aiohttp import ClientSession
 
-from . import __version__, camel_to_snake
+from . import __version__
 from . import jnap as api
 from .action_registry import (
     ActionDefinition,
@@ -840,10 +840,10 @@ class MeshSnapshot(MeshSerialiser):
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    def dhcp_reservations(self) -> MeshAttribute[tuple[Mapping[str, str], ...]]:
+    def dhcp_reservations(self) -> MeshAttribute[tuple[MappingProxyType[str, str], ...]]:
         """Return the DHCP reservations.
 
-        :return: list of DHCP reservation details
+        :return: Iterable of DHCP reservation details
         """
 
         cap_name: ActionKey = "GET_LAN_SETTINGS"
@@ -852,20 +852,23 @@ class MeshSnapshot(MeshSerialiser):
             attribute_name="dhcp_reservations",
         )
 
-        ret: list[dict[str, str]] = []
-        temp_dict: dict[str, str] = {}
-
-        all_reservations: list[dict[str, Any]] = (
+        reservations: list[dict[str, str]] = (
             self._values.get(cap_name, {}).get("dhcpSettings", {}).get("reservations", [])
         )
 
-        for reservation in all_reservations:
-            temp_dict = {}
-            for key, details in reservation.items():
-                temp_dict[camel_to_snake(key)] = details
-            ret.append(temp_dict)
+        ret = [
+            MappingProxyType(
+                {
+                    "description": str(res["description"]),
+                    "ip_address": str(res["ipAddress"]),
+                    "mac_address": str(res["macAddress"]),
+                }
+            )
+            for res in reservations
+            if all(res.get(k) for k in ("description", "ipAddress", "macAddress"))
+        ]
 
-        return MeshAttribute[tuple[Mapping[str, str], ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
+        return MeshAttribute[tuple[MappingProxyType[str, str], ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
 
     @property
     def express_forwarding_enabled(self) -> MeshAttribute[bool | None]:
