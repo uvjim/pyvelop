@@ -10,7 +10,12 @@ DEF_REDACTED: str = "**REDACTED**"
 
 
 def redact(data: dict[str, Any], to_redact: set[str] | None = None) -> dict[str, Any]:
-    """Redact sensitive data in a dict. Dotted paths may traverse dicts and lists."""
+    """Redact sensitive data in a dict. Dotted paths may traverse dicts and lists.
+
+    :param data: A dictionary that holds the data to be redacted.
+    :param to_redact: The dotted paths that should be redacted within the provided data.
+    :return: A copy of the provided data with the specified parts redacted.
+    """
     if to_redact is None:
         to_redact = set()
     ret: dict[str, Any] = copy.deepcopy(data)

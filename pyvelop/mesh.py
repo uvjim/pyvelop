@@ -709,9 +709,12 @@ class MeshSnapshot(MeshSerialiser):
             raise AttributeError(f"{type(self).__name__} has no attribute {attribute_name!r}")
 
     def get_action_data(self, *, disable_redaction: bool = False) -> dict[ActionKey, Any]:
-        """Retrieve the action data and optionally redact.
+        """Retrieve the action data and optionally redact (redacted by default).
 
-        :param disable_redaction: `True` to disable redaction in the return value.
+        In contrast to `MeshSnapshot.to_dict()` the underlying JNAP data (keyed by the action key) is returned.
+        If you only intended to retrieve a representation of the MeshSnapshot object then you should use `MeshSnapshot.to_dict()`.
+
+        :param disable_redaction: `True` to return an unredacted value; default `False`.
         :returns: A dictionary containing the details used for building the snapshot with optional redaction.
         """
 
@@ -1551,6 +1554,8 @@ class Mesh:
         :param request_timeout: number of seconds to time out the request; default 10s
         :param session: session to use in for interacting with the Mesh
         :param username: username to use; default admin
+        :param disable_redaction: `True` to disable redaction during the usage session; default `False`
+          - applies to JNAP traffic and `MeshSnapshot` action data retrieval
         """
 
         self._capabilities: Mapping[ActionKey, MeshCapability] = copy.deepcopy(type(self)._BOOTSTRAP_CAPABILITIES)
