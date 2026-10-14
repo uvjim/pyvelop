@@ -1909,13 +1909,11 @@ class NodeEntity(MeshEntity):
 
         ret: dt.datetime | None = None
 
-        prop: MeshAttribute[int | None] = self.uptime
-        if prop.value is not None:
-            ret = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=prop.value)
+        uptime: MeshAttribute[int | None] = self.uptime
+        if uptime.value is not None:
+            ret = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=uptime.value)
 
-        return MeshAttribute[dt.datetime | None](
-            ret, (AttributeAuditEntry(EntityDataProperties.SYSTEM_STATS.value, ret),)
-        )
+        return MeshAttribute[dt.datetime | None](ret, uptime.audit)
 
     @property
     def last_update_check(self) -> MeshAttribute[dt.datetime | None]:
