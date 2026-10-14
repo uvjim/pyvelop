@@ -8,6 +8,7 @@ import base64
 import contextlib
 import datetime as dt
 import logging
+import math
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -1147,7 +1148,12 @@ class MeshEntity(ABC):
 
         :return: The time the scan was executed
         """
-        return cast(int | None, self._data.get(EntityDataProperties.RESULTS_TIME))
+
+        results_time_raw: int | None = self._data.get(EntityDataProperties.RESULTS_TIME)
+        if results_time_raw is None:
+            return None
+
+        return math.ceil(results_time_raw)
 
     @property
     def serial(self) -> MeshAttribute[str | None]:
@@ -1910,8 +1916,8 @@ class NodeEntity(MeshEntity):
         ret: dt.datetime | None = None
 
         uptime: MeshAttribute[int | None] = self.uptime
-        if uptime.value is not None:
-            ret = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=uptime.value)
+        if uptime.value is not None and self.results_time is not None:
+            ret = dt.datetime.fromtimestamp(self.results_time - uptime.value, tz=dt.UTC)
 
         return MeshAttribute[dt.datetime | None](ret, uptime.audit)
 
