@@ -13,6 +13,9 @@ name = "pyvelop"
 readme = "README.rst"
 requires-python = ">= 3.12"
 
+[project.scripts]
+pyvelop = "pyvelop.__main__:cli"
+
 [project.optional-dependencies]
 cli = ["asyncclick", "pandas", "tabulate"]
 

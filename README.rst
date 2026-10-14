@@ -31,6 +31,10 @@ Installation
 
 ``pip install pyvelop``
 
+To install the CLI and its dependencies:
+
+``pip install "pyvelop[cli]"``
+
 Quick Start
 -----------
 
