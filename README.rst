@@ -38,18 +38,18 @@ To get started you can use the following as a skeleton.
 
 .. code:: python
 
-import asyncio
+   import asyncio
 
-from pyvelop.mesh import Mesh
-
-
-async def main():
-    async with Mesh(node="192.168.1.1", password="my_password") as mesh:
-        snapshot = await mesh.async_authenticate_and_refresh()
-        print(snapshot.to_dict())
+   from pyvelop.mesh import Mesh
 
 
-asyncio.run(main())
+   async def main():
+      async with Mesh(node="192.168.1.1", password="my_password") as mesh:
+         snapshot = await mesh.async_authenticate_and_refresh()
+         print(snapshot.to_dict())
+
+
+   asyncio.run(main())
 
 CLI
 ---
