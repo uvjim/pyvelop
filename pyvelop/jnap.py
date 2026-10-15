@@ -342,11 +342,9 @@ class Response:
                     exc = MeshInvalidInput("Rules Overlap")
                 elif result == "ErrorUnknownDevice":
                     exc = MeshInvalidInput("Unknown Device")
-                elif result.startswith("_"):
-                    exc = MeshInvalidInput(f"{result}: '{self.action}'")
                 else:  # don't know the error, log and raise exception
                     _LOGGER.error("unknown error received: %s", self._data)
-                    exc = MeshException(json.dumps(result))
+                    exc = MeshException(json.dumps(resp))
                 if exc:  # break out of the for loop if we have an error
                     break
 
