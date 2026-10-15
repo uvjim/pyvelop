@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum, auto
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, cast, final, override
+from typing import TYPE_CHECKING, Any, cast, final, overload, override
 
 from .action_registry import ActionKey, Actions
 from .exceptions import MeshException, MeshInvalidInput, MeshTimeoutError
@@ -448,10 +448,17 @@ class ParentalControl:
         self._rule: dict[str, Any] = rule
 
     @staticmethod
-    def _human_readable(schedule: dict[str, Any]) -> dict[str, list[str]]:
-        """Make the given schedule human readable."""
+    def _human_readable(schedule: dict[str, str]) -> dict[str, list[str]]:
+        """Make the given schedule human readable.
+
+        :param schedule: A dictionary detailing the day and the binary strings.
+        :return: A dictionary detailing the day and the human-readable times.
+        """
         ret: dict[str, list[str]] = {}
         for day, sched in schedule.items():
+            if not all(char in "01" for char in sched):
+                raise ValueError(f"Invalid binary string: {sched}")
+
             ret[day.lower()] = []
             idx: int = 0
             while idx < ParentalControl.BINARY_LENGTH:
@@ -562,11 +569,24 @@ class ParentalControl:
         }
         return ret
 
+    @overload
+    @staticmethod
+    def human_readable_to_binary(to_encode: str) -> str: ...
+
+    @overload
+    @staticmethod
+    def human_readable_to_binary(to_encode: dict[str, str]) -> dict[str, str]: ...
+
     @staticmethod
     def human_readable_to_binary(
-        to_encode: str | dict[str, Any],
-    ) -> str | dict[str, Any]:
-        """Encode the human readable information to something that can be stored."""
+        to_encode: str | dict[str, str],
+    ) -> str | dict[str, str]:
+        """Encode the human readable information to something that can be stored.
+
+        :param: Comma separated timespans, e.g. 00:00-01:00.
+        If `to_decode` is a dictionary it should be in the form: - `{<weekeday_in_english_lowercase>: <comma_separated_timespans>, ...}`
+        :return: Binary string or dictionary of binary string rperesentations of the human-readable times.
+        """
         fake_day: str = "sunday"
         to_process: dict[str, Any]
         if isinstance(to_encode, str):
@@ -605,18 +625,31 @@ class ParentalControl:
 
         return ret_dict
 
+    @overload
+    @staticmethod
+    def binary_to_human_readable(to_decode: str) -> str: ...
+
+    @overload
+    @staticmethod
+    def binary_to_human_readable(to_decode: dict[str, str]) -> dict[str, list[str]]: ...
+
     @staticmethod
     def binary_to_human_readable(
-        to_decode: str | dict[str, str],
+        to_decode: str | Mapping[str, str],
     ) -> str | dict[str, list[str]]:
-        """Decode the binary format string to human-readable form."""
+        """Decode the binary format string to human-readable form.
+
+        :param to_decode: The binary string or dictionary containing the binary strings to convert
+        If `to_decode` is a dictionary it should be in the form: - `{<weekeday_in_english_lowercase>: <binary_string>, ...}`
+        :return: The human readable represenation of the given binary times.
+        """
         ret: str | dict[str, list[str]]
         if isinstance(to_decode, str):
             fake_day: str = "sunday"
             single_day_schedule = ParentalControl._human_readable({fake_day: to_decode})
             ret = ",".join(single_day_schedule[fake_day])
         else:
-            ret = ParentalControl._human_readable(to_decode)
+            ret = ParentalControl._human_readable(dict(to_decode))
 
         return ret
 
