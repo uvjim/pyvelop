@@ -142,7 +142,7 @@ class Request:
         :return: redacted copy of the payload
         """
         action_key = self._get_action_key_from_uri(action_uri)
-        redactions = build_action_redactions(action_key, self._supplementary_redactions)
+        redactions = build_action_redactions(Actions, action_key, self._supplementary_redactions)
         if not redactions:
             return payload
 
@@ -182,14 +182,14 @@ class Request:
 
                     # Convert URI to ActionKey for redaction lookup
                     action_key = self._get_action_key_from_uri(action_uri)
-                    redactions = build_action_redactions(action_key, self._supplementary_redactions)
+                    redactions = build_action_redactions(Actions, action_key, self._supplementary_redactions)
                     if redactions:
                         r_entry["output"] = redact(r_entry.get("output", {}), redactions)
             return redacted
 
         # Single response: redact the output
         action_key = self._get_action_key_from_uri(self._action)
-        redactions = build_action_redactions(action_key, self._supplementary_redactions)
+        redactions = build_action_redactions(Actions, action_key, self._supplementary_redactions)
         if redactions:
             redacted_single = cast(JnapResponseSingle, redacted)
             output = redacted_single.get("output", {})
