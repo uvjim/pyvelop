@@ -3,7 +3,7 @@
 import asyncio
 import functools
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 _NO_DEFAULT = object()
@@ -14,7 +14,7 @@ async def poll_with_yield[T](
     *,
     interval: float = 5.0,
     timeout: float = 300.0,
-) -> AsyncIterator[T]:
+) -> AsyncGenerator[T, None]:
     """Poll an asynchronous callable at regular intervals.
 
     The result of every probe call is yielded. Polling stops when `timeout`
