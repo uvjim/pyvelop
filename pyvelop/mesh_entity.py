@@ -346,6 +346,10 @@ class EthernetPortConnection(MeshSerialiser):
     def negotiated_speed_mbps(self) -> float | None:
         """Parse a speed string (e.g., '1Gbps', '100Mbps') and calculate the speed in Mbps.
 
+        This parser is permissive so any additional text after the intended speed is thrown
+        away, e.g. "1Gbps extra". The extra is thrown away and the conversion completed
+        accordingly.
+
         :param speed_str: The speed string to parse.
         :returns: The equivalent speed in Mbps as an integer.
         :raises ValueError: If the string format is not recognised.
