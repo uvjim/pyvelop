@@ -534,10 +534,19 @@ class ParentalControl:
 
     @staticmethod
     def encode_for_backup(schedule: dict[str, str]) -> str:
-        """Encode the schedule for storage in a property."""
+        """Encode the schedule for storage in a property.
+
+        :param schedule:
+        return: The encoded value that can be stored in the mesh as a backup.
+        """
         ret: str = ""
         chunk_length: int = 8
-        sorted_schedule: str = "".join([schedule[day.name.lower()] for day in list(Weekdays)])
+        sorted_schedule: str = "".join(
+            [
+                schedule.get(day.name.lower(), ParentalControl.all_allowed_schedule()[day.name.lower()])
+                for day in Weekdays
+            ]
+        )
         sorted_chunks: list[str] = [
             (sorted_schedule[i : i + chunk_length]) for i in range(0, len(sorted_schedule), chunk_length)
         ]
