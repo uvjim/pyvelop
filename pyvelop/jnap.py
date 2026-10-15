@@ -51,13 +51,6 @@ def _is_transaction_response(
     return isinstance(payload, dict) and isinstance(payload.get("responses"), list)
 
 
-def _iter_response_entries(response: dict[str, Any]) -> list[tuple[int, JnapResponseSingle]]:
-    """Yield (index, response entry) for a single or transaction response."""
-    if _is_transaction_response(response):
-        return list(enumerate(response["responses"]))
-    return [(0, response)]
-
-
 def as_items(payload: JnapResponseSingle | JnapResponseTransaction) -> list[JnapResponseSingle]:
     """Return the promoted output entries for either a single or transaction response."""
     if _is_transaction_response(payload):
