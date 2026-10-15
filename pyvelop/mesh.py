@@ -724,7 +724,7 @@ class MeshSnapshot(MeshSerialiser):
 
         ret: dict[ActionKey, Any] = {}
         for action_key, data in values.items():
-            redactions = build_action_redactions(action_key, self._supplementary_redactions)
+            redactions = build_action_redactions(Actions, action_key, self._supplementary_redactions)
             ret[action_key] = redact(data, redactions)
 
         return ret
