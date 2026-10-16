@@ -134,6 +134,10 @@ class Request:
         :param action_uri: the action URI for redaction lookup
         :return: redacted copy of the payload
         """
+
+        if not self._redact:
+            return payload
+
         action_key = self._get_action_key_from_uri(action_uri)
         redactions = build_action_redactions(Actions, action_key, self._supplementary_redactions)
         if not redactions:
@@ -159,7 +163,7 @@ class Request:
         :return: redacted copy of the response
         """
         # Only redact successful responses
-        if response.get("result") != "OK":
+        if response.get("result") != "OK" or not self._redact:
             return response
 
         redacted = copy.deepcopy(response)
