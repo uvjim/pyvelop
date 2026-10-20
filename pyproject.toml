@@ -18,11 +18,15 @@ pyvelop = "pyvelop.__main__:cli"
 
 [project.optional-dependencies]
 cli = ["asyncclick", "pandas", "tabulate"]
+test = ["pytest", "pytest-asyncio"]
 
 [project.urls]
 Homepage = "https://github.com/uvjim/pyvelop"
 Repository = "https://github.com/uvjim/pyvelop"
 Issues = "https://github.com/uvjim/pyvelop/issues"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [tool.black]
 line-length = 120
