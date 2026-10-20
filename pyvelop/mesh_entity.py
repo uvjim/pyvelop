@@ -446,6 +446,59 @@ class ParentalControl:
         :param rule: a single rule object as returned by the API
         """
         self._rule: dict[str, Any] = rule
+        self._validate_rule()
+
+    def _validate_rule(self) -> bool:
+        """Ensure the rule has the correct shape as expected by the known returns from the API.
+
+        Checks allow for additional keys to be provided.
+
+        :retun: `True` if a valid rule.
+        :raises TypeError: If the rule is not of the correct type.
+        :raises ValueError: If the rule does not match the expected shape.
+        """
+
+        if not isinstance(self._rule, dict):
+            raise TypeError("Rule must be a dictionary")
+
+        req_fields: dict[str, type] = {
+            "blockedURLs": list,
+            "description": str,
+            "isEnabled": bool,
+            "macAddresses": list,
+            "wanSchedule": dict,
+        }
+
+        # check that all expected fields are present
+        missing = set(req_fields) - self._rule.keys()
+        if missing:
+            raise ValueError(f"Missing rule keys: {', '.join(sorted(missing))}")
+
+        # check the field types are valid
+        invalid_fields: list[str] = [
+            name for name, expected_type in req_fields.items() if not isinstance(self._rule[name], expected_type)
+        ]
+        if invalid_fields:
+            raise TypeError(f"Invalid types for: {", ".join(invalid_fields)}")
+
+        for field in ("blockedURLs", "macAddresses"):
+            if not all(isinstance(value, str) for value in self._rule[field]):
+                raise ValueError(f"Invalid values for: {field}")
+
+        # check for valid wanSchedule
+        days_week = {day.name.lower() for day in Weekdays}
+        if set(days_week) != set(self._rule["wanSchedule"]):
+            raise ValueError("Rule scheduled days are not valid")
+
+        for day, binary_schedule in cast(dict[str, str], self._rule["wanSchedule"]).items():
+            if (
+                not isinstance(binary_schedule, str)
+                or len(binary_schedule) != self.BINARY_LENGTH
+                or any(char not in "01" for char in binary_schedule)
+            ):
+                raise ValueError(f"Invalid schedule for {day}")
+
+        return True
 
     @staticmethod
     def _human_readable(schedule: dict[str, str]) -> dict[str, list[str]]:
