@@ -423,6 +423,15 @@ class ParentalControl:
     HOURS_PER_DAY: int = 24
     BINARY_LENGTH: int = HOURS_PER_DAY * SLOTS_PER_HOUR
     DEFAULT_DESCRIPTION: str = "default description"
+    KNOWN_RULE_KEYS: MappingProxyType[str, type] = MappingProxyType(
+        {
+            "blockedURLs": list,
+            "description": str,
+            "isEnabled": bool,
+            "macAddresses": list,
+            "wanSchedule": dict,
+        }
+    )
 
     @staticmethod
     def all_allowed_schedule() -> dict[str, str]:
@@ -461,22 +470,16 @@ class ParentalControl:
         if not isinstance(self._rule, dict):
             raise TypeError("Rule must be a dictionary")
 
-        req_fields: dict[str, type] = {
-            "blockedURLs": list,
-            "description": str,
-            "isEnabled": bool,
-            "macAddresses": list,
-            "wanSchedule": dict,
-        }
-
         # check that all expected fields are present
-        missing = set(req_fields) - self._rule.keys()
+        missing = set(self.KNOWN_RULE_KEYS) - self._rule.keys()
         if missing:
             raise ValueError(f"Missing rule keys: {', '.join(sorted(missing))}")
 
         # check the field types are valid
         invalid_fields: list[str] = [
-            name for name, expected_type in req_fields.items() if not isinstance(self._rule[name], expected_type)
+            name
+            for name, expected_type in self.KNOWN_RULE_KEYS.items()
+            if not isinstance(self._rule[name], expected_type)
         ]
         if invalid_fields:
             raise TypeError(f"Invalid types for: {", ".join(invalid_fields)}")
@@ -748,13 +751,18 @@ class ParentalControl:
     @final
     @property
     def rule(self) -> dict[str, Any]:
-        """Return the rule."""
+        """Return the rule including any additional keys that were specified at initialisation."""
+
+        additional_keys = set(self._rule.keys()).difference(self.KNOWN_RULE_KEYS.keys())
+        additionals = {ak: self._rule[ak] for ak in additional_keys}
+
         return {
             "blockedURLs": self.blocked_urls,
             "description": self.description,
             "isEnabled": self.is_enabled,
             "macAddresses": self.mac_addresses,
             "wanSchedule": self.schedule,
+            **additionals,
         }
 
     @property
