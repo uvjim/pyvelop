@@ -13,7 +13,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
-from enum import IntEnum, StrEnum, auto
+from enum import Enum, IntEnum, StrEnum, auto
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, final, overload, override
 
@@ -251,6 +251,9 @@ class MeshSerialiser:
         :param include_audit: Whether to include audit-related metadata during serialisation of objects that support it.
         :return: A JSON-serialisable representation of the input value.
         """
+
+        if isinstance(value, Enum):
+            return self._serialise(value.value, include_audit=include_audit)
 
         if value is None or isinstance(value, (bool, int, float, str)):
             return value
