@@ -799,6 +799,278 @@ class MeshEntity(ABC):
             ret += str(self.name)
         return ret
 
+    def _derive_adi_connected_state(
+        self,
+        adapter_index: int,
+        connection_type: ConnectionType,
+        device_info: dict[str, Any],
+        node_network_connection_info: dict[str, Any] | None,
+        node_wireless_connection_info: dict[str, Any],
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Derive whether an adapter is currently connected.
+
+        The device details provide the initial connection state. Wireless connection
+        details can mark an otherwise disconnected adapter as connected, while the
+        absence of those details can mark a wireless adapter as disconnected. A
+        matching network connection can then restore the connected state.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param connection_type: The adapter's derived connection type.
+        :param device_info: Connection details reported by ``GET_DEVICES``.
+        :param node_network_connection_info: Matching network connection details, if available.
+        :param node_wireless_connection_info: Matching wireless connection details, if available.
+        :return: A tuple containing the derived properties and their audit entries.
+        """
+
+        adi_key = "connected"
+        audit_history: list[AttributeAuditEntry] = []
+
+        def log_audit(source: ActionKey, conn_state: bool, action: AttributeAction):
+            audit_history.append(AttributeAuditEntry(source, {adi_key: conn_state}, index=adapter_index, kind=action))
+
+        # initial value
+        ret: bool = bool(device_info)
+        log_audit("GET_DEVICES", ret, AttributeAction.INIT)
+
+        if not ret and node_wireless_connection_info:
+            ret = True
+            log_audit("GET_NODE_WIRELESS_CONNECTIONS", ret, AttributeAction.REPLACE)
+        elif ret and connection_type == ConnectionType.WIRELESS and not node_wireless_connection_info:
+            ret = False
+            log_audit("GET_NODE_WIRELESS_CONNECTIONS", ret, AttributeAction.REPLACE)
+        if (
+            not ret
+            and node_network_connection_info
+            and (
+                connection_type == ConnectionType.WIRED
+                or (
+                    connection_type == ConnectionType.WIRELESS
+                    and node_network_connection_info.get("wireless", {}).get("signalDecibels")
+                )
+            )
+        ):
+            ret = True
+            log_audit("GET_NETWORK_CONNECTIONS", ret, AttributeAction.REPLACE)
+
+        return ({adi_key: ret}, tuple(audit_history))
+
+    def _derive_adi_connection_type(
+        self,
+        adapter_index: int,
+        adapter_info: dict[str, Any],
+        device_info: dict[str, Any],
+        node_network_connection_info: list[dict[str, Any]],
+        node_wireless_connection_info: dict[str, Any],
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Derive the adapter connection type.
+
+        The interface type reported by `GET_DEVICES` is used initially. Wireless
+        connection details take precedence, followed by network connection details.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param adapter_info: Adapter details reported by ``GET_DEVICES``.
+        :param device_info: Matching device connection details.
+        :param node_network_connection_info: Matching network connection details.
+        :param node_wireless_connection_info: Matching wireless connection details.
+        :return: The derived connection type and its audit entries.
+        :raises ValueError: If an adapter connection type is invalid.
+        """
+
+        adi_key = "type"
+        audit_history: list[AttributeAuditEntry] = []
+
+        def log_audit(source: ActionKey, conn_type: ConnectionType, action: AttributeAction):
+            audit_history.append(AttributeAuditEntry(source, {adi_key: conn_type}, index=adapter_index, kind=action))
+
+        # initial value
+        connection_type = ConnectionType(adapter_info.get("interfaceType", "Unknown"))
+        log_audit("GET_DEVICES", connection_type, AttributeAction.INIT)
+
+        # override from wireless info
+        if connection_type in (ConnectionType.WIRED, ConnectionType.UNKNOWN) and node_wireless_connection_info:
+            connection_type = ConnectionType.WIRELESS
+            log_audit("GET_NODE_WIRELESS_CONNECTIONS", connection_type, AttributeAction.REPLACE)
+
+        # override from network connection info
+        if node_network_connection_info:
+            has_signal = any(nnc.get("wireless", {}).get("signalDecibels") for nnc in node_network_connection_info)
+
+            if connection_type != ConnectionType.WIRELESS and has_signal:
+                connection_type = ConnectionType.WIRELESS
+                log_audit("GET_NETWORK_CONNECTIONS", connection_type, AttributeAction.REPLACE)
+            elif connection_type == ConnectionType.UNKNOWN:
+                connection_type = ConnectionType.WIRED
+                log_audit("GET_NETWORK_CONNECTIONS", connection_type, AttributeAction.REPLACE)
+
+        return ({adi_key: connection_type}, tuple(audit_history))
+
+    def _derive_adi_guest_network(
+        self, adapter_index: int, device_info: dict[str, Any] | None
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Derive whether the adapter uses the guest network.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param device_info: Matching device connection details, if available.
+        :return: The guest-network state and its audit entries.
+        """
+
+        audit_history: list[AttributeAuditEntry] = []
+        guest_network: bool | None = device_info.get("isGuest") if device_info else None
+        guest_ret = {"guest_network": guest_network}
+        audit_history.append(AttributeAuditEntry("GET_DEVICES", guest_ret, index=adapter_index))
+        return (guest_ret, tuple(audit_history))
+
+    def _derive_adi_ip_details(
+        self, adapter_index: int, device_info: dict[str, Any]
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Derive the IP details for an adapter.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param device_info: Matching device connection details.
+        :return: The IPv4 and IPv6 details and their audit entries.
+        """
+
+        audit_history: list[AttributeAuditEntry] = []
+        ip_details = {"ip": device_info.get("ipAddress"), "ipv6": device_info.get("ipv6Address")}
+        audit_history.append(AttributeAuditEntry("GET_DEVICES", ip_details, index=adapter_index))
+        return (ip_details, tuple(audit_history))
+
+    def _derive_adi_mac(
+        self, adapter_index: int, adapter_info: dict[str, Any]
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Derive the MAC address for an adapter.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param adapter_info: Adapter details reported by ``GET_DEVICES``.
+        :return: The MAC address and its audit entries.
+        """
+
+        audit_history: list[AttributeAuditEntry] = []
+        mac: dict[str, Any] = {"mac": adapter_info.get("macAddress")}
+        audit_history.append(AttributeAuditEntry("GET_DEVICES", mac, index=adapter_index))
+        return (mac, tuple(audit_history))
+
+    def _derive_adi_parent_id(
+        self, adapter_index: int, connected: bool, parent_info: MeshAttribute[NodeEntity | None] | None
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Record the parent-entity state for an adapter.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param connected: Current connected state of the adapter.
+        :param parent_info: Parent entity information, if available.
+        :return: An empty property mapping and the associated audit entries.
+        """
+
+        audit_history: list[AttributeAuditEntry] = []
+        parent_id: str | None = (
+            None
+            if not parent_info or not parent_info.value or not parent_info.value.unique_id.value
+            else parent_info.value.unique_id.value
+        )
+        audit_history.append(
+            AttributeAuditEntry("GET_DEVICES", {"parent_id": parent_id}, index=adapter_index, kind=AttributeAction.INIT)
+        )
+
+        return ({}, tuple(audit_history))
+
+    def _derive_adi_reservation(
+        self, adapter_index: int, reservation_info: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Derive the DHCP reservation details for an adapter.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param reservation_info: DHCP reservations matching the adapter.
+        :return: The reservation state and description, together with audit entries.
+        :raises ValueError: If more than one matching reservation is provided.
+        """
+
+        if len(reservation_info) > 1:
+            raise ValueError("Unexpected DHCP reservation data")
+
+        audit_history: list[AttributeAuditEntry] = []
+        reservation = {
+            "reservation": bool(reservation_info),
+            "reservation_description": next(iter(reservation_info), {}).get("description"),
+        }
+        audit_history.append(
+            AttributeAuditEntry("GET_LAN_SETTINGS", reservation, index=adapter_index, kind=AttributeAction.INIT)
+        )
+
+        return (reservation, tuple(audit_history))
+
+    def _derive_adi_wireless_information(
+        self,
+        adapter_index: int,
+        adapter_info: dict[str, Any],
+        node_network_connection_info: dict[str, Any] | None,
+        node_wireless_connection_info: dict[str, Any],
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Derive wireless information for an adapter.
+
+        The adapter band reported by `GET_DEVICES` is used initially. Matching
+        wireless connection details then replace the band and provide negotiated
+        speed, RSSI, timestamp, and signal strength. Network connection details may
+        provide additional speed or signal information when wireless details are
+        incomplete.
+
+        :param adapter_index: Zero-based index of the adapter being processed.
+        :param adapter_info: Adapter details reported by `GET_DEVICES`.
+        :param node_network_connection_info: Matching network connection details, if available.
+        :param node_wireless_connection_info: Matching wireless connection details, if available.
+        :return: The derived wireless properties and their audit entries.
+        """
+
+        audit_history: list[AttributeAuditEntry] = []
+        ret: dict[str, Any] = {}
+
+        # initial value
+        props_device: dict[str, Any] = {"band": adapter_info.get("band")}
+        audit_history.append(
+            AttributeAuditEntry("GET_DEVICES", props_device, index=adapter_index, kind=AttributeAction.INIT)
+        )
+        ret.update(props_device)
+
+        # override from node wireless connection info
+        props_wifi: dict[str, Any] = {}
+        if node_wireless_connection_info:
+            wifi_info: dict[str, Any] = node_wireless_connection_info.get("wireless", {})
+            rssi_dbm: int | None = self._rssi_dbm(wifi_info.get("signalDecibels"))
+            props_wifi = {
+                "band": wifi_info.get("band"),
+                "negotiated_mbps": node_wireless_connection_info.get("negotiatedMbps"),
+                "rssi_dbm": rssi_dbm,
+                "rssi_dbm_timestamp": node_wireless_connection_info.get("timestamp"),
+                "signal_strength": self._signal_strength_to_text(rssi_dbm),
+            }
+            audit_history.append(
+                AttributeAuditEntry(
+                    "GET_NODE_WIRELESS_CONNECTIONS", props_wifi, index=adapter_index, kind=AttributeAction.REPLACE
+                )
+            )
+            ret.update(props_wifi)
+
+        # override relevant info from node network connection info
+        if node_network_connection_info:
+            props_nnc: dict[str, Any] = {"negotiated_mbps": node_network_connection_info.get("negotiatedMbps")}
+            if (
+                rssi_dbm := self._rssi_dbm(node_network_connection_info.get("wireless", {}).get("signalDecibels"))
+            ) is not None and not props_wifi.get("rssi_dbm"):
+                props_nnc.update(
+                    {
+                        "rssi_dbm": rssi_dbm,
+                        "rssi_dbm_timestamp": None,
+                        "signal_strength": self._signal_strength_to_text(rssi_dbm),
+                    }
+                )
+            audit_history.append(
+                AttributeAuditEntry(
+                    "GET_NETWORK_CONNECTIONS", props_nnc, index=adapter_index, kind=AttributeAction.MERGE
+                )
+            )
+            ret.update(props_nnc)
+
+        return (ret, tuple(audit_history))
+
     def _get_capability(self, capability: ActionKey) -> MeshCapability:
         """Retrieve the capability from the identified available capabilities.
 
@@ -831,6 +1103,93 @@ class MeshEntity(ABC):
             ret = user_prop.get("value")
 
         return ret
+
+    def _process_single_adapter(
+        self, index: int, adapter_info: dict[str, Any]
+    ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
+        """Process the supplied details for a single adapter.
+
+        Combines adapter, device connection, network connection, wireless connection,
+        and reservation data into the properties exposed by `AdapterInfo`. Audit
+        entries are collected for each derived or overridden property.
+
+        :param index: Zero-based index of the adapter being processed.
+        :param adapter_info: Adapter details reported by `GET_DEVICES`.
+        :return: The derived adapter properties and their audit entries.
+        :raises ValueError: If multiple matching wireless connections or DHCP
+            reservations are found, or if an unsupported connection type is provided.
+        """
+
+        get_device_details: dict[str, Any] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {})
+        props: dict[str, Any] = {}
+        audit_history: list[AttributeAuditEntry] = []
+
+        # derive MAC information
+        mac_value, mac_audit = self._derive_adi_mac(index, adapter_info)
+        self._update_and_log_audit(props, audit_history, mac_value, audit_entries=mac_audit)
+
+        # prep all the info we need to use for making decisions
+        mac_lower: str = props.get("mac", "").lower()
+        connections = get_device_details.get("connections", [])
+        get_devices_connections = next((c for c in connections if c.get("macAddress", "").lower() == mac_lower), {})
+        node_network_conns_info: list[dict[str, Any]] = self._data.get(
+            EntityDataProperties.NODE_NETWORK_CONNECTIONS, []
+        )
+        reservation_info: list[dict[str, Any]] = [
+            ri
+            for ri in self._data.get(EntityDataProperties.RESERVATION_DETAILS, [])
+            if ri.get("macAddress", "").lower() == mac_lower
+        ]
+        wifi_conn_info_matches: list[dict[str, Any]] = [
+            wi
+            for wi in self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, [])
+            if wi.get("macAddress", "").lower() == mac_lower
+        ]
+        if len(wifi_conn_info_matches) > 1:
+            raise ValueError("Unexpected wi-fi data")
+        wifi_conn_info = next(iter(wifi_conn_info_matches), {})
+
+        # derive connection type
+        type_value, type_audit = self._derive_adi_connection_type(
+            index,
+            adapter_info,
+            get_devices_connections,
+            node_network_conns_info,
+            wifi_conn_info,
+        )
+        self._update_and_log_audit(props, audit_history, type_value, audit_entries=type_audit)
+
+        # establish network connection information to use
+        conn_type = props.get("type")
+        nnc: dict[str, Any] | None = None
+        for n in node_network_conns_info:
+            has_signal = bool(n.get("wireless", {}).get("signalDecibels"))
+            if (conn_type == ConnectionType.WIRED and not has_signal) or (
+                conn_type == ConnectionType.WIRELESS and has_signal
+            ):
+                nnc = n
+                break
+
+        # subsequent derivations
+        derivations: list[tuple[Callable[..., tuple[Any, tuple[AttributeAuditEntry, ...]]], tuple[Any, ...]]] = [
+            (self._derive_adi_wireless_information, (index, adapter_info, nnc, wifi_conn_info)),
+            (self._derive_adi_ip_details, (index, get_devices_connections)),
+            (self._derive_adi_guest_network, (index, get_device_details)),
+            (self._derive_adi_reservation, (index, reservation_info)),
+            (
+                self._derive_adi_connected_state,
+                (index, props.get("type", ConnectionType.UNKNOWN), get_devices_connections, nnc, wifi_conn_info),
+            ),
+            (
+                self._derive_adi_parent_id,
+                (index, props.get("connected", False), self._data.get(EntityDataProperties.PARENT_ENTITY)),
+            ),
+        ]
+        for func, args in derivations:
+            val, audit = func(*args)
+            self._update_and_log_audit(props, audit_history, val, audit_entries=audit)
+
+        return (props, tuple(audit_history))
 
     def _rssi_dbm(self, value: Any) -> int | None:
         """Return the value if it is a plausible RSSI in dBm, otherwise None.
@@ -870,6 +1229,68 @@ class MeshEntity(ABC):
         cur_devices: list[MeshEntity] = self._data.get(EntityDataProperties.CONNECTED_ENTITIES, [])
         cur_devices.append(new_device)
         self._data.update({EntityDataProperties.CONNECTED_ENTITIES: cur_devices})
+
+    @overload
+    def _update_and_log_audit(
+        self,
+        props: dict[str, Any],
+        audit_history: list[AttributeAuditEntry],
+        data: dict[str, Any],
+        *,
+        source: ActionKey,
+        index: int | None = None,
+        kind: AttributeAction = AttributeAction.MERGE,
+    ) -> None: ...
+
+    @overload
+    def _update_and_log_audit(
+        self,
+        props: dict[str, Any],
+        audit_history: list[AttributeAuditEntry],
+        data: dict[str, Any],
+        *,
+        audit_entries: tuple[AttributeAuditEntry, ...] | AttributeAuditEntry,
+    ) -> None: ...
+
+    def _update_and_log_audit(
+        self,
+        props: dict[str, Any],
+        audit_history: list[AttributeAuditEntry],
+        data: dict[str, Any],
+        *,
+        source: ActionKey | None = None,
+        index: int | None = None,
+        kind: AttributeAction = AttributeAction.MERGE,
+        audit_entries: tuple[AttributeAuditEntry, ...] | AttributeAuditEntry | None = None,
+    ) -> None:
+        """Updates the provided properties dictionary and logs the change to the audit history.
+
+        If audit_entries is provided, it is used to populate the history; otherwise, a new
+        entry is created using the specified index and kind. This ensures that the
+        mutation of the properties is synchronised with the audit trail.
+
+        :param props: The properties dictionary to be mutated.
+        :param audit_history: The tuple of audit entries where the change should be recorded.
+        :param data: The data to apply to the properties and include in the audit.
+        :param source: The key identifying the source of the action.
+        :param index: The index associated with the attribute change (ignored if audit_entries is provided).
+        :param kind: The type of attribute action being performed (ignored if audit_entries is provided).
+        :param audit_entries: Optional custom audit entry or entries to log instead of generating one.
+        :return: None
+        """
+
+        if audit_entries is not None:
+            if isinstance(audit_entries, tuple):
+                audit_history.extend(audit_entries)
+            else:
+                audit_history.append(audit_entries)
+        else:
+            if source is None:
+                raise TypeError("_update_and_log_audit() missing 1 required keyword-only argument: 'source'")
+
+            audit_history.append(AttributeAuditEntry(source, data, index=index, kind=kind))
+
+        props.update(data)
 
     def _update_parent(self, new_parent: MeshAttribute[NodeEntity | None]) -> None:
         """Set the parent entity for this entity."""
@@ -914,207 +1335,24 @@ class MeshEntity(ABC):
         return ret
 
     @property
-    def adapter_info(self) -> MeshAttribute[list[AdapterInfo]]:
-        """Retrieve details about the entity's adapters.
+    def adapter_info(self) -> MeshAttribute[tuple[AdapterInfo, ...]]:
+        """Get details about the network adapters.
 
-        :return: Adapter details
+        :return: Adapter information that has been derived from various sources on the mesh.
         """
 
         audit_history: list[AttributeAuditEntry] = []
         ret: list[AdapterInfo] = []
-        props: dict[str, Any] = {}
 
-        def _update_and_log_audit(
-            data: dict[str, Any], source: ActionKey, *, index: int = 0, kind: AttributeAction = AttributeAction.MERGE
-        ) -> None:
-            """Update the audit log and final property object."""
-
-            audit_history.append(AttributeAuditEntry(source, data, index=index, kind=kind))
-            props.update(data)
-
-        # get the adapters based on known interfaces
-        my_adapters: list[dict[str, Any]] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get(
-            "knownInterfaces", []
-        )
+        get_device_details: dict[str, Any] = self._data.get(EntityDataProperties.DEVICE_DETAILS, {})
+        my_adapters: list[dict[str, Any]] = get_device_details.get("knownInterfaces", [])
 
         for idx, adapter in enumerate(my_adapters):
-            props: dict[str, Any] = {}
-            props_adapter: dict[str, Any] = {"mac": adapter.get("macAddress")}
-            _update_and_log_audit(props_adapter, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
+            adapter_props, adapter_audit = self._process_single_adapter(idx, adapter)
+            ret.append(AdapterInfo(**adapter_props))
+            audit_history.extend(adapter_audit)
 
-            # region #-- prep all the info we need to use for making decisions --#
-            mac_lower: str = props.get("mac", "").lower()
-            connection_info: dict[str, Any] | None = next(
-                (
-                    conn
-                    for conn in self._data.get(EntityDataProperties.DEVICE_DETAILS, {}).get("connections", [])
-                    if conn.get("macAddress", "").lower() == mac_lower
-                ),
-                None,
-            )
-            node_network_conns: list[dict[str, Any]] = self._data.get(EntityDataProperties.NODE_NETWORK_CONNECTIONS, [])
-            reservation_info: list[dict[str, Any]] = [
-                ri
-                for ri in self._data.get(EntityDataProperties.RESERVATION_DETAILS, [])
-                if ri.get("macAddress", "").lower() == mac_lower
-            ]
-            wifi_info: list[dict[str, Any]] = [
-                wi
-                for wi in self._data.get(EntityDataProperties.WIRELESS_CONNECTION_DETAILS, [])
-                if wi.get("macAddress", "").lower() == mac_lower
-            ]
-            # endregion
-
-            # region #-- derive details from the device details --#
-            props_ci: dict[str, Any] = {}
-            if connection_info is not None:
-                props_ci = {
-                    "guest_network": connection_info.get("isGuest", False),
-                    "ip": connection_info.get("ipAddress"),
-                    "ipv6": connection_info.get("ipv6Address"),
-                }
-                _update_and_log_audit(props_ci, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
-            # endregion
-
-            # region #-- derive reservation information --#
-            props_reservation: dict[str, Any] = {}
-            if len(reservation_info) > 1:
-                raise ValueError("Unexpected DHCP reservation data")
-
-            props_reservation = {
-                "reservation": bool(reservation_info),
-                "reservation_description": next(iter(reservation_info), {}).get("description"),
-            }
-            _update_and_log_audit(props_reservation, EntityDataProperties.RESERVATION_DETAILS.value, index=idx)
-            # endregion
-
-            # region #-- derive wireless information --#
-            props_wifi: dict[str, Any] = {}
-            if "band" in adapter:
-                props_wifi = {"band": adapter.get("band")}
-                _update_and_log_audit(props_wifi, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
-            if len(wifi_info) > 1:
-                raise ValueError("Unexpected wi-fi data")
-            if wifi_info:
-                rssi_dbm: int | None = self._rssi_dbm(wifi_info[0].get("wireless", {}).get("signalDecibels"))
-                props_wifi = {
-                    "band": wifi_info[0].get("wireless", {}).get("band"),
-                    "negotiated_mbps": wifi_info[0].get("negotiatedMbps"),
-                    "rssi_dbm": rssi_dbm,
-                    "rssi_dbm_timestamp": wifi_info[0].get("timestamp"),
-                    "signal_strength": self._signal_strength_to_text(rssi_dbm),
-                }
-                _update_and_log_audit(props_wifi, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx)
-            # endregion
-
-            # region #-- derive the adapter connection type --#
-            props_device_type: dict[str, ConnectionType] = {
-                "type": ConnectionType(adapter.get("interfaceType", "Unknown"))
-            }
-            _update_and_log_audit(props_device_type, EntityDataProperties.DEVICE_DETAILS.value, index=idx)
-
-            # weird state where the device is listed as wired but has wifi info so change to wireless
-            if props.get("type") in (ConnectionType.WIRED, ConnectionType.UNKNOWN) and props_wifi:
-                _update_and_log_audit(
-                    {"type": ConnectionType.WIRELESS}, EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value, index=idx
-                )
-
-            # unknown still so let's derive from GET_NETWORK_CONNECTIONS
-            if node_network_conns:
-                if props.get("type") != ConnectionType.WIRELESS and any(
-                    nnc.get("wireless", {}).get("signalDecibels") for nnc in node_network_conns
-                ):
-                    _update_and_log_audit(
-                        {"type": ConnectionType.WIRELESS},
-                        EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                        index=idx,
-                    )
-                elif props.get("type") == ConnectionType.UNKNOWN:
-                    _update_and_log_audit(
-                        {"type": ConnectionType.WIRED}, EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, index=idx
-                    )
-            # endregion
-
-            # region #-- establish a valid node connection record --#
-            # this relies on the "type" being established so needs to come after that.
-            conn_type = props.get("type")
-            nnc: dict[str, Any] | None = None
-            for n in node_network_conns:
-                has_signal = bool(n.get("wireless", {}).get("signalDecibels"))
-                if conn_type == ConnectionType.WIRED and not has_signal:
-                    nnc = n
-                    break
-                if conn_type == ConnectionType.WIRELESS and has_signal:
-                    nnc = n
-                    break
-            # endregion
-
-            # region #-- derive information from node connection details --#
-            if nnc is not None:
-                props_nnc: dict[str, Any] = {"negotiated_mbps": nnc.get("negotiatedMbps")}
-                if (
-                    rssi_dbm := self._rssi_dbm(nnc.get("wireless", {}).get("signalDecibels"))
-                ) is not None and not props.get("rssi_dbm"):
-                    props_nnc.update(
-                        {
-                            "rssi_dbm": rssi_dbm,
-                            "rssi_dbm_timestamp": None,
-                            "signal_strength": self._signal_strength_to_text(rssi_dbm),
-                        }
-                    )
-                _update_and_log_audit(
-                    props_nnc,
-                    EntityDataProperties.NODE_NETWORK_CONNECTIONS.value,
-                    index=idx,
-                )
-            # endregion
-
-            # region #-- infer the adapter connected state if we can --#
-            adapter_conn_state: bool = bool(connection_info)
-            _update_and_log_audit(
-                {"connected": adapter_conn_state}, EntityDataProperties.DEVICE_DETAILS.value, index=idx
-            )
-            if not props.get("connected") and wifi_info:
-                _update_and_log_audit(
-                    {"connected": True},
-                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                    index=idx,
-                )
-            elif props.get("connected") and conn_type == ConnectionType.WIRELESS and not wifi_info:
-                _update_and_log_audit(
-                    {"connected": False},
-                    EntityDataProperties.WIRELESS_CONNECTION_DETAILS.value,
-                    index=idx,
-                )
-            if (
-                not props.get("connected")
-                and nnc
-                and (
-                    props.get("type") == ConnectionType.WIRED
-                    or (props.get("type") == ConnectionType.WIRELESS and nnc.get("wireless", {}).get("signalDecibels"))
-                )
-            ):
-                _update_and_log_audit(
-                    {"connected": True}, EntityDataProperties.NODE_NETWORK_CONNECTIONS.value, index=idx
-                )
-            # endregion
-
-            # region #-- parent details --#
-            if props.get("connected"):
-                parent: MeshAttribute[NodeEntity | None] | None = cast(
-                    MeshAttribute[NodeEntity | None] | None, self._data.get(EntityDataProperties.PARENT_ENTITY)
-                )
-                if parent is not None and parent.value is not None:
-                    _update_and_log_audit(
-                        {"parent_id": parent.value.unique_id.value},
-                        EntityDataProperties.DEVICE_DETAILS.value,
-                        index=idx,
-                    )
-            # endregion
-
-            ret.append(AdapterInfo(**props))
-
-        return MeshAttribute[list[AdapterInfo]](ret, tuple(audit_history))
+        return MeshAttribute[tuple[AdapterInfo, ...]](tuple(ret), tuple(audit_history))
 
     @property
     def description(self) -> MeshAttribute[str | None]:
@@ -1708,7 +1946,7 @@ class DeviceEntity(MeshEntity):
         audit_history: list[AttributeAuditEntry] = []
         ret: bool | None = None
 
-        _adapter_info: MeshAttribute[list[AdapterInfo]] = self.adapter_info
+        _adapter_info: MeshAttribute[tuple[AdapterInfo, ...]] = self.adapter_info
         adi: AdapterInfo | None = next(iter(_adapter_info), None)  # assume a single adapter
         if adi is not None:
             ret = adi.connected
@@ -1848,14 +2086,14 @@ class NodeEntity(MeshEntity):
         return ret
 
     @property
-    def adapter_info(self) -> MeshAttribute[list[NodeAdapterInfo]]:
+    def adapter_info(self) -> MeshAttribute[tuple[NodeAdapterInfo, ...]]:
         """Retrieve details about the entity's adapters.
 
         :return: Adapter details including reservation, Wi-Fi, IP and Guest details.
             Additionally includes whether it is the primary adapter or not.
         """
 
-        super_adapters: MeshAttribute[list[AdapterInfo]] = super().adapter_info
+        super_adapters: MeshAttribute[tuple[AdapterInfo, ...]] = super().adapter_info
 
         audit_history: list[AttributeAuditEntry] = list(super_adapters.audit)
         ret: list[NodeAdapterInfo] = []
@@ -1865,23 +2103,28 @@ class NodeEntity(MeshEntity):
             props_primary: dict[str, bool] = {"primary": False}
             if adapter.ip == backhaul.get("ipAddress"):
                 props_primary["primary"] = True
-                audit_history.append(
-                    AttributeAuditEntry(
-                        EntityDataProperties.BACKHAUL.value, props_primary, kind=AttributeAction.MERGE, index=idx
-                    )
+                self._update_and_log_audit(
+                    props,
+                    audit_history,
+                    props_primary,
+                    source=EntityDataProperties.BACKHAUL.value,
+                    index=idx,
+                    kind=AttributeAction.INIT,
                 )
             elif self.type == NodeType.PRIMARY:
                 props_primary["primary"] = True
-                audit_history.append(
-                    AttributeAuditEntry(
-                        EntityDataProperties.DEVICE_DETAILS.value, props_primary, kind=AttributeAction.MERGE, index=idx
-                    )
+                self._update_and_log_audit(
+                    props,
+                    audit_history,
+                    props_primary,
+                    source=EntityDataProperties.DEVICE_DETAILS.value,
+                    index=idx,
+                    kind=AttributeAction.INIT,
                 )
-            props.update(props_primary)
             props["type"] = ConnectionType(props["type"])
             ret.append(NodeAdapterInfo(**props))
 
-        return MeshAttribute[list[NodeAdapterInfo]](ret, tuple(audit_history))
+        return MeshAttribute[tuple[NodeAdapterInfo, ...]](tuple(ret), tuple(audit_history))
 
     @property
     def backhaul(self) -> MeshAttribute[BackhaulInfo | None]:
@@ -1972,37 +2215,41 @@ class NodeEntity(MeshEntity):
                 "version": unit_details.get("firmwareVersion"),
                 "date": unit_details.get("firmwareDate"),
             }
-            audit_history.append(
-                AttributeAuditEntry(
-                    EntityDataProperties.DEVICE_DETAILS.value,
-                    props_device,
-                )
+            self._update_and_log_audit(
+                ret,
+                audit_history,
+                props_device,
+                source=EntityDataProperties.DEVICE_DETAILS.value,
+                kind=AttributeAction.INIT,
             )
-            ret.update(props_device)
 
         props_available: dict[str, Any] = {}
+        props_available_src: ActionKey
         available_updates = self._data.get(EntityDataProperties.FIRMWARE_DETAILS, {}).get("availableUpdate")
         if available_updates is not None:
             props_available = {
                 "latest_version": available_updates.get("firmwareVersion"),
                 "latest_date": available_updates.get("firmwareDate"),
             }
-            audit_history.append(
-                AttributeAuditEntry(
-                    EntityDataProperties.FIRMWARE_DETAILS.value, props_available, kind=AttributeAction.MERGE
-                )
-            )
+            props_available_src = EntityDataProperties.FIRMWARE_DETAILS.value
         else:
             props_available = {
                 "latest_version": props_device.get("version"),
                 "latest_date": props_device.get("date"),
             }
+            props_available_src = EntityDataProperties.DEVICE_DETAILS.value
             audit_history.append(
                 AttributeAuditEntry(
                     EntityDataProperties.DEVICE_DETAILS.value, props_available, kind=AttributeAction.MERGE
                 )
             )
-        ret.update(props_available)
+        self._update_and_log_audit(
+            ret,
+            audit_history,
+            props_available,
+            source=props_available_src,
+            kind=AttributeAction.INIT,
+        )
 
         return MeshAttribute[dict[str, Any]](ret, tuple(audit_history))
 
@@ -2054,7 +2301,7 @@ class NodeEntity(MeshEntity):
         audit_history: list[AttributeAuditEntry] = []
         ret: bool | None = None
 
-        _adapter_info: MeshAttribute[list[NodeAdapterInfo]] = self.adapter_info
+        _adapter_info: MeshAttribute[tuple[NodeAdapterInfo, ...]] = self.adapter_info
         adi: tuple[int, NodeAdapterInfo] | None = next(((i, a) for i, a in enumerate(_adapter_info) if a.primary), None)
         if adi is not None:
             ret = adi[1].connected
