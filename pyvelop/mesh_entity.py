@@ -347,7 +347,7 @@ class AdapterInfo(MeshSerialiser):
     reservation: bool = False
     reservation_description: str | None = None
     rssi_dbm: int | None = None
-    rssi_dbm_timestamp: dt.datetime | None = None
+    rssi_dbm_timestamp: str | None = None
     signal_strength: SignalStrength | None = None
     type: ConnectionType = ConnectionType.UNKNOWN
 
@@ -1002,7 +1002,7 @@ class MeshEntity(ABC):
         :param adapter_index: Zero-based index of the adapter being processed.
         :param connected: Current connected state of the adapter.
         :param parent_info: Parent entity information, if available.
-        :return: An empty property mapping and the associated audit entries.
+        :return: The parent ID property and its associated audit entries.
         """
 
         audit_history: list[AttributeAuditEntry] = []
