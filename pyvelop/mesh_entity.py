@@ -35,6 +35,30 @@ _LOGGER_VERBOSE: Logger = Logger(logging.getLogger(f"{__name__}.verbose"))
 EMPTY_NAME: str = "Network Device"
 
 
+def is_timestamp_recent(date_string: str | None, value: int, unit: str = "minutes") -> bool:
+    """Check if a given ISO 8601 timestamp is within a specified time window from the current time.
+
+    :param date_string: The timestamp string to validate, expected in ISO 8601 format (e.g., '2026-10-29T13:39:53Z').
+    :param value: The numerical value of the time window.
+    :param unit: The unit of time to use for the window (e.g., 'seconds', 'minutes', 'hours', 'days').
+                Must correspond to a valid timedelta keyword argument.
+    :return: True if the timestamp is between the current time and the calculated threshold, False otherwise.
+    """
+
+    if not date_string:
+        return False
+
+    try:
+        timestamp = dt.datetime.fromisoformat(date_string)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=dt.UTC)
+        now = dt.datetime.now(dt.UTC)
+        threshold = dt.timedelta(**{unit: value})
+        return dt.timedelta(0) <= (now - timestamp) <= threshold
+    except (ValueError, TypeError):
+        return False
+
+
 class ConnectionType(StrEnum):
     """Connection types."""
 
@@ -803,7 +827,7 @@ class MeshEntity(ABC):
         self,
         adapter_index: int,
         connection_type: ConnectionType,
-        device_info: dict[str, Any],
+        device_connections: dict[str, Any],
         node_network_connection_info: dict[str, Any] | None,
         node_wireless_connection_info: dict[str, Any],
     ) -> tuple[dict[str, Any], tuple[AttributeAuditEntry, ...]]:
@@ -816,7 +840,7 @@ class MeshEntity(ABC):
 
         :param adapter_index: Zero-based index of the adapter being processed.
         :param connection_type: The adapter's derived connection type.
-        :param device_info: Connection details reported by ``GET_DEVICES``.
+        :param device_connections: Connection details reported by ``GET_DEVICES``.
         :param node_network_connection_info: Matching network connection details, if available.
         :param node_wireless_connection_info: Matching wireless connection details, if available.
         :return: A tuple containing the derived properties and their audit entries.
@@ -824,33 +848,53 @@ class MeshEntity(ABC):
 
         adi_key = "connected"
         audit_history: list[AttributeAuditEntry] = []
+        ret = None
 
         def log_audit(source: ActionKey, conn_state: bool, action: AttributeAction):
             audit_history.append(AttributeAuditEntry(source, {adi_key: conn_state}, index=adapter_index, kind=action))
 
-        # initial value
-        ret: bool = bool(device_info)
-        log_audit("GET_DEVICES", ret, AttributeAction.INIT)
-
-        if not ret and node_wireless_connection_info:
-            ret = True
-            log_audit("GET_NODE_WIRELESS_CONNECTIONS", ret, AttributeAction.REPLACE)
-        elif ret and connection_type == ConnectionType.WIRELESS and not node_wireless_connection_info:
-            ret = False
-            log_audit("GET_NODE_WIRELESS_CONNECTIONS", ret, AttributeAction.REPLACE)
-        if (
-            not ret
-            and node_network_connection_info
-            and (
-                connection_type == ConnectionType.WIRED
-                or (
-                    connection_type == ConnectionType.WIRELESS
-                    and node_network_connection_info.get("wireless", {}).get("signalDecibels")
-                )
+        # GET_DEVICES value
+        get_devices_state: bool = bool(device_connections)
+        if get_devices_state != ret:
+            log_audit(
+                "GET_DEVICES", get_devices_state, AttributeAction.INIT if ret is None else AttributeAction.REPLACE
             )
-        ):
-            ret = True
-            log_audit("GET_NETWORK_CONNECTIONS", ret, AttributeAction.REPLACE)
+            ret = get_devices_state
+
+        # GET_NODE_WIRELESS_CONNECTIONS value
+        wifi_is_recent: bool = False
+        wifi_info_rate_limit: float | None = Actions.REFRESH_NODE_WIRELESS_CONNECTIONS.rate_limit_secs
+        if wifi_info_rate_limit is not None:
+            wifi_info_threshold: int = math.ceil(wifi_info_rate_limit) * 2
+            wifi_is_recent = is_timestamp_recent(
+                node_wireless_connection_info.get("timestamp"),
+                wifi_info_threshold,
+                "seconds",
+            )
+        if wifi_is_recent:
+            wifi_state: bool = bool(node_wireless_connection_info)
+            if connection_type == ConnectionType.WIRELESS and wifi_state != ret:
+                log_audit(
+                    "GET_NODE_WIRELESS_CONNECTIONS",
+                    wifi_state,
+                    AttributeAction.INIT if ret is None else AttributeAction.REPLACE,
+                )
+                ret = wifi_state
+
+        # GET_NETWORK_CONNECTIONS value
+        if node_network_connection_info:
+            nnc_state = (
+                bool(node_network_connection_info.get("wireless", {}).get("signalDecibels"))
+                if connection_type == ConnectionType.WIRELESS
+                else bool(node_network_connection_info)
+            )
+            if nnc_state != ret:
+                log_audit(
+                    "GET_NETWORK_CONNECTIONS",
+                    nnc_state,
+                    AttributeAction.INIT if ret is None else AttributeAction.REPLACE,
+                )
+                ret = nnc_state
 
         return ({adi_key: ret}, tuple(audit_history))
 
