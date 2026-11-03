@@ -1015,7 +1015,7 @@ class MeshEntity(ABC):
             AttributeAuditEntry("GET_DEVICES", {"parent_id": parent_id}, index=adapter_index, kind=AttributeAction.INIT)
         )
 
-        return ({}, tuple(audit_history))
+        return ({"parent_id": parent_id}, tuple(audit_history))
 
     def _derive_adi_reservation(
         self, adapter_index: int, reservation_info: list[dict[str, Any]]
