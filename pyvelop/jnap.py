@@ -344,6 +344,8 @@ class Response:
                     )
                 elif result == "ErrorRulesOverlap":
                     exc = MeshInvalidInput("Rules Overlap")
+                elif result == "ErrorTooManyMACAddresses":
+                    exc = MeshInvalidInput("Too many MAC addresses provided")
                 elif result == "ErrorUnknownDevice":
                     exc = MeshInvalidInput("Unknown Device")
                 else:  # don't know the error, log and raise exception

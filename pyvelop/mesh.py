@@ -1076,6 +1076,23 @@ class MeshSnapshot(MeshSerialiser):
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
+    def mac_filtering_max_addresses(self) -> MeshAttribute[int | None]:
+        """Return the maximum number of MAC addresses that can be in the filter list.
+
+        :return:
+        """
+
+        cap_name: ActionKey = "GET_MAC_FILTERING_SETTINGS"
+        self._require_capability(
+            cap_name,
+            attribute_name="mac_filtering_enabled",
+        )
+
+        attr: int | None = self._values.get(cap_name, {}).get("maxMACAddresses")
+
+        return MeshAttribute[int | None](attr, (AttributeAuditEntry(cap_name, attr),))
+
+    @property
     def mac_filtering_mode(self) -> MeshAttribute[MacFilteringMode | None]:
         """Return the MAC filtering mode.
 
@@ -2640,6 +2657,82 @@ class Mesh:
 
         cap: MeshCapability = self._get_capability("SET_HOMEKIT_SETTINGS")
         await cap.async_execute(payload={"isEnabled": state})
+
+    @needs_auth_and_refresh
+    async def async_set_mac_filter_addresses(self, addresses: Iterable[str], replace: bool = False) -> None:
+        """Set the MAC addresses that should be filtered using the current mode.
+
+        :param addresses: an iterable of MAC addresses to filter.
+        :param replace: True to replace the current list, False (default) to append the addresses
+            to the filtered list.
+        :raises ValueError: when no addresses have been provided for filtering.
+        """
+
+        await self.async_set_mac_filter_mode_and_settings(addresses=addresses, replace=replace)
+
+    @needs_auth_and_refresh
+    async def async_set_mac_filter_mode(self, mode: MacFilteringMode) -> None:
+        """Set the mode to be used for MAC filtering.
+
+        :param mode: Mode that should be used.
+        """
+
+        await self.async_set_mac_filter_mode_and_settings(mode=mode)
+
+    @overload
+    async def async_set_mac_filter_mode_and_settings(
+        self, *, mode: MacFilteringMode | None, addresses: None = None, replace: bool = False
+    ) -> None: ...
+
+    @overload
+    async def async_set_mac_filter_mode_and_settings(
+        self, *, mode: MacFilteringMode | None = None, addresses: Iterable[str], replace: bool
+    ) -> None: ...
+
+    @overload
+    async def async_set_mac_filter_mode_and_settings(
+        self, *, mode: MacFilteringMode | None, addresses: Iterable[str], replace: bool
+    ) -> None: ...
+
+    @needs_auth_and_refresh
+    async def async_set_mac_filter_mode_and_settings(
+        self, *, mode: MacFilteringMode | None = None, addresses: Iterable[str] | None = None, replace: bool = False
+    ) -> None:
+        """Update the MAC filtering settings for the mesh based on the information provided.
+
+        :param mode: Mode that should be used.
+        :param addresses: an iterable of MAC addresses to filter.
+        :param replace: True to replace the current list, False (default) to append the addresses
+          to the filtered list.
+        :raises ValueError: when no addresses have been provided for filtering or there are too many
+          addresses specified.
+        """
+
+        cap = self._get_capability("GET_MAC_FILTERING_SETTINGS")
+        mac_filtering_settings = await cap.async_execute()
+        max_addresses: int | None = mac_filtering_settings.pop("maxMACAddresses", None)
+
+        if addresses is not None:
+            address_list = list(addresses)
+            if not address_list:
+                raise ValueError("No addresses to apply to filtering.")
+
+            if replace:
+                mac_filtering_settings["macAddresses"] = address_list
+            else:
+                current_addresses = mac_filtering_settings.get("macAddresses", [])
+                combined_addresses = set(current_addresses).union(address_list)
+                mac_filtering_settings["macAddresses"] = list(combined_addresses)
+
+            if max_addresses and len(address_list) > max_addresses:
+                raise ValueError(f"The number of addresses is greater than the allowed {max_addresses}")
+
+        if mode:
+            mac_filtering_settings["macFilterMode"] = mode.value
+
+        if addresses is not None or mode is not None:
+            cap = self._get_capability("SET_MAC_FILTERING_SETTINGS")
+            await cap.async_execute(payload=mac_filtering_settings)
 
     @needs_auth_and_refresh
     async def async_set_night_mode_state(self, state: NightModeState) -> None:
