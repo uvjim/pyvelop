@@ -55,6 +55,7 @@ ActionKey = Literal[
     "SET_GUEST_NETWORK",
     "SET_HOMEKIT_SETTINGS",
     "SET_LED_NIGHT_MODE",
+    "SET_MAC_FILTERING_SETTINGS",
     "SET_PARENTAL_CONTROL_INFO",
     "SET_SCHEDULED_REBOOT_SETTINGS",
     "SET_UPNP_SETTINGS",
@@ -596,6 +597,15 @@ Actions: ActionRegistry = ActionRegistry(
                 ActionVersionMap(action_version=1, service_version=1),
                 ActionVersionMap(action_version=2, service_version=4),
             ),
+        ),
+        ActionDefinition(
+            "SET_MAC_FILTERING_SETTINGS",
+            "http://linksys.com/jnap/macfilter/SetMACFilterSettings",
+            "http://linksys.com/jnap/macfilter/MACFilter",
+            purpose=ActionPurpose.SET,
+            redactions={
+                "macAddresses",
+            },
         ),
         ActionDefinition(
             "SET_PARENTAL_CONTROL_INFO",
