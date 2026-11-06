@@ -612,6 +612,23 @@ class DhcpLease(MeshSerialiser):
     mac: str
 
 
+@dataclass(frozen=True, slots=True)
+class DhcpReservation(MeshSerialiser):
+    """Representation of a DHCP reservation record."""
+
+    _EXPORT_PROPERTIES = tuple(
+        {
+            "description",
+            "ip",
+            "mac",
+        }
+    )
+
+    description: str
+    ip: str
+    mac: str
+
+
 @dataclass(frozen=True)
 class MeshSnapshot(MeshSerialiser):
     """Point in time properties of the Mesh."""
@@ -840,7 +857,7 @@ class MeshSnapshot(MeshSerialiser):
         return MeshAttribute[bool | None](attr, (AttributeAuditEntry(cap_name, attr),))
 
     @property
-    def dhcp_reservations(self) -> MeshAttribute[tuple[MappingProxyType[str, str], ...]]:
+    def dhcp_reservations(self) -> MeshAttribute[tuple[DhcpReservation, ...]]:
         """Return the DHCP reservations.
 
         :return: Iterable of DHCP reservation details
@@ -857,18 +874,16 @@ class MeshSnapshot(MeshSerialiser):
         )
 
         ret = [
-            MappingProxyType(
-                {
-                    "description": str(res["description"]),
-                    "ip_address": str(res["ipAddress"]),
-                    "mac_address": str(res["macAddress"]),
-                }
+            DhcpReservation(
+                description=str(res["description"]),
+                ip=str(res["ipAddress"]),
+                mac=str(res["macAddress"]),
             )
             for res in reservations
             if all(res.get(k) for k in ("description", "ipAddress", "macAddress"))
         ]
 
-        return MeshAttribute[tuple[MappingProxyType[str, str], ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
+        return MeshAttribute[tuple[DhcpReservation, ...]](tuple(ret), (AttributeAuditEntry(cap_name, ret),))
 
     @property
     def express_forwarding_enabled(self) -> MeshAttribute[bool | None]:
@@ -2622,6 +2637,47 @@ class Mesh:
             _LOGGER_VERBOSE.debug("wireless refresh is rate limited for another %s seconds", exc.time_remaining_secs)
         except Exception as exc:  # noqa: BLE001
             _LOGGER_VERBOSE.debug("wireless connection refresh failed: %s", exc)
+
+    @needs_auth_and_refresh
+    async def async_set_dhcp_reservations(
+        self, reservations: Iterable[DhcpReservation], *, replace: bool = False
+    ) -> None:
+        """"""
+
+        cap = self._get_capability("GET_LAN_SETTINGS")
+        lan_settings = await cap.async_execute()
+
+        reservation_list = [
+            {"description": reservation.description, "ipAddress": reservation.ip, "macAddress": reservation.mac}
+            for reservation in reservations
+        ]
+
+        new_lan_settings: dict[str, Any] = {
+            "dhcpSettings": lan_settings["dhcpSettings"],
+            "hostName": lan_settings["hostName"],
+            "ipAddress": lan_settings["ipAddress"],
+            "isDHCPEnabled": lan_settings["isDHCPEnabled"],
+            "networkPrefixLength": lan_settings["networkPrefixLength"],
+        }
+
+        if replace:
+            new_lan_settings["dhcpSettings"]["reservations"] = reservation_list
+        else:
+            current_reservations = new_lan_settings["dhcpSettings"].get("reservations", [])
+            existing_map = {res["macAddress"]: res for res in current_reservations}
+
+            for res in reservation_list:
+                mac = res["macAddress"]
+                if mac in existing_map:
+                    idx = current_reservations.index(existing_map[mac])
+                    current_reservations[idx] = res
+                else:
+                    current_reservations.append(res)
+
+            new_lan_settings["dhcpSettings"]["reservations"] = current_reservations
+
+        cap = self._get_capability("SET_LAN_SETTINGS")
+        await cap.async_execute(payload=new_lan_settings)
 
     @needs_auth_and_refresh
     async def async_set_guest_wifi_state(self, state: bool) -> None:
