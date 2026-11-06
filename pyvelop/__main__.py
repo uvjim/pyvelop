@@ -31,6 +31,7 @@ from .exceptions import (
 )
 from .logger import Logger
 from .mesh import (
+    DhcpReservation,
     MacFilteringMode,
     Mesh,
     MeshSnapshot,
@@ -1264,6 +1265,7 @@ async def mesh_ping(
 @click.argument("file", type=click.File(lazy=True, mode="r"))
 @click.argument("concurrency", type=int, default=10)
 @click.option("--devices/--no-devices", default=True)
+@click.option("--dhcp-reservations/--no-dhcp-reservations", default=True)
 @click.option("--mac-filtering/--no-mac-filtering", default=True)
 @click.pass_context
 async def mesh_restore(
@@ -1272,6 +1274,7 @@ async def mesh_restore(
     file: click.utils.LazyFile,
     concurrency: int,
     devices: bool,
+    dhcp_reservations: bool,
     mac_filtering: bool,
     **_: Any,
 ) -> None:
@@ -1281,11 +1284,14 @@ async def mesh_restore(
     names and UI icons to match the stored state. If parental control
     information is found for the device, no check or merging is carried out.
     The information stored in the file always wins.
+    When restoring DHCP reservations an existing record that matches one in the backup
+    is overwritten with the one from the backup.
 
     :param ctx: The Click context object.
     :param file: The backup file to be read.
     :param concurrency: The maximum number of concurrent updates allowed.
     :param devices: True to restore devices, False otherwise.
+    :param dhcp_reservations: True to restore DHCP reservations, False otherwise.
     :param mac_filtering: True to restore MAC filtering settings, False otherwise.
     """
 
@@ -1294,6 +1300,7 @@ async def mesh_restore(
     backup_map: Mapping[str, tuple[str, bool]] = MappingProxyType(
         {
             "devices": ("Devices (friendly names, parental control settings, icons)", devices),
+            "dhcp_reservations": ("DHCP Reservations", dhcp_reservations),
             "mac_filtering": ("MAC Filter Settings", mac_filtering),
         }
     )
@@ -1331,6 +1338,10 @@ async def mesh_restore(
     # process the mac filtering settings
     if "mac_filtering" in keys_to_restore:
         await _async_restore_mac_filtering(ctx, semaphore, bkp_data.get("mac_filtering", {}))
+
+    # process DHCP reservations
+    if "dhcp_reservations" in keys_to_restore:
+        await _async_restore_dhcp_reservations(ctx, semaphore, bkp_data.get("dhcp_reservations", []))
 
 
 @mesh_group.command(cls=StandardCommand, name="scheduled_reboot")
@@ -1769,6 +1780,25 @@ async def _async_restore_devices(
             mac = task_to_mac.get(task_obj, "Unknown MAC")
             for exc in exceptions:
                 _output(None, f"{mac} failed: {exc}\n")
+
+
+async def _async_restore_dhcp_reservations(
+    ctx: click.Context, semaphore: asyncio.Semaphore, reservations: list[dict[str, Any]]
+) -> None:
+    """Restore the DHCP reservations from the backup file to the mesh.
+
+    :param ctx: click context object.
+    :param semaphore: Semaphore to use when limiting concurrency.
+    :param reservations: DHCP reservations as they are in the backup file.
+    """
+
+    reservation_list = [DhcpReservation(**reservation) for reservation in reservations]
+
+    async def _restore_dhcp_reservations(mesh: Mesh) -> None:
+
+        await mesh.async_set_dhcp_reservations(reservation_list, replace=True)
+
+    return await _async_with_mesh(ctx, _restore_dhcp_reservations)
 
 
 async def _async_restore_mac_filtering(
