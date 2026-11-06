@@ -18,6 +18,7 @@ from typing import Any, cast
 import aiohttp
 import asyncclick as click
 import pandas as pd
+import questionary
 
 from .action_registry import ActionDefinition, ActionKey, Actions, ActionScope
 from .exceptions import (
@@ -30,6 +31,7 @@ from .exceptions import (
 )
 from .logger import Logger
 from .mesh import (
+    MacFilteringMode,
     Mesh,
     MeshSnapshot,
     NightModeState,
@@ -1127,28 +1129,49 @@ async def mesh_attr(
     await _async_with_mesh(ctx, _mesh_attr)
 
 
-@mesh_group.command(cls=StandardCommand, name="backup_devices")
+@mesh_group.command(cls=StandardCommand, name="backup")
 @click.argument("file", type=click.File(lazy=True, mode="w"))
 @click.pass_context
-async def mesh_backup_devices(
+async def mesh_backup(
     ctx: click.Context,
     /,
     file: click.utils.LazyFile,
     **_: Any,
 ) -> None:
-    """Back up the relevant information about devices to the given file in JSON format.
+    """Back up some relevant information, to aid a restore, to the given file in JSON format.
 
     :param ctx: The click context for the current command
     :param file: Path to the file the backup should be stored in
     """
 
-    devices: tuple[DeviceEntity, ...] | None = await _async_get_device_details(ctx, ())
     timestamp: str = dt.datetime.now(tz=dt.UTC).isoformat()
-    if not devices:
-        return
 
+    async def _get_backup_details(mesh: Mesh) -> MappingProxyType[str, Any]:
+
+        if mesh.latest_snapshot is None:
+            raise ValueError("No snapshot is available")
+
+        devices = await mesh.async_get_devices()
+        mac_filtering_settings = {
+            "mode": mesh.latest_snapshot.mac_filtering_mode,
+            "addresses": mesh.latest_snapshot.mac_filtering_addresses,
+        }
+
+        return MappingProxyType(
+            {
+                "devices": devices,
+                "mac_filtering_settings": mac_filtering_settings,
+            }
+        )
+
+    # get the details for the backup
+    backup_details = await _async_with_mesh(ctx, _get_backup_details)
+    if not backup_details:
+        raise ValueError("No details found for backup")
+
+    # backup the devices
     device_list: list[dict[str, Any]] = []
-    for dev in devices:
+    for dev in backup_details.get("devices", ()):
         mac: str | None = next((adi.mac for adi in dev.adapter_info.value), None)
         if mac:
             device_list.append(
@@ -1160,12 +1183,18 @@ async def mesh_backup_devices(
                 }
             )
 
+    # backup MAC filtering information
+    mac_filtering = backup_details.get("mac_filtering_settings", {})
+
+    # write to the file
     file.write(
         json.dumps(
             {
                 "timestamp": timestamp,
                 "devices": device_list,
-            }
+                "mac_filtering": mac_filtering,
+            },
+            default=json_default,
         )
     )
 
@@ -1225,15 +1254,19 @@ async def mesh_ping(
     await _async_with_mesh(ctx, _ping)
 
 
-@mesh_group.command(cls=StandardCommand, name="restore_devices")
+@mesh_group.command(cls=StandardCommand, name="restore")
 @click.argument("file", type=click.File(lazy=True, mode="r"))
 @click.argument("concurrency", type=int, default=10)
+@click.option("--devices/--no-devices", default=True)
+@click.option("--mac-filtering/--no-mac-filtering", default=True)
 @click.pass_context
-async def mesh_restore_devices(
+async def mesh_restore(
     ctx: click.Context,
     /,
     file: click.utils.LazyFile,
-    concurrency,
+    concurrency: int,
+    devices: bool,
+    mac_filtering: bool,
     **_: Any,
 ) -> None:
     """Restore device configurations from a backup file.
@@ -1246,78 +1279,52 @@ async def mesh_restore_devices(
     :param ctx: The Click context object.
     :param file: The backup file to be read.
     :param concurrency: The maximum number of concurrent updates allowed.
+    :param devices: True to restore devices, False otherwise.
+    :param mac_filtering: True to restore MAC filtering settings, False otherwise.
     """
+
+    # define backup key mappings
+    # format: { "json_key": ("User Label", "cli_flag_variable") }
+    backup_map: Mapping[str, tuple[str, bool]] = MappingProxyType(
+        {
+            "devices": ("Devices (friendly names, parental control settings, icons)", devices),
+            "mac_filtering": ("MAC Filter Settings", mac_filtering),
+        }
+    )
 
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def limit_concurrency(coro):
-        async with semaphore:
-            return await coro
-
+    # load the backup file
     try:
         bkp_data: dict[str, Any] = json.loads(file.read())
     except (json.JSONDecodeError, OSError) as exc:
         _output(None, f"Failed to read backup file: {exc}")
         return
 
-    _output(None, f"Processing backup from {bkp_data.get("timestamp")}\n")
-    bkp_devices = bkp_data.get("devices", [])
-    bkp_devices_by_mac: dict[str, Any] = {bd.get("mac"): bd for bd in bkp_devices if bd.get("mac")}
-
-    cur_devices = await _async_get_device_details(ctx, bkp_devices_by_mac.keys())
-    if not cur_devices:
+    # build selection list to display
+    found_options = [(key, label) for key, (label, flag) in backup_map.items() if bkp_data.get(key) and flag]
+    if not found_options:
+        _output(None, "No restorable data found (or options were disabled via CLI flags).")
         return
 
-    changes_made = False
-    to_process = []  # list of coroutines to process
-    task_to_mac = {}  # maps tasks to MAC address for lookup purposes
+    labels = [item[1] for item in found_options]
+    selected_labels = await questionary.checkbox("Select items to restore:", choices=labels).ask_async()
+    if not selected_labels:
+        _output(None, "No items selected.")
+        return
 
-    def _prep_coro(coro, mac: str) -> None:
-        """Carry out required tasks to prepare the coroutine."""
-        # add the request to the list to process
-        to_process.append(coro)
-        # add to the mapping
-        task_to_mac[coro] = mac
+    # map the selection back to the keys
+    keys_to_restore = {key for key, label in found_options if label in selected_labels}
 
-    # process the devices
-    for dev in cur_devices:
-        mac: str | None = next((adi.mac for adi in dev.adapter_info.value), None)
-        if not mac or (bkp_details := bkp_devices_by_mac.get(mac)) is None:
-            continue
+    # process the selections
+    _output(None, f"Processing backup from {bkp_data.get("timestamp")}\n")
 
-        if (ui_type := bkp_details.get("ui_type")) != dev.ui_type:
-            coro = limit_concurrency(dev.async_set_icon(ui_type) if ui_type else dev.async_reset_icon())
-            _prep_coro(coro, mac)
-        if (name := bkp_details.get("name")) != dev.name:
-            coro = limit_concurrency(
-                dev.async_rename(name) if name not in (EMPTY_NAME, None) else dev.async_reset_name()
-            )
-            _prep_coro(coro, mac)
+    if "devices" in keys_to_restore:
+        await _async_restore_devices(ctx, semaphore, bkp_data.get("devices", []))
 
-        # can't add these to the to_process because that creates a race condition
-        if pc_schedule := bkp_details.get("parental_control"):
-            blocked_sites = pc_schedule.get("blocked_sites")
-            blocked_times = pc_schedule.get("blocked_internet_access")
-            if blocked_sites:
-                await dev.async_set_parental_control_urls(blocked_sites)
-                changes_made = True
-            if blocked_times:
-                to_block: dict[str, str | None] = {k: ",".join(v) if v else None for k, v in blocked_times.items()}
-                await dev.async_set_parental_control_rules(to_block)
-                changes_made = True
-
-    if not to_process and not changes_made:
-        _output(None, "There are no updates to make")
-
-    results = await asyncio.gather(*to_process, return_exceptions=True)
-    exceptions = [res for res in results if isinstance(res, Exception)]
-    if exceptions:
-        _output(None, f"Completed with {len(exceptions)} errors out of {len(results)} updates.\n")
-        for i, res in enumerate(results):
-            task_obj = to_process[i]
-            mac = task_to_mac.get(task_obj, "Unknown MAC")
-            for exc in exceptions:
-                _output(None, f"{mac} failed: {exc}\n")
+    # process the mac filtering settings
+    if "mac_filtering" in keys_to_restore:
+        await _async_restore_mac_filtering(ctx, semaphore, bkp_data.get("mac_filtering", {}))
 
 
 @mesh_group.command(cls=StandardCommand, name="scheduled_reboot")
@@ -1626,7 +1633,9 @@ async def ps_encode_for_backup(
         _output(None, ParentalControl.encode_for_backup(encoded))
 
 
-async def _async_get_device_details(ctx: click.Context, device: Iterable[str]) -> tuple[DeviceEntity, ...] | None:
+async def _async_get_device_details(
+    ctx: click.Context, device: Iterable[str], *, show_missing: bool = True
+) -> tuple[DeviceEntity, ...] | None:
     """Retreive device details from the mesh."""
 
     async def _fetch_devices(mesh: Mesh) -> tuple[DeviceEntity, ...]:
@@ -1636,7 +1645,8 @@ async def _async_get_device_details(ctx: click.Context, device: Iterable[str]) -
         try:
             return await mesh.async_get_devices(device_qry)
         except MeshDeviceNotFoundResponse as exc:
-            _write_error(f"{exc}, missing devices: {",".join(exc.missing)}")
+            if show_missing:
+                _write_error(f"{exc}, missing devices: {",".join(exc.missing)}")
             return exc.found
 
     return await _async_with_mesh(ctx, _fetch_devices)
@@ -1682,6 +1692,101 @@ async def _async_mesh_connect(ctx: click.Context | None = None) -> Mesh | None:
             _write_error(msg)
 
     return None
+
+
+async def _async_restore_devices(
+    ctx: click.Context, semaphore: asyncio.Semaphore, devices: list[dict[str, Any]]
+) -> None:
+    """Restore the given device details to the Mesh.
+
+    No device entries are created on the mesh. If the device has not connected the mesh previously
+    it will not be considered for having any details updated.
+
+    :param ctx: click context object.
+    :param semaphore: Semaphore to use when limiting concurrency.
+    :param devices: devices as they are in the backup file.
+    """
+
+    devices_by_mac: dict[str, Any] = {dev["mac"]: dev for dev in devices if dev.get("mac")}
+
+    cur_devices = await _async_get_device_details(ctx, devices_by_mac.keys(), show_missing=False)
+    if not cur_devices:
+        return
+
+    changes_made = False
+    to_process = []  # list of coroutines to process
+    task_to_mac = {}  # maps tasks to MAC address for lookup purposes
+
+    def _prep_coro(coro, mac: str) -> None:
+        """Carry out required tasks to prepare the coroutine."""
+        # add the request to the list to process
+        to_process.append(coro)
+        # add to the mapping
+        task_to_mac[coro] = mac
+
+    # process the devices
+    for dev in cur_devices:
+        mac: str | None = next((adi.mac for adi in dev.adapter_info.value), None)
+        if not mac or (bkp_details := devices_by_mac.get(mac)) is None:
+            continue
+
+        if (ui_type := bkp_details.get("ui_type")) != dev.ui_type:
+            coro = _limit_concurrency(semaphore, dev.async_set_icon(ui_type) if ui_type else dev.async_reset_icon())
+            _prep_coro(coro, mac)
+        if (name := bkp_details.get("name")) != dev.name:
+            coro = _limit_concurrency(
+                semaphore, dev.async_rename(name) if name not in (EMPTY_NAME, None) else dev.async_reset_name()
+            )
+            _prep_coro(coro, mac)
+
+        # can't add these to the to_process because that creates a race condition
+        if pc_schedule := bkp_details.get("parental_control"):
+            blocked_sites = pc_schedule.get("blocked_sites")
+            blocked_times = pc_schedule.get("blocked_internet_access")
+            if blocked_sites:
+                await dev.async_set_parental_control_urls(blocked_sites)
+                changes_made = True
+            if blocked_times:
+                to_block: dict[str, str | None] = {k: ",".join(v) if v else None for k, v in blocked_times.items()}
+                await dev.async_set_parental_control_rules(to_block)
+                changes_made = True
+
+    if not to_process and not changes_made:
+        _output(None, "There are no updates to make")
+
+    results = await asyncio.gather(*to_process, return_exceptions=True)
+    exceptions = [res for res in results if isinstance(res, Exception)]
+    if exceptions:
+        _output(None, f"Completed with {len(exceptions)} errors out of {len(results)} updates.\n")
+        for i, res in enumerate(results):
+            task_obj = to_process[i]
+            mac = task_to_mac.get(task_obj, "Unknown MAC")
+            for exc in exceptions:
+                _output(None, f"{mac} failed: {exc}\n")
+
+
+async def _async_restore_mac_filtering(
+    ctx: click.Context, semaphore: asyncio.Semaphore, settings: dict[str, Any]
+) -> None:
+    """Ensure the MAC filtering settings on the mesh use those provided by the backup file.
+
+    :param ctx: click context object.
+    :param semaphore: Semaphore to use when limiting concurrency.
+    :param settings: MAC filtering settings as they are in the backup file.
+    """
+
+    filter_mode = settings.get("mode")
+    filter_addresses = settings.get("addresses", [])
+
+    async def _restore_mac_filtering_settings(mesh: Mesh) -> None:
+
+        params = {"addresses": filter_addresses, "replace": True}
+        if filter_mode is not None:
+            params["mode"] = MacFilteringMode(filter_mode)
+
+        await mesh.async_set_mac_filter_mode_and_settings(**params)
+
+    return await _async_with_mesh(ctx, _restore_mac_filtering_settings)
 
 
 async def _async_with_mesh[T](
@@ -1770,6 +1875,11 @@ def _display_attribute(attr_name: str, attr: Any) -> None:
             index=False,
             title="Audit History",
         )
+
+
+async def _limit_concurrency(semaphore, coro):
+    async with semaphore:
+        return await coro
 
 
 def _output(dest: str | None, contents: str) -> None:

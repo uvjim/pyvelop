@@ -17,7 +17,7 @@ requires-python = ">= 3.12"
 pyvelop = "pyvelop.__main__:cli"
 
 [project.optional-dependencies]
-cli = ["asyncclick", "pandas", "tabulate"]
+cli = ["asyncclick", "pandas", "questionary", "tabulate"]
 test = ["pytest", "pytest-asyncio"]
 
 [project.urls]
