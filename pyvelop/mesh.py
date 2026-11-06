@@ -2642,7 +2642,12 @@ class Mesh:
     async def async_set_dhcp_reservations(
         self, reservations: Iterable[DhcpReservation], *, replace: bool = False
     ) -> None:
-        """"""
+        """Update the DHCP reservations used by the mesh.
+
+        :param reservations: An iterable of DHCP reservation objects to be configured.
+        :param replace: If True, the existing reservation list is entirely replaced by the new set.
+            If False, new reservations are appended and existing ones are updated  based on their MAC address.
+        """
 
         cap = self._get_capability("GET_LAN_SETTINGS")
         lan_settings = await cap.async_execute()
