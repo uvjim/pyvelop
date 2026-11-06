@@ -332,6 +332,8 @@ class Response:
                             "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
                         }
                     )
+                elif result == "ErrorInvalidReservationIPAddress":
+                    exc = MeshInvalidInput("DHCP reservation IP address is invalid")
                 elif result == "ErrorInvalidWANSchedule":
                     exc = MeshInvalidInput("Invalid WAN Schedule")
                 elif result == "ErrorPasswordCheckDelayed":
