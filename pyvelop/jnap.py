@@ -276,89 +276,106 @@ class Response:
 
         self._process_data()
 
+    def _handle_unknown_action(self, resp: dict[str, Any]) -> MeshActionUnknown:
+        """Resolves the specific action URI from an unknown action error response.
+
+        :param resp: The error response dictionary containing the error details.
+        :return: A MeshActionUnknown exception instance containing the identified action URI.
+        """
+
+        action = self.action
+        error_text = resp.get("error", "")
+        if error_text:
+            match = re.search(r"'(https?://[^']+)'", error_text)
+            if match:
+                action = match.group(1)
+        return MeshActionUnknown(action)
+
+    def _handle_credential_delay(
+        self, result: str, resp: dict[str, Any]
+    ) -> MeshInvalidCredentialsWithDelay | MeshCredentialCheckDelayed:
+        """Processes credential-related errors that involve account lockouts or delays.
+
+        :param result: The error code string used to determine the specific exception type.
+        :param resp: The error response dictionary containing the data payload.
+        :return: Either a MeshInvalidCredentialsWithDelay or MeshCredentialCheckDelayed exception.
+        """
+
+        details = resp.get(self.DATA_KEY_SINGLE, {})
+        payload = {
+            "attempts_remaining": details.get("attemptsRemaining"),
+            "delay_time_remaining_secs": details.get("delayTimeRemaining"),
+        }
+        return (
+            MeshInvalidCredentialsWithDelay(details=payload)
+            if result == "ErrorInvalidAdminPassword"
+            else MeshCredentialCheckDelayed(details=payload)
+        )
+
     def _process_data(self) -> None:
-        """Process the given data to check for errors."""
+        """Processes the response data to identify and handle API errors.
+
+        Normalises the data into a list of responses and evaluates the result key
+        of each. If a non-OK status is encountered, it maps the error code to
+        a specific MeshException.
+
+        :raises: MeshException: The specific error subclass associated with the
+          received error code, provided `_raise_on_error` is enabled.
+        """
 
         if self._data is None:
             return
 
-        exc: MeshException | None = None
+        # normalize data into a list of responses
+        responses = (
+            self._data.get(self.DATA_KEY_TRANSACTION, []) if _is_transaction_response(self._data) else [self._data]
+        )
 
-        if self._data.get(self.RESULT_KEY) != "OK":  # seemingly there is an error
-            # build a list of the responses - transactions will already be a list
-            responses = (
-                self._data.get(self.DATA_KEY_TRANSACTION, []) if _is_transaction_response(self._data) else [self._data]
-            )
+        # retrieve the first error response
+        err_resp = next((resp for resp in responses if resp.get(self.RESULT_KEY) != "OK"), None)
 
-            # establish errors and work through them
-            err_responses = [resp for resp in responses if resp.get(self.RESULT_KEY) != "OK"]
-            for resp in err_responses:  # loop through the responses
-                exc = None
-                result: str = resp.get(self.RESULT_KEY, "")
-                _LOGGER_VERBOSE.debug("result_key, %s", result)
-                if resp is None:
-                    exc = MeshInvalidOutput()
-                elif result == "_ErrorInvalidInput":
-                    exc = MeshInvalidInput(resp.get("error"))
-                elif result == "_ErrorInvalidOutput":
-                    exc = MeshInvalidOutput(resp.get("error"))
-                elif result == "_ErrorUnauthorized":
-                    err_details = resp.get("error")
-                    exc = MeshInvalidCredentials(details=err_details)
-                elif result == "_ErrorUnknownAction":
-                    action: str = ""
-                    if "error" in resp:
-                        match = re.search(r"'(https?://[^']+)'", resp.get("error", ""))
-                        uri = match.group(1) if match else ""
-                        action = uri
-                    else:
-                        action = self.action
-                    exc = MeshActionUnknown(action)
-                elif result == "ErrorAdminAccountLocked":
-                    exc = MeshAdminAccountLocked()
-                elif result == "ErrorAutoChannelSelectionAlreadyInProgress":
-                    exc = MeshAlreadyInProgress()
-                elif result == "ErrorCannotDeleteDevice":
-                    exc = MeshCannotDeleteDevice()
-                elif result == "ErrorDeviceDBFailure":
-                    exc = MeshDeviceDbFailure(resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", ""))
-                elif result == "ErrorDeviceNotInMasterMode":
-                    exc = MeshNodeNotPrimary()
-                elif result == "ErrorInvalidAdminPassword":
-                    err_details = resp.get(self.DATA_KEY_SINGLE, {})
-                    exc = MeshInvalidCredentialsWithDelay(
-                        details={
-                            "attempts_remaining": err_details.get("attemptsRemaining"),
-                            "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
-                        }
-                    )
-                elif result == "ErrorInvalidReservationIPAddress":
-                    exc = MeshInvalidInput("DHCP reservation IP address is invalid")
-                elif result == "ErrorInvalidWANSchedule":
-                    exc = MeshInvalidInput("Invalid WAN Schedule")
-                elif result == "ErrorPasswordCheckDelayed":
-                    err_details = resp.get(self.DATA_KEY_SINGLE, {})
-                    exc = MeshCredentialCheckDelayed(
-                        details={
-                            "attempts_remaining": err_details.get("attemptsRemaining"),
-                            "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
-                        }
-                    )
-                elif result == "ErrorReservationDescriptionInvalid":
-                    exc = MeshInvalidInput("DHCP reservation description is invalid")
-                elif result == "ErrorReservationDescriptionTooLong":
-                    exc = MeshInvalidInput("DHCP reservation description is too long")
-                elif result == "ErrorRulesOverlap":
-                    exc = MeshInvalidInput("Rules Overlap")
-                elif result == "ErrorTooManyMACAddresses":
-                    exc = MeshInvalidInput("Too many MAC addresses provided")
-                elif result == "ErrorUnknownDevice":
-                    exc = MeshInvalidInput("Unknown Device")
-                else:  # don't know the error, log and raise exception
-                    _LOGGER.error("unknown error received: %s", self._data)
-                    exc = MeshException(json.dumps(resp))
-                if exc:  # break out of the for loop if we have an error
-                    break
+        if not err_resp:
+            return
+
+        # map error codes to exception generators
+        # simple mappings use the class directly; complex ones use a lambda or helper method
+        error_map = {
+            "_ErrorInvalidInput": lambda r: MeshInvalidInput(r.get("error")),
+            "_ErrorInvalidOutput": lambda r: MeshInvalidOutput(r.get("error")),
+            "_ErrorUnauthorized": lambda r: MeshInvalidCredentials(details=r.get("error")),
+            "ErrorAdminAccountLocked": lambda r: MeshAdminAccountLocked(),
+            "ErrorAutoChannelSelectionAlreadyInProgress": lambda r: MeshAlreadyInProgress(),
+            "ErrorCannotDeleteDevice": lambda r: MeshCannotDeleteDevice(),
+            "ErrorDeviceNotInMasterMode": lambda r: MeshNodeNotPrimary(),
+            "ErrorInvalidReservationIPAddress": lambda r: MeshInvalidInput("DHCP reservation IP address is invalid"),
+            "ErrorInvalidWANSchedule": lambda r: MeshInvalidInput("Invalid WAN Schedule"),
+            "ErrorReservationDescriptionInvalid": lambda r: MeshInvalidInput("DHCP reservation description is invalid"),
+            "ErrorReservationDescriptionTooLong": lambda r: MeshInvalidInput(
+                "DHCP reservation description is too long"
+            ),
+            "ErrorRulesOverlap": lambda r: MeshInvalidInput("Rules Overlap"),
+            "ErrorTooManyMACAddresses": lambda r: MeshInvalidInput("Too many MAC addresses provided"),
+            "ErrorUnknownDevice": lambda r: MeshInvalidInput("Unknown Device"),
+        }
+
+        result = err_resp.get(self.RESULT_KEY, "")
+        _LOGGER_VERBOSE.debug("result_key, %s", result)
+
+        # handle special complex cases separately or via helper methods
+        if result == "_ErrorUnknownAction":
+            exc = self._handle_unknown_action(err_resp)
+        elif result == "ErrorDeviceDBFailure":
+            info = err_resp.get(self.DATA_KEY_SINGLE, {}).get("ErrorInfo", "")
+            exc = MeshDeviceDbFailure(info)
+        elif result in ("ErrorInvalidAdminPassword", "ErrorPasswordCheckDelayed"):
+            exc = self._handle_credential_delay(result, err_resp)
+        elif result in error_map:
+            exc = error_map[result](err_resp)
+        elif err_resp is None:
+            exc = MeshInvalidOutput()
+        else:
+            _LOGGER.error("unknown error received: %s", self._data)
+            exc = MeshException(json.dumps(err_resp))
 
         if exc and self._raise_on_error:
             _LOGGER_VERBOSE.debug("raising, %s", type(exc))
