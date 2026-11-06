@@ -1153,13 +1153,15 @@ async def mesh_backup(
 
         devices = await mesh.async_get_devices()
         mac_filtering_settings = {
-            "mode": mesh.latest_snapshot.mac_filtering_mode,
             "addresses": mesh.latest_snapshot.mac_filtering_addresses,
+            "mode": mesh.latest_snapshot.mac_filtering_mode,
         }
+        dhcp_reservations = mesh.latest_snapshot.dhcp_reservations
 
         return MappingProxyType(
             {
                 "devices": devices,
+                "dhcp_reservations": dhcp_reservations,
                 "mac_filtering_settings": mac_filtering_settings,
             }
         )
@@ -1186,12 +1188,16 @@ async def mesh_backup(
     # backup MAC filtering information
     mac_filtering = backup_details.get("mac_filtering_settings", {})
 
+    # backup DHCP reservations
+    dhcp_reservations = backup_details.get("dhcp_reservations", [])
+
     # write to the file
     file.write(
         json.dumps(
             {
                 "timestamp": timestamp,
                 "devices": device_list,
+                "dhcp_reservations": dhcp_reservations,
                 "mac_filtering": mac_filtering,
             },
             default=json_default,
