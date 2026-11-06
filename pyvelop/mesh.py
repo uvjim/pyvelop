@@ -1694,6 +1694,7 @@ class Mesh:
         # process the results
         ret = []
         results_time = self.__last_gather_details.get(ProcessTimerLabels.MESH_SCOPED_GATHER_DETAILS_START.value)
+        is_dhcp_enabled: bool = mesh_details.get("GET_LAN_SETTINGS", {}).get("isDHCPEnabled", False)
 
         for entity in mesh_details.get("GET_DEVICES", {}).get("devices", []):
             dev_id = entity.get("deviceID")
@@ -1710,6 +1711,7 @@ class Mesh:
                     if rule := pc_by_mac.get(mac):
                         pc.append(rule)
                     if res := dhcp_by_mac.get(mac):
+                        res["enabled"] = is_dhcp_enabled
                         dhcp.append(res)
                     if conn := node_wifi_by_mac.get(mac):
                         wifi.append(conn)

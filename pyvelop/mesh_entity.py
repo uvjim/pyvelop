@@ -346,6 +346,7 @@ class AdapterInfo(MeshSerialiser):
     parent_id: str | None = None
     reservation: bool = False
     reservation_description: str | None = None
+    reservation_enabled: bool = False
     rssi_dbm: int | None = None
     rssi_dbm_timestamp: str | None = None
     signal_strength: SignalStrength | None = None
@@ -1035,6 +1036,7 @@ class MeshEntity(ABC):
         reservation = {
             "reservation": bool(reservation_info),
             "reservation_description": next(iter(reservation_info), {}).get("description"),
+            "reservation_enabled": next(iter(reservation_info), {}).get("enabled", False),
         }
         audit_history.append(
             AttributeAuditEntry("GET_LAN_SETTINGS", reservation, index=adapter_index, kind=AttributeAction.INIT)
