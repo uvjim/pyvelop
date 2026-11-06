@@ -54,6 +54,7 @@ ActionKey = Literal[
     "SET_DEVICE_PROPERTY",
     "SET_GUEST_NETWORK",
     "SET_HOMEKIT_SETTINGS",
+    "SET_LAN_SETTINGS",
     "SET_LED_NIGHT_MODE",
     "SET_MAC_FILTERING_SETTINGS",
     "SET_PARENTAL_CONTROL_INFO",
@@ -587,6 +588,16 @@ Actions: ActionRegistry = ActionRegistry(
             "http://linksys.com/jnap/homekit/SetHomeKitSettings",
             "http://linksys.com/jnap/homekit/HomeKit",
             purpose=ActionPurpose.SET,
+        ),
+        ActionDefinition(
+            "SET_LAN_SETTINGS",
+            "http://linksys.com/jnap/router/SetLANSettings",
+            "http://linksys.com/jnap/router/Router",
+            purpose=ActionPurpose.SET,
+            redactions={
+                "reservations.description",
+                "reservations.macAddress",
+            },
         ),
         ActionDefinition(
             "SET_LED_NIGHT_MODE",

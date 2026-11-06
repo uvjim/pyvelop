@@ -342,6 +342,10 @@ class Response:
                             "delay_time_remaining_secs": err_details.get("delayTimeRemaining"),
                         }
                     )
+                elif result == "ErrorReservationDescriptionInvalid":
+                    exc = MeshInvalidInput("DHCP reservation description is invalid")
+                elif result == "ErrorReservationDescriptionTooLong":
+                    exc = MeshInvalidInput("DHCP reservation description is too long")
                 elif result == "ErrorRulesOverlap":
                     exc = MeshInvalidInput("Rules Overlap")
                 elif result == "ErrorTooManyMACAddresses":
